@@ -175,6 +175,9 @@ pub struct SensorChip {
 /// One temperature channel.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Temperature {
+    /// Stable key `"<chip key>/temp<N>"` used to look up user-defined names.
+    /// Empty for readings that do not come from a hwmon chip.
+    pub key: String,
     /// Driver label (e.g. `"Tccd1"`), or a generic `"temp<N>"` when none exists.
     pub label: String,
     /// Current reading.

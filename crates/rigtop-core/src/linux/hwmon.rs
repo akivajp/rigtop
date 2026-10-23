@@ -56,7 +56,7 @@ fn read_chip(dir: &Path, entry: &str) -> Option<HwmonChip> {
     let files = sorted_entries(dir);
     let temperatures = channel_numbers(&files, "temp")
         .into_iter()
-        .filter_map(|n| read_temperature(dir, n))
+        .filter_map(|n| read_temperature(dir, &key, n))
         .collect();
     let fans = channel_numbers(&files, "fan")
         .into_iter()
@@ -96,13 +96,14 @@ fn read_chip(dir: &Path, entry: &str) -> Option<HwmonChip> {
 }
 
 /// Reads `temp<n>_*` attributes. Returns `None` if the input is unreadable.
-fn read_temperature(dir: &Path, n: u32) -> Option<Temperature> {
+fn read_temperature(dir: &Path, chip_key: &str, n: u32) -> Option<Temperature> {
     let milli =
         |suffix: &str| read_i64(&dir.join(format!("temp{n}_{suffix}"))).map(|v| v as f32 / 1000.0);
     let celsius = milli("input")?;
     let label =
         read_trimmed(&dir.join(format!("temp{n}_label"))).unwrap_or_else(|| format!("temp{n}"));
     Some(Temperature {
+        key: format!("{chip_key}/temp{n}"),
         label,
         celsius,
         max_celsius: milli("max"),
@@ -194,6 +195,7 @@ mod tests {
         assert!(is_cpu_chip(k10));
         assert_eq!(k10.temperatures.len(), 2);
         assert_eq!(k10.temperatures[0].label, "Tctl");
+        assert_eq!(k10.temperatures[0].key, "k10temp:0000:00:18.3/temp1");
         assert!((k10.temperatures[0].celsius - 45.25).abs() < 1e-6);
         assert_eq!(k10.temperatures[1].label, "Tccd1");
         assert_eq!(k10.temperatures[1].max_celsius, None);
