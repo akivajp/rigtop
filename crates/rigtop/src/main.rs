@@ -1,7 +1,9 @@
 //! rigtop: btop-inspired system monitor (terminal UI).
 //!
-//! The TUI itself is not implemented yet; for now the binary can print a
-//! snapshot as JSON to check what the collectors see on a machine.
+//! Without options it starts the TUI. `--dump-json` prints one snapshot to
+//! check what the collectors see on a machine.
+
+mod tui;
 
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -56,7 +58,7 @@ fn main() -> Result<()> {
     if cli.dump_json {
         return dump_json(&config, interval, cli.pretty);
     }
-    bail!("the terminal UI is not implemented yet; try --dump-json")
+    tui::run(config, interval)
 }
 
 /// Takes a warm-up sample, waits one interval, and prints the second sample.

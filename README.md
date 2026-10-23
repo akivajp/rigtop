@@ -1,6 +1,6 @@
 # rigtop
 
-> **Work in progress.** Nothing usable yet.
+> **Work in progress.** The Linux TUI works; the GUI and remote monitoring are not there yet.
 
 A btop-inspired system monitor for Linux, planned with two front-ends that share one data-collection core:
 
@@ -23,6 +23,24 @@ A btop-inspired system monitor for Linux, planned with two front-ends that share
 2. Native GUI on Linux
 3. Windows support (macOS builds without hardware testing)
 4. Remote monitoring of registered hosts over SSH
+
+## Usage
+
+```sh
+cargo run --release -p rigtop            # terminal UI
+cargo run --release -p rigtop -- --help  # options (--interval-ms, --config, --dump-json)
+```
+
+| Key | Action |
+|---|---|
+| `↑` `↓` `PgUp` `PgDn` `Home` `End` | select a process |
+| `←` `→` / `r` | change the sort column / reverse the order |
+| `/` | filter by name, command, user or pid (`Enter` keeps it, `Esc` clears it) |
+| `t` | show or hide kernel threads |
+| `k` / `K` | send SIGTERM / SIGKILL to the selected process (asks first) |
+| `n` | switch the network interface |
+| `+` / `-` | slower / faster updates |
+| `q` | quit |
 
 ## SMART health (optional)
 
