@@ -31,6 +31,23 @@ pub enum SourceError {
     /// The source is no longer available (e.g. the SSH connection closed).
     #[error("source disconnected: {0}")]
     Disconnected(String),
+    /// Sending a signal to a process failed (no such process, permission denied, ...).
+    #[error("cannot signal process {pid}: {source}")]
+    Signal {
+        /// Target process id.
+        pid: u32,
+        /// Underlying OS error.
+        source: std::io::Error,
+    },
+}
+
+/// Signals a front-end can send to a process.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ProcessSignal {
+    /// Ask the process to exit (SIGTERM).
+    Terminate,
+    /// Force the process to exit (SIGKILL).
+    Kill,
 }
 
 /// A producer of snapshots, local or remote.
@@ -41,6 +58,10 @@ pub trait DataSource {
     /// call, so callers should poll at a steady interval of at least
     /// [`MIN_POLL_INTERVAL`].
     fn poll(&mut self) -> Result<Snapshot, SourceError>;
+
+    /// Sends `signal` to process `pid` on the monitored host, with the
+    /// privileges of the user the source runs as.
+    fn signal_process(&mut self, pid: u32, signal: ProcessSignal) -> Result<(), SourceError>;
 }
 
 /// Collects snapshots of the machine rigtop runs on.
@@ -178,6 +199,37 @@ impl DataSource for LocalSource {
     fn poll(&mut self) -> Result<Snapshot, SourceError> {
         Ok(self.collect())
     }
+
+    fn signal_process(&mut self, pid: u32, signal: ProcessSignal) -> Result<(), SourceError> {
+        send_signal(pid, signal).map_err(|source| SourceError::Signal { pid, source })
+    }
+}
+
+/// Sends a signal to a local process.
+#[cfg(unix)]
+fn send_signal(pid: u32, signal: ProcessSignal) -> std::io::Result<()> {
+    // pid 0 and negative values address process groups in kill(2); never
+    // let a bad pid turn into "signal everything".
+    let pid = libc::pid_t::try_from(pid)
+        .ok()
+        .filter(|p| *p > 0)
+        .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
+    let sig = match signal {
+        ProcessSignal::Terminate => libc::SIGTERM,
+        ProcessSignal::Kill => libc::SIGKILL,
+    };
+    // SAFETY: kill(2) has no memory-safety preconditions.
+    if unsafe { libc::kill(pid, sig) } == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+/// Sends a signal to a local process (not implemented on this platform yet).
+#[cfg(not(unix))]
+fn send_signal(_pid: u32, _signal: ProcessSignal) -> std::io::Result<()> {
+    Err(std::io::Error::from(std::io::ErrorKind::Unsupported))
 }
 
 /// Sums the values that are present; `None` if none are.
@@ -203,6 +255,39 @@ fn nvme_temperature(chips: &[linux::hwmon::HwmonChip], disk: &str) -> Option<f32
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn signal_rejects_group_pids_and_reports_missing_process() {
+        assert_eq!(
+            send_signal(0, ProcessSignal::Terminate).unwrap_err().kind(),
+            std::io::ErrorKind::InvalidInput
+        );
+        assert_eq!(
+            send_signal(u32::MAX, ProcessSignal::Kill)
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::InvalidInput
+        );
+        // A child that has been reaped no longer exists: ESRCH.
+        let mut child = std::process::Command::new("true").spawn().unwrap();
+        let pid = child.id();
+        child.wait().unwrap();
+        let err = send_signal(pid, ProcessSignal::Terminate).unwrap_err();
+        assert_eq!(err.raw_os_error(), Some(libc::ESRCH));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn signal_terminates_a_child_process() {
+        let mut child = std::process::Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .unwrap();
+        send_signal(child.id(), ProcessSignal::Kill).unwrap();
+        let status = child.wait().unwrap();
+        assert!(!status.success());
+    }
 
     #[test]
     fn sum_present_ignores_missing_values() {

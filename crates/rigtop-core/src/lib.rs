@@ -17,4 +17,4 @@ pub mod system;
 
 pub use config::Config;
 pub use snapshot::Snapshot;
-pub use source::{DataSource, LocalSource, MIN_POLL_INTERVAL, SourceError};
+pub use source::{DataSource, LocalSource, MIN_POLL_INTERVAL, ProcessSignal, SourceError};
