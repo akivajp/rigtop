@@ -24,6 +24,35 @@ btop に倣った Linux 向けのシステムモニターです。収集部分�
 3. Windows 対応（macOS はビルドのみ、実機検証なし）
 4. 登録した複数ホストの SSH 経由の監視
 
+## SMART の健康状態（任意）
+
+SMART の読み取りには root が必要です。rigtop 自身は root で動かさず、デバイスの権限も緩めません。代わりに root の systemd タイマーが、全ドライブの `smartctl -j -a` の結果を `/var/lib/rigtop/smart/` に書き出し、rigtop はそのファイルを読みます。スリープ中のディスクは起こしません。
+
+```sh
+sudo apt install smartmontools   # ディストリビューションに合わせて
+sudo install -m 755 contrib/smart/rigtop-smart-collect /usr/local/libexec/
+sudo install -m 644 contrib/smart/rigtop-smart.service contrib/smart/rigtop-smart.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now rigtop-smart.timer
+```
+
+結果のファイルは誰でも読める権限で、ドライブのシリアル番号を含みます。
+
+## 設定
+
+`~/.config/rigtop/config.toml`（Windows は `%APPDATA%\rigtop\config.toml`）。どの項目も省略できます。
+
+```toml
+[sensors]
+# センサーの各系統の表示名。キーは rigtop が表示する系統のキー
+labels = { "nct6686:nct6683.2592/fan1" = "CPU ファン" }
+# 隠す系統（未接続で -40 ℃ と出るサーミスタなど）
+hidden = ["nct6686:nct6683.2592/temp4"]
+
+[smart]
+dir = "/var/lib/rigtop/smart"
+```
+
 ## ライセンス
 
 [Apache License 2.0](LICENSE-APACHE) と [MIT License](LICENSE-MIT) のどちらかを選んで利用できます。

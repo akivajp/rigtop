@@ -1,0 +1,79 @@
+#!/bin/sh
+# Write `smartctl -j -a` output for every drive into one JSON file per device,
+# so that rigtop can show SMART health without running as root.
+#
+# Meant to run as root from rigtop-smart.service (see the README).
+set -u
+
+usage() {
+    cat <<USAGE
+Usage: rigtop-smart-collect [OUTPUT_DIR]
+
+Dump SMART data of all drives found by 'smartctl --scan-open' as
+OUTPUT_DIR/<device>.json (e.g. nvme0.json, sda.json).
+
+OUTPUT_DIR defaults to \$STATE_DIRECTORY (set by systemd) or
+/var/lib/rigtop/smart. Requires root and smartmontools.
+USAGE
+}
+
+case "${1:-}" in
+    -h | --help)
+        usage
+        exit 0
+        ;;
+esac
+
+out_dir="${1:-${STATE_DIRECTORY:-/var/lib/rigtop/smart}}"
+# Result files are world-readable so that rigtop can read them as a normal user.
+umask 022
+mkdir -p "$out_dir" || exit 1
+
+if ! command -v smartctl >/dev/null 2>&1; then
+    echo "rigtop-smart-collect: smartctl not found (install smartmontools)" >&2
+    exit 1
+fi
+
+# One line per device, e.g. "/dev/nvme0 -d nvme # /dev/nvme0, NVMe device".
+# Devices that could not be opened are printed as comments ("# /dev/...").
+scan=$(smartctl --scan-open) || exit 1
+
+written=" "
+while read -r dev opt type _rest; do
+    case "$dev" in
+        "" | "#"*) continue ;;
+    esac
+    [ "$opt" = "-d" ] || type=auto
+
+    name=$(basename "$dev")
+    # RAID controller pass-through ("-d megaraid,0") shares one device node
+    # between several drives; keep them apart.
+    case "$type" in
+        *,*) name="${name}_$(printf '%s' "$type" | tr ',' '_')" ;;
+    esac
+
+    tmp="$out_dir/.$name.json.tmp"
+    # '-n standby,3': do not spin up sleeping disks; exit with 3 in that case.
+    smartctl -j -a -n standby,3 -d "$type" "$dev" >"$tmp"
+    status=$?
+    if [ "$status" -eq 3 ]; then
+        # The disk is asleep: keep the previous result instead of replacing it.
+        rm -f "$tmp"
+    else
+        # Other non-zero statuses are bit flags (failing disk, error log
+        # entries, ...) that rigtop interprets itself, so keep the output.
+        mv -f "$tmp" "$out_dir/$name.json"
+    fi
+    written="$written$name.json "
+done <<SCAN
+$scan
+SCAN
+
+# Remove results of drives that are no longer present.
+for file in "$out_dir"/*.json; do
+    [ -e "$file" ] || continue
+    case "$written" in
+        *" $(basename "$file") "*) ;;
+        *) rm -f "$file" ;;
+    esac
+done

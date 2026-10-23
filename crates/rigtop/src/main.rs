@@ -4,12 +4,13 @@
 //! snapshot as JSON to check what the collectors see on a machine.
 
 use std::io::{self, Write};
+use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use clap::Parser;
-use rigtop_core::{DataSource, LocalSource, MIN_POLL_INTERVAL};
+use rigtop_core::{Config, DataSource, LocalSource, MIN_POLL_INTERVAL};
 
 /// Command-line options.
 #[derive(Debug, Parser)]
@@ -30,6 +31,10 @@ struct Cli {
     /// Pretty-print JSON output.
     #[arg(long)]
     pretty: bool,
+
+    /// Configuration file [default: <config dir>/rigtop/config.toml].
+    #[arg(long, value_name = "PATH")]
+    config: Option<PathBuf>,
 }
 
 fn main() -> Result<()> {
@@ -42,15 +47,21 @@ fn main() -> Result<()> {
         );
     }
 
+    let config = match &cli.config {
+        Some(path) => Config::load(path),
+        None => Config::load_default(),
+    }
+    .context("failed to load the configuration")?;
+
     if cli.dump_json {
-        return dump_json(interval, cli.pretty);
+        return dump_json(&config, interval, cli.pretty);
     }
     bail!("the terminal UI is not implemented yet; try --dump-json")
 }
 
 /// Takes a warm-up sample, waits one interval, and prints the second sample.
-fn dump_json(interval: Duration, pretty: bool) -> Result<()> {
-    let mut source = LocalSource::new();
+fn dump_json(config: &Config, interval: Duration, pretty: bool) -> Result<()> {
+    let mut source = LocalSource::with_config(config);
     if let Some(reason) = source.gpu_unavailable_reason() {
         eprintln!("note: NVIDIA GPUs unavailable: {reason}");
     }

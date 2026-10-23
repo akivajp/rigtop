@@ -1,0 +1,16 @@
+[Unit]
+Description=Collect SMART data for rigtop
+Documentation=https://github.com/akivajp/rigtop
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/rigtop-smart-collect
+# Creates /var/lib/rigtop/smart and passes it as $STATE_DIRECTORY.
+StateDirectory=rigtop/smart
+StateDirectoryMode=0755
+# smartctl needs raw device access, so no PrivateDevices=; restrict the rest.
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+NoNewPrivileges=yes

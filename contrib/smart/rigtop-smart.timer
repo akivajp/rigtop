@@ -1,0 +1,10 @@
+[Unit]
+Description=Collect SMART data for rigtop periodically
+Documentation=https://github.com/akivajp/rigtop
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=10min
+
+[Install]
+WantedBy=timers.target

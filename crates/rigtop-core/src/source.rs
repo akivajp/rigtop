@@ -7,7 +7,11 @@
 
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use crate::config::Config;
 use crate::gpu::NvmlCollector;
+use crate::smart::SmartReader;
+#[cfg(target_os = "linux")]
+use crate::snapshot::device_matches_disk;
 use crate::snapshot::{PowerStats, Snapshot};
 use crate::system::SystemCollector;
 
@@ -43,6 +47,7 @@ pub trait DataSource {
 pub struct LocalSource {
     system: SystemCollector,
     nvml: NvmlCollector,
+    smart: SmartReader,
     last_poll: Option<Instant>,
     #[cfg(target_os = "linux")]
     roots: SysRoots,
@@ -53,13 +58,22 @@ pub struct LocalSource {
 }
 
 impl LocalSource {
+    /// Creates a source with the default configuration. See [`LocalSource::with_config`].
+    pub fn new() -> Self {
+        Self::with_config(&Config::default())
+    }
+
     /// Creates a source and takes a warm-up sample, so that the first
     /// [`DataSource::poll`] (after at least [`MIN_POLL_INTERVAL`]) already
     /// has rates.
-    pub fn new() -> Self {
+    ///
+    /// Only collection-related settings (the SMART directory) are used here;
+    /// display settings such as sensor labels are applied by front-ends.
+    pub fn with_config(config: &Config) -> Self {
         let mut source = Self {
             system: SystemCollector::new(),
             nvml: NvmlCollector::new(),
+            smart: SmartReader::new(&config.smart.dir),
             last_poll: None,
             #[cfg(target_os = "linux")]
             roots: SysRoots::default(),
@@ -103,6 +117,7 @@ impl LocalSource {
             process_count: processes.len(),
             processes,
             gpus,
+            smart: self.smart.read(),
             power: PowerStats {
                 gpus_w,
                 ..Default::default()
@@ -179,10 +194,7 @@ fn sum_present(values: impl IntoIterator<Item = Option<f32>>) -> Option<f32> {
 fn nvme_temperature(chips: &[linux::hwmon::HwmonChip], disk: &str) -> Option<f32> {
     chips.iter().find_map(|c| {
         let controller = c.chip.key.strip_prefix("nvme:")?;
-        // "nvme1" must not match "nvme10n1": require the namespace "n" right after.
-        disk.strip_prefix(controller)?
-            .starts_with('n')
-            .then_some(())?;
+        device_matches_disk(controller, disk).then_some(())?;
         // The first channel is the "Composite" temperature the drive reports.
         c.chip.temperatures.first().map(|t| t.celsius)
     })

@@ -4,12 +4,13 @@
 //!   sources and front-ends (also the wire format for remote monitoring).
 //! - [`source`]: the [`DataSource`] trait and the [`LocalSource`] implementation.
 //! - [`config`]: user configuration (sensor labels, SMART directory).
-//! - [`system`], [`gpu`], `linux`: the individual collectors.
+//! - [`system`], [`gpu`], [`smart`], `linux`: the individual collectors.
 
 pub mod config;
 pub mod gpu;
 #[cfg(target_os = "linux")]
 pub mod linux;
+pub mod smart;
 pub mod snapshot;
 pub mod source;
 pub mod system;

@@ -37,6 +37,8 @@ pub struct Snapshot {
     pub filesystems: Vec<FilesystemUsage>,
     /// Software RAID state (btrfs and mdadm).
     pub raid: RaidStats,
+    /// SMART health per drive, from files written by a privileged timer.
+    pub smart: Vec<SmartDevice>,
     /// Network interface traffic.
     pub networks: Vec<NetworkStats>,
     /// Process list. May be truncated by the source (see [`Snapshot::truncate_processes`]).
@@ -249,6 +251,86 @@ pub struct FilesystemUsage {
     pub total_bytes: u64,
     /// Space available to unprivileged users.
     pub available_bytes: u64,
+}
+
+/// Returns true if `device` (a disk such as `"sda"`, or an NVMe controller
+/// such as `"nvme0"`) is the drive behind the block device `disk`
+/// (`"sda"`, `"nvme0n1"`).
+///
+/// `"nvme1"` does not match `"nvme10n1"`: after the controller name only the
+/// namespace suffix (`n<N>`) may follow.
+pub fn device_matches_disk(device: &str, disk: &str) -> bool {
+    match disk.strip_prefix(device) {
+        Some("") => true,
+        Some(rest) => device.starts_with("nvme") && rest.starts_with('n'),
+        None => false,
+    }
+}
+
+/// SMART health of one drive, parsed from `smartctl -j -a` output.
+///
+/// Fields a drive or protocol does not report are `None` (NVMe drives have
+/// no sector reallocation counters, ATA drives no "percentage used").
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SmartDevice {
+    /// Kernel device name (`"nvme0"`, `"sda"`). See [`device_matches_disk`].
+    pub device: String,
+    /// Protocol reported by smartctl (`"NVMe"`, `"ATA"`, `"SCSI"`).
+    pub protocol: String,
+    /// Drive model.
+    pub model: String,
+    /// Overall health self-assessment; `None` if smartctl could not tell.
+    pub passed: Option<bool>,
+    /// Current drive temperature.
+    pub temperature_c: Option<f32>,
+    /// Accumulated power-on time.
+    pub power_on_hours: Option<u64>,
+    /// NVMe wear estimate (may exceed 100).
+    pub percentage_used: Option<u32>,
+    /// NVMe spare capacity left.
+    pub available_spare_percent: Option<u32>,
+    /// NVMe spare threshold below which the drive reports a warning.
+    pub available_spare_threshold_percent: Option<u32>,
+    /// NVMe critical warning bit field (0 when healthy).
+    pub critical_warning: Option<u32>,
+    /// NVMe unrecovered data integrity errors.
+    pub media_errors: Option<u64>,
+    /// ATA attribute 5 (Reallocated_Sector_Ct), raw value.
+    pub reallocated_sectors: Option<u64>,
+    /// ATA attribute 197 (Current_Pending_Sector), raw value.
+    pub pending_sectors: Option<u64>,
+    /// ATA attribute 198 (Offline_Uncorrectable), raw value.
+    pub offline_uncorrectable: Option<u64>,
+    /// Total host writes, where the drive reports them.
+    pub data_written_bytes: Option<u64>,
+    /// When smartctl ran, in milliseconds since the Unix epoch. Lets front-ends
+    /// flag stale results (e.g. the timer stopped running).
+    pub collected_at_ms: Option<u64>,
+    /// Error reported by smartctl (e.g. the device could not be opened).
+    pub error: Option<String>,
+}
+
+impl SmartDevice {
+    /// Returns true if anything in the SMART data calls for attention.
+    pub fn needs_attention(&self) -> bool {
+        let positive = |v: Option<u64>| v.is_some_and(|v| v > 0);
+        let spare_low = match (
+            self.available_spare_percent,
+            self.available_spare_threshold_percent,
+        ) {
+            (Some(spare), Some(threshold)) => spare < threshold,
+            _ => false,
+        };
+        self.passed == Some(false)
+            || self.error.is_some()
+            || self.critical_warning.is_some_and(|w| w != 0)
+            || positive(self.media_errors)
+            || positive(self.reallocated_sectors)
+            || positive(self.pending_sectors)
+            || positive(self.offline_uncorrectable)
+            || self.percentage_used.is_some_and(|p| p >= 100)
+            || spare_low
+    }
 }
 
 /// Software RAID state.
@@ -478,6 +560,38 @@ mod tests {
         let back: Snapshot = serde_json::from_str(&json).unwrap();
         assert_eq!(back.timestamp_ms, 42);
         assert_eq!(back.processes[0].pid, 7);
+    }
+
+    #[test]
+    fn device_matching_handles_nvme_namespaces() {
+        assert!(device_matches_disk("sda", "sda"));
+        assert!(device_matches_disk("nvme0", "nvme0n1"));
+        assert!(device_matches_disk("nvme1", "nvme1n1"));
+        assert!(!device_matches_disk("nvme1", "nvme10n1"));
+        assert!(!device_matches_disk("sd", "sda"));
+        assert!(!device_matches_disk("sda", "sdb"));
+    }
+
+    #[test]
+    fn smart_attention_flags() {
+        let healthy = SmartDevice {
+            passed: Some(true),
+            media_errors: Some(0),
+            available_spare_percent: Some(100),
+            available_spare_threshold_percent: Some(10),
+            ..Default::default()
+        };
+        assert!(!healthy.needs_attention());
+        let worn = SmartDevice {
+            available_spare_percent: Some(5),
+            ..healthy.clone()
+        };
+        assert!(worn.needs_attention());
+        let reallocated = SmartDevice {
+            reallocated_sectors: Some(8),
+            ..healthy
+        };
+        assert!(reallocated.needs_attention());
     }
 
     #[test]
