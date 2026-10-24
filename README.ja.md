@@ -1,5 +1,7 @@
 # rigtop
 
+[![crates.io](https://img.shields.io/crates/v/rigtop.svg)](https://crates.io/crates/rigtop) [![CI](https://github.com/akivajp/rigtop/actions/workflows/ci.yml/badge.svg)](https://github.com/akivajp/rigtop/actions/workflows/ci.yml)
+
 > **開発の初期段階です（v0.1）。** TUI と GUI は Linux と Windows で動きます。遠隔監視はまだありません。
 
 btop に倣ったシステムモニターです。収集部分を共通にして、2つの画面を用意しています。
@@ -37,10 +39,10 @@ btop に倣ったシステムモニターです。収集部分を共通にして
 | `x86_64-pc-windows-msvc` | `rigtop.exe`、`rigtop-gui.exe` |
 | `aarch64-apple-darwin` | `rigtop`、`rigtop-gui`（未検証・署名なし） |
 
-チェックサムは `SHA256SUMS` にあります。Rust の環境があれば、ソースからビルドすることもできます。
+チェックサムは `SHA256SUMS` にあります。Rust の環境（1.95 以降）があれば、[crates.io](https://crates.io/crates/rigtop) から入れることもできます。
 
 ```sh
-cargo install --git https://github.com/akivajp/rigtop rigtop rigtop-gui
+cargo install rigtop rigtop-gui
 ```
 
 ## 使い方

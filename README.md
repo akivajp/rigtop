@@ -1,5 +1,7 @@
 # rigtop
 
+[![crates.io](https://img.shields.io/crates/v/rigtop.svg)](https://crates.io/crates/rigtop) [![CI](https://github.com/akivajp/rigtop/actions/workflows/ci.yml/badge.svg)](https://github.com/akivajp/rigtop/actions/workflows/ci.yml)
+
 > **Early development (v0.1).** The TUI and GUI work on Linux and Windows; remote monitoring is not there yet.
 
 A btop-inspired system monitor with two front-ends that share one data-collection core:
@@ -37,10 +39,10 @@ Download an archive for your platform from the [Releases](https://github.com/aki
 | `x86_64-pc-windows-msvc` | `rigtop.exe`, `rigtop-gui.exe` |
 | `aarch64-apple-darwin` | `rigtop`, `rigtop-gui` (untested, unsigned) |
 
-`SHA256SUMS` lists the checksums. With a Rust toolchain you can also build from source:
+`SHA256SUMS` lists the checksums. With a Rust toolchain (1.95 or newer) you can also install from [crates.io](https://crates.io/crates/rigtop):
 
 ```sh
-cargo install --git https://github.com/akivajp/rigtop rigtop rigtop-gui
+cargo install rigtop rigtop-gui
 ```
 
 ## Usage
