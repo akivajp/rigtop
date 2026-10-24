@@ -1,7 +1,8 @@
 //! rigtop: btop-inspired system monitor (terminal UI).
 //!
-//! Without options it starts the TUI for this machine; `--host` monitors a
-//! remote machine over SSH, where `rigtop --agent` streams the data.
+//! Without options it starts the TUI for this machine; `--host` (and
+//! `[[hosts]]` in the configuration) adds remote machines over SSH, where
+//! `rigtop --agent` streams the data, with an overview of all hosts.
 //! `--dump-json` prints one snapshot to check what the collectors see.
 
 mod tui;
@@ -14,7 +15,7 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use clap::Parser;
 use rigtop_core::agent::run_agent;
-use rigtop_core::remote::{DEFAULT_REMOTE_COMMAND, RemoteTarget};
+use rigtop_core::hosts::host_specs;
 use rigtop_core::{Config, DataSource, LocalSource, MIN_POLL_INTERVAL};
 
 /// Command-line options.
@@ -41,16 +42,17 @@ struct Cli {
     #[arg(long, value_name = "PATH")]
     config: Option<PathBuf>,
 
-    /// Monitor a remote host over SSH instead of this machine. Takes any
-    /// destination `ssh` accepts (a ~/.ssh/config host, user@host, ...);
-    /// key-based authentication is required. The remote host needs rigtop
-    /// installed.
-    #[arg(long, value_name = "DESTINATION", conflicts_with_all = ["agent", "dump_json"])]
-    host: Option<String>,
+    /// Also monitor a remote host over SSH (repeatable; adds to the
+    /// [[hosts]] of the configuration). Takes any destination `ssh` accepts
+    /// (a ~/.ssh/config host, user@host, ...); key-based authentication is
+    /// required, and the remote host needs rigtop installed.
+    #[arg(long = "host", value_name = "DESTINATION", conflicts_with_all = ["agent", "dump_json"])]
+    hosts: Vec<String>,
 
-    /// Command that starts the agent on the remote host (with --host).
-    #[arg(long, value_name = "COMMAND", default_value = DEFAULT_REMOTE_COMMAND, requires = "host")]
-    remote_command: String,
+    /// Command that starts the agent on hosts given with --host
+    /// [default: "rigtop --agent"].
+    #[arg(long, value_name = "COMMAND")]
+    remote_command: Option<String>,
 
     /// Run as a remote agent: write snapshots to stdout as JSON lines and
     /// read commands from stdin, until stdin is closed. Started by
@@ -83,11 +85,8 @@ fn main() -> Result<()> {
         let stdin = io::BufReader::new(io::stdin());
         return run_agent(source, interval, stdin, io::stdout().lock()).context("agent failed");
     }
-    let target = cli
-        .host
-        .as_deref()
-        .map(|host| RemoteTarget::ssh(host, &cli.remote_command));
-    tui::run(config, interval, target)
+    let specs = host_specs(&config, &cli.hosts, cli.remote_command.as_deref());
+    tui::run(config, interval, specs)
 }
 
 /// Takes a warm-up sample, waits one interval, and prints the second sample.

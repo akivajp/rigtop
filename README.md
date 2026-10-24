@@ -2,7 +2,7 @@
 
 [![crates.io](https://img.shields.io/crates/v/rigtop.svg)](https://crates.io/crates/rigtop) [![CI](https://github.com/akivajp/rigtop/actions/workflows/ci.yml/badge.svg)](https://github.com/akivajp/rigtop/actions/workflows/ci.yml)
 
-> **Early development (v0.2).** The TUI and GUI work on Linux and Windows and can monitor a remote host over SSH; watching several hosts at once is next.
+> **Early development.** The TUI and GUI work on Linux and Windows and monitor several hosts over SSH with an overview.
 
 A btop-inspired system monitor with two front-ends that share one data-collection core:
 
@@ -26,7 +26,7 @@ A btop-inspired system monitor with two front-ends that share one data-collectio
 1. ~~Collection core and the TUI on Linux~~ (v0.1)
 2. ~~Native GUI on Linux~~ (v0.1)
 3. ~~Windows support~~ (v0.1; temperatures, fans and CPU power still missing; macOS builds without hardware testing)
-4. Remote monitoring over SSH: one host (v0.2), then several registered hosts with an overview
+4. ~~Remote monitoring over SSH~~: one host (v0.2), several hosts with an overview (v0.3)
 
 ## Installation
 
@@ -80,19 +80,32 @@ With mouse support on, most terminals select text with Shift+drag.
 
 ## Remote monitoring over SSH
 
-Install rigtop on the remote host too (the same version), then:
+Install rigtop on the remote hosts too, then list them in the configuration file or on the command line:
 
-```sh
-rigtop --host zefat          # TUI
-rigtop-gui --host zefat      # GUI
+```toml
+# ~/.config/rigtop/config.toml
+[[hosts]]
+name = "zefat"                 # also the ssh destination unless `ssh` is given
+
+[[hosts]]
+name = "nas"
+ssh = "admin@nas.local"
+command = "/usr/local/bin/rigtop --agent"
+sections = ["storage", "cpu", "network"]   # what this host's overview card shows first
 ```
 
-rigtop starts `rigtop --agent` on the remote host through your system's `ssh` (the built-in OpenSSH client on Windows), so `~/.ssh/config`, keys and `ProxyJump` work as usual. There is no daemon to run and no port to open; the agent exits when the connection closes, and rigtop reconnects by itself.
+```sh
+rigtop                          # TUI: hosts from the configuration
+rigtop-gui --host hermon        # GUI: plus a host from the command line (repeatable)
+```
+
+With more than one host, rigtop opens on an **overview** with one card per host, plus a tab per host (this machine included) for the full detail view. Cards show alerts (storage errors, failing SMART, degraded RAID, nearly full filesystems, hot GPUs) and then CPU, GPU, memory, the top processes, network and storage, in that order and as far as the card has room. Change the default order with `[overview] sections`, per host with `sections`, or in the GUI with each card's "sections" menu. Whether this machine gets a card is `[overview] include_local` (or the checkbox in the GUI, `l` in the TUI). In the TUI, `Tab` and `0`-`9` switch between the overview and the hosts.
+
+rigtop starts `rigtop --agent` on each remote host through your system's `ssh` (the built-in OpenSSH client on Windows), so `~/.ssh/config`, keys and `ProxyJump` work as usual. There is no daemon to run and no port to open; the agent exits when the connection closes, and rigtop reconnects by itself. Hosts not shown in detail only send their top processes.
 
 - Authentication must work without a prompt (key or agent), and the host key must already be known: connect once with `ssh <host>` first.
-- If `rigtop` is not on the `PATH` of non-interactive SSH sessions, give the full command: `--remote-command '~/.cargo/bin/rigtop --agent'`.
-- Killing processes on the remote host uses the SSH user's permissions.
-- Watching several hosts at once is planned.
+- If `rigtop` is not on the `PATH` of non-interactive SSH sessions, set `command` for the host (or `--remote-command` for `--host`), e.g. `~/.cargo/bin/rigtop --agent`.
+- Killing processes on a remote host uses the SSH user's permissions.
 
 ## Windows
 

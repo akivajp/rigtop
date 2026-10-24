@@ -7,6 +7,28 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Added
+
+- Multi-host monitoring: hosts from `[[hosts]]` in the configuration and
+  repeated `--host` options, each with its own tab (this machine
+  included), plus an overview of all hosts that rigtop opens on
+- Overview cards list alerts (storage errors, missing devices, failing
+  SMART, degraded or resyncing md arrays, nearly full filesystems, hot
+  GPUs) and then sections in priority order (CPU, GPU, memory, top
+  processes, network, storage by default) as far as there is room; the
+  order is configurable globally (`[overview] sections`), per host
+  (`sections`) and in the GUI per card; `[overview] include_local` and a
+  toggle decide whether this machine gets a card
+- TUI: tab bar with status dots, `Tab` / `0`-`9` / mouse to switch views,
+  `l` to toggle this machine in the overview
+- Hosts not shown in detail send only their top processes
+  (`[overview] processes`, default 10)
+
+### Changed
+
+- `--host` can be given several times, and `rigtop --host x` now opens the
+  overview of this machine and `x` instead of `x` alone
+
 ## [0.2.0] - 2026-10-25
 
 ### Added

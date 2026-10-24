@@ -29,22 +29,22 @@ use rigtop_core::format;
 use rigtop_core::view::{SortKey, is_virtual_interface, signal_name};
 
 /// Box border color.
-const BORDER: Color = Color::Rgb(85, 85, 100);
+pub(super) const BORDER: Color = Color::Rgb(85, 85, 100);
 /// Secondary text (units, labels, commands).
-const DIM: Color = Color::Rgb(125, 125, 140);
+pub(super) const DIM: Color = Color::Rgb(125, 125, 140);
 /// Unfilled part of meters.
-const METER_EMPTY: Color = Color::Rgb(55, 55, 65);
+pub(super) const METER_EMPTY: Color = Color::Rgb(55, 55, 65);
 /// Title colors per box.
-const CPU_TITLE: Color = Color::Rgb(120, 210, 120);
-const MEM_TITLE: Color = Color::Rgb(230, 200, 90);
-const GPU_TITLE: Color = Color::Rgb(200, 130, 230);
-const STORAGE_TITLE: Color = Color::Rgb(90, 200, 220);
-const NET_TITLE: Color = Color::Rgb(110, 150, 240);
-const PROC_TITLE: Color = Color::Rgb(240, 150, 90);
+pub(super) const CPU_TITLE: Color = Color::Rgb(120, 210, 120);
+pub(super) const MEM_TITLE: Color = Color::Rgb(230, 200, 90);
+pub(super) const GPU_TITLE: Color = Color::Rgb(200, 130, 230);
+pub(super) const STORAGE_TITLE: Color = Color::Rgb(90, 200, 220);
+pub(super) const NET_TITLE: Color = Color::Rgb(110, 150, 240);
+pub(super) const PROC_TITLE: Color = Color::Rgb(240, 150, 90);
 /// Status colors.
-const OK: Color = Color::Rgb(110, 200, 110);
-const WARN: Color = Color::Rgb(230, 200, 70);
-const BAD: Color = Color::Rgb(235, 80, 80);
+pub(super) const OK: Color = Color::Rgb(110, 200, 110);
+pub(super) const WARN: Color = Color::Rgb(230, 200, 70);
+pub(super) const BAD: Color = Color::Rgb(235, 80, 80);
 
 /// Narrowest per-core cell: "C12 ■■■■■ 100% ".
 const CORE_CELL_MIN_WIDTH: u16 = 15;
@@ -76,19 +76,30 @@ const SMART_STALE_SECS: u64 = 3600;
 const SCRUB_STALE_SECS: u64 = 35 * 86_400;
 
 /// Draws one frame.
+#[cfg(test)]
 pub fn draw(frame: &mut Frame, app: &mut App) {
+    let area = frame.area();
+    draw_in(frame, app, area);
+}
+
+/// Draws one host's detailed view into `area`.
+pub fn draw_in(frame: &mut Frame, app: &mut App, area: Rect) {
     app.sync_selection();
     // The table state is mutated while rendering rows that borrow `app`;
     // move it out for the duration of the frame.
     let mut table_state = std::mem::take(&mut app.table_state);
-    let hit = draw_screen(frame, app, &mut table_state);
+    let hit = draw_screen(frame, app, &mut table_state, area);
     app.table_state = table_state;
     app.proc_hit = hit;
 }
 
 /// Draws everything and returns where the process table went (for the mouse).
-fn draw_screen(frame: &mut Frame, app: &App, table_state: &mut TableState) -> Option<ProcTableHit> {
-    let area = frame.area();
+fn draw_screen(
+    frame: &mut Frame,
+    app: &App,
+    table_state: &mut TableState,
+    area: Rect,
+) -> Option<ProcTableHit> {
     let Some(snapshot) = &app.snapshot else {
         // Connection errors (e.g. "Permission denied (publickey)") show
         // under the waiting message.
@@ -211,7 +222,7 @@ fn left_column_heights(snapshot: &Snapshot, area: Rect) -> LeftHeights {
 }
 
 /// A rounded box with a colored title, btop style.
-fn panel(title: &str, color: Color) -> Block<'_> {
+pub(super) fn panel(title: &str, color: Color) -> Block<'_> {
     Block::bordered()
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(BORDER))
@@ -222,7 +233,7 @@ fn panel(title: &str, color: Color) -> Block<'_> {
 }
 
 /// A horizontal meter of `width` cells, colored along its length.
-fn meter(width: usize, ratio: f64) -> Vec<Span<'static>> {
+pub(super) fn meter(width: usize, ratio: f64) -> Vec<Span<'static>> {
     let filled = ((ratio.clamp(0.0, 1.0) * width as f64).round() as usize).min(width);
     (0..width)
         .map(|i| {
@@ -237,20 +248,20 @@ fn meter(width: usize, ratio: f64) -> Vec<Span<'static>> {
 }
 
 /// Color for a percentage (0 green .. 100 red).
-fn percent_color(percent: f64) -> Color {
+pub(super) fn percent_color(percent: f64) -> Color {
     graph::heat_color(percent / 100.0)
 }
 
 /// Color for a temperature: green below ~40 °C, red from ~85 °C.
-fn temperature_color(celsius: f32) -> Color {
+pub(super) fn temperature_color(celsius: f32) -> Color {
     graph::heat_color((celsius as f64 - 40.0) / 45.0)
 }
 
-fn dim(text: impl Into<String>) -> Span<'static> {
+pub(super) fn dim(text: impl Into<String>) -> Span<'static> {
     Span::styled(text.into(), Style::default().fg(DIM))
 }
 
-fn colored(text: impl Into<String>, color: Color) -> Span<'static> {
+pub(super) fn colored(text: impl Into<String>, color: Color) -> Span<'static> {
     Span::styled(text.into(), Style::default().fg(color))
 }
 
@@ -954,7 +965,7 @@ fn draw_network(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
 }
 
 /// Link speed text: "10G" for wired links, "Wi-Fi 576/865M -74dBm" for wireless.
-fn link_label(net: &NetworkStats) -> Option<String> {
+pub(super) fn link_label(net: &NetworkStats) -> Option<String> {
     if let Some(wifi) = &net.wireless {
         let mut text = "Wi-Fi".to_owned();
         if let (Some(rx), Some(tx)) = (wifi.rx_bitrate_mbps, wifi.tx_bitrate_mbps) {

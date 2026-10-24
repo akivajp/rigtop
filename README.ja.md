@@ -2,7 +2,7 @@
 
 [![crates.io](https://img.shields.io/crates/v/rigtop.svg)](https://crates.io/crates/rigtop) [![CI](https://github.com/akivajp/rigtop/actions/workflows/ci.yml/badge.svg)](https://github.com/akivajp/rigtop/actions/workflows/ci.yml)
 
-> **開発の初期段階です（v0.2）。** TUI と GUI は Linux と Windows で動き、SSH で遠隔のホストを1台監視できます。複数ホストの同時監視は次の段階です。
+> **開発の初期段階です。** TUI と GUI は Linux と Windows で動き、SSH で複数のホストをオーバービューでまとめて監視できます。
 
 btop に倣ったシステムモニターです。収集部分を共通にして、2つの画面を用意しています。
 
@@ -26,7 +26,7 @@ btop に倣ったシステムモニターです。収集部分を共通にして
 1. ~~収集部分と TUI（Linux）~~（v0.1）
 2. ~~ネイティブ GUI（Linux）~~（v0.1）
 3. ~~Windows 対応~~（v0.1。温度・ファン・CPU 電力は未対応。macOS はビルドのみ、実機検証なし）
-4. SSH による遠隔監視: ホスト1台（v0.2）、その次に登録した複数ホストの一覧表示
+4. ~~SSH による遠隔監視~~: ホスト1台（v0.2）、複数ホストのオーバービュー（v0.3）
 
 ## インストール
 
@@ -80,19 +80,32 @@ cargo run --release -p rigtop-gui            # オプションは TUI と同じ�
 
 ## SSH による遠隔監視
 
-監視される側にも同じバージョンの rigtop を入れたうえで、次のように起動します。
+監視される側にも rigtop を入れたうえで、設定ファイルかコマンドラインでホストを指定します。
 
-```sh
-rigtop --host zefat          # TUI
-rigtop-gui --host zefat      # GUI
+```toml
+# ~/.config/rigtop/config.toml
+[[hosts]]
+name = "zefat"                 # ssh を省略すると、これが接続先にもなる
+
+[[hosts]]
+name = "nas"
+ssh = "admin@nas.local"
+command = "/usr/local/bin/rigtop --agent"
+sections = ["storage", "cpu", "network"]   # このホストのオーバービューで先に出す項目
 ```
 
-rigtop は OS の `ssh`（Windows では標準の OpenSSH クライアント）で、相手の `rigtop --agent` を起動します。`~/.ssh/config`・鍵・`ProxyJump` はいつもどおり使えます。常駐プロセスもポート開放も不要で、エージェントは接続が切れると終了し、rigtop は自動で再接続します。
+```sh
+rigtop                          # TUI: 設定ファイルのホストを表示
+rigtop-gui --host hermon        # GUI: コマンドラインのホストも追加（複数指定可）
+```
+
+ホストが2台以上あると、全ホストを並べた**オーバービュー**から始まります。ホストごと（手元の機を含む）の詳細表示はタブで切り替えます。各ホストのカードには、まず要注意の項目（ストレージのエラー、SMART の異常、RAID の劣化、残り容量の少ないファイルシステム、高温の GPU）を出し、続けて CPU・GPU・メモリ・プロセス上位・ネットワーク・ストレージを、この順にカードに入る分だけ出します。順番は `[overview] sections`（全体）、ホストごとの `sections`、GUI のカードの「sections」メニューで変えられます。手元の機のカードを出すかどうかは `[overview] include_local`（GUI はチェックボックス、TUI は `l` キー）で切り替えます。TUI では `Tab` と `0`〜`9` で、オーバービューと各ホストを切り替えます。
+
+rigtop は OS の `ssh`（Windows では標準の OpenSSH クライアント）で、各ホストの `rigtop --agent` を起動します。`~/.ssh/config`・鍵・`ProxyJump` はいつもどおり使えます。常駐プロセスもポート開放も不要で、エージェントは接続が切れると終了し、rigtop は自動で再接続します。詳細表示していないホストからは、プロセスの上位だけを受け取ります。
 
 - パスワードを聞かれない認証（鍵や ssh-agent）が必要です。ホスト鍵も登録済みである必要があるので、先に一度 `ssh <ホスト>` で接続してください。
-- 非対話の SSH セッションで `rigtop` に `PATH` が通っていない場合は、コマンドを指定してください: `--remote-command '~/.cargo/bin/rigtop --agent'`
+- 非対話の SSH セッションで `rigtop` に `PATH` が通っていない場合は、ホストの `command`（`--host` なら `--remote-command`）でコマンドを指定してください（例: `~/.cargo/bin/rigtop --agent`）。
 - 遠隔のプロセスの終了は、SSH でログインしたユーザーの権限で行われます。
-- 複数ホストの同時監視は今後対応予定です。
 
 ## Windows
 

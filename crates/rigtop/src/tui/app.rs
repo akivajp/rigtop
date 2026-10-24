@@ -63,6 +63,10 @@ pub struct App {
     pub should_quit: bool,
     /// Shown until the first snapshot arrives ("connecting to zefat…").
     pub waiting_message: String,
+    /// Latest collection error, until the next snapshot (connection lost).
+    pub connection_error: Option<String>,
+    /// When the latest snapshot arrived.
+    pub last_update: Option<Instant>,
 }
 
 impl App {
@@ -85,6 +89,8 @@ impl App {
             interval,
             should_quit: false,
             waiting_message: "collecting…".to_owned(),
+            connection_error: None,
+            last_update: None,
         }
     }
 
@@ -103,13 +109,18 @@ impl App {
                     Err(err) => self.set_status(format!("failed: {err}")),
                 }
             }
-            Event::Error(err) => self.set_status(format!("collection error: {err}")),
+            Event::Error(err) => {
+                self.set_status(format!("collection error: {err}"));
+                self.connection_error = Some(err);
+            }
         }
     }
 
     fn apply_snapshot(&mut self, snapshot: Snapshot) {
         self.history.record(&snapshot);
         self.snapshot = Some(snapshot);
+        self.connection_error = None;
+        self.last_update = Some(Instant::now());
     }
 
     /// Current status message, if still fresh.
