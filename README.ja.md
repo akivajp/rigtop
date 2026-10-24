@@ -47,6 +47,8 @@ cargo run --release -p rigtop -- --help  # オプション（--interval-ms、--c
 
 ### GUI
 
+![rigtop-gui: 同じパネル構成のネイティブウィンドウ。滑らかなグラフとバーで、パネルはリサイズ・並べ替えできる](docs/images/rigtop-gui.png)
+
 ```sh
 cargo run --release -p rigtop-gui            # オプションは TUI と同じ（--interval-ms、--config）
 ```

@@ -47,6 +47,8 @@ cargo run --release -p rigtop -- --help  # options (--interval-ms, --config, --d
 
 ### GUI
 
+![rigtop-gui: the same panels in a native window, with smooth graphs and meters, resizable and rearrangeable](docs/images/rigtop-gui.png)
+
 ```sh
 cargo run --release -p rigtop-gui            # same options: --interval-ms, --config
 ```

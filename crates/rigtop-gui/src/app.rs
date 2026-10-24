@@ -648,14 +648,22 @@ mod tests {
 
     /// Renders the real machine to a PNG for visual checks:
     /// `RIGTOP_GUI_SCREENSHOT=/tmp/gui.png cargo test -p rigtop-gui -- --ignored screenshot`
+    ///
+    /// Optional: `RIGTOP_GUI_FILTER` (process filter, e.g. to keep personal
+    /// processes out of published images) and `RIGTOP_GUI_SAMPLES` (number of
+    /// samples taken 300 ms apart, to fill the graphs; default 20).
     #[test]
     #[ignore]
     fn screenshot_local_machine() {
         use rigtop_core::{DataSource, LocalSource};
         let path = std::env::var("RIGTOP_GUI_SCREENSHOT").expect("RIGTOP_GUI_SCREENSHOT");
+        let samples: usize = std::env::var("RIGTOP_GUI_SAMPLES")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(20);
         let mut source = LocalSource::new();
         let mut app = RigtopApp::without_worker(Config::load_default().unwrap_or_default());
-        for _ in 0..20 {
+        for _ in 0..samples {
             std::thread::sleep(Duration::from_millis(300));
             app.state
                 .apply(Event::Snapshot(Box::new(source.poll().unwrap())));
