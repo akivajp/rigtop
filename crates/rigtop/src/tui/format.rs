@@ -39,6 +39,31 @@ pub fn duration(secs: u64) -> String {
     }
 }
 
+/// Formats how long ago something happened, e.g. `"45s ago"`, `"8m ago"`, `"3d ago"`.
+pub fn age(secs: u64) -> String {
+    match secs {
+        0..10 => "just now".to_owned(),
+        10..120 => format!("{secs}s ago"),
+        120..7_200 => format!("{}m ago", secs / 60),
+        7_200..172_800 => format!("{}h ago", secs / 3_600),
+        _ => format!("{}d ago", secs / 86_400),
+    }
+}
+
+/// Formats a link speed in Mbit/s, e.g. `"10G"`, `"2.5G"`, `"100M"`.
+pub fn link_speed(mbps: f64) -> String {
+    if mbps >= 1000.0 {
+        let gbps = mbps / 1000.0;
+        if gbps.fract().abs() < 0.05 {
+            format!("{gbps:.0}G")
+        } else {
+            format!("{gbps:.1}G")
+        }
+    } else {
+        format!("{mbps:.0}M")
+    }
+}
+
 /// Truncates `text` to at most `width` characters, marking the cut with `…`.
 pub fn truncate(text: &str, width: usize) -> String {
     if text.chars().count() <= width {
@@ -76,6 +101,23 @@ mod tests {
         assert_eq!(duration(75), "01:15");
         assert_eq!(duration(3 * 3600 + 5 * 60), "3h05m");
         assert_eq!(duration(2 * 86_400 + 4 * 3600), "2d04h");
+    }
+
+    #[test]
+    fn age_picks_a_readable_unit() {
+        assert_eq!(age(3), "just now");
+        assert_eq!(age(45), "45s ago");
+        assert_eq!(age(8 * 60), "8m ago");
+        assert_eq!(age(5 * 3600), "5h ago");
+        assert_eq!(age(3 * 86_400), "3d ago");
+    }
+
+    #[test]
+    fn link_speed_uses_g_and_m() {
+        assert_eq!(link_speed(10_000.0), "10G");
+        assert_eq!(link_speed(2_500.0), "2.5G");
+        assert_eq!(link_speed(1_000.0), "1G");
+        assert_eq!(link_speed(576.4), "576M");
     }
 
     #[test]

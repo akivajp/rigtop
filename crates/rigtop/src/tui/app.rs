@@ -440,12 +440,18 @@ pub fn signal_name(signal: ProcessSignal) -> &'static str {
     }
 }
 
+/// Returns true for container bridges, veth pairs and loopback, which are
+/// skipped when choosing and listing interfaces.
+pub fn is_virtual_interface(name: &str) -> bool {
+    VIRTUAL_IFACE_PREFIXES.iter().any(|p| name.starts_with(p))
+}
+
 /// Picks the physical interface with the most traffic so far.
 fn default_interface(snapshot: &Snapshot) -> Option<String> {
     snapshot
         .networks
         .iter()
-        .filter(|n| !VIRTUAL_IFACE_PREFIXES.iter().any(|p| n.name.starts_with(p)))
+        .filter(|n| !is_virtual_interface(&n.name))
         .max_by_key(|n| n.rx_total_bytes + n.tx_total_bytes)
         .or_else(|| snapshot.networks.first())
         .map(|n| n.name.clone())

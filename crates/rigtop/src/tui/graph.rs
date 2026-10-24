@@ -10,6 +10,10 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use ratatui::widgets::Widget;
 
+/// Faint dots drawn along the base where a sample is zero, so that an idle
+/// graph still reads as a graph rather than empty space.
+const BASELINE: Color = Color::Rgb(60, 60, 72);
+
 /// Bit for each dot of a braille cell, indexed by `[column][row from top]`.
 const DOT_BITS: [[u8; 4]; 2] = [[0x01, 0x02, 0x04, 0x40], [0x08, 0x10, 0x20, 0x80]];
 
@@ -104,12 +108,24 @@ impl Widget for BrailleGraph<'_> {
                         }
                     }
                 }
-                if bits != 0 {
-                    let symbol = char::from_u32(0x2800 + bits as u32).unwrap_or(' ');
-                    buf[(area.x + cx as u16, area.y + cy as u16)]
-                        .set_char(symbol)
-                        .set_style(Style::default().fg(color));
-                }
+                let (bits, style) = if bits != 0 {
+                    (bits, Style::default().fg(color))
+                } else if level == 0 && cx * 2 + 1 >= offset {
+                    // Baseline under columns that have samples: the dot row
+                    // touching the base (bottom row, or top row when inverted).
+                    let base_bits = if self.inverted {
+                        0x01 | 0x08
+                    } else {
+                        0x40 | 0x80
+                    };
+                    (base_bits, Style::default().fg(BASELINE))
+                } else {
+                    continue;
+                };
+                let symbol = char::from_u32(0x2800 + bits as u32).unwrap_or(' ');
+                buf[(area.x + cx as u16, area.y + cy as u16)]
+                    .set_char(symbol)
+                    .set_style(style);
             }
         }
     }
@@ -172,6 +188,15 @@ mod tests {
         // One cell, two samples: left column full, right column empty.
         let rows = render(&[1.0, 0.0], 1.0, 1, 1, false);
         assert_eq!(rows, vec!["⡇"]);
+    }
+
+    #[test]
+    fn idle_graph_shows_a_baseline_only_where_samples_exist() {
+        // Three cells, two zero samples: only the last cell has data.
+        let rows = render(&[0.0, 0.0], 1.0, 3, 2, false);
+        assert_eq!(rows, vec!["   ", "  ⣀"]);
+        let rows = render(&[0.0, 0.0], 1.0, 3, 2, true);
+        assert_eq!(rows, vec!["  ⠉", "   "]);
     }
 
     #[test]

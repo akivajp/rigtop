@@ -19,9 +19,11 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Cell, Clear, Paragraph, Row, Table, TableState};
 use rigtop_core::Snapshot;
-use rigtop_core::snapshot::{SmartDevice, device_matches_disk};
+use rigtop_core::snapshot::{
+    BtrfsFilesystem, CpuStats, MemoryStats, NetworkStats, SmartDevice, device_matches_disk,
+};
 
-use super::app::{App, SortKey, signal_name};
+use super::app::{App, SortKey, is_virtual_interface, signal_name};
 use super::format;
 use super::graph::{self, BrailleGraph};
 
@@ -43,15 +45,34 @@ const OK: Color = Color::Rgb(110, 200, 110);
 const WARN: Color = Color::Rgb(230, 200, 70);
 const BAD: Color = Color::Rgb(235, 80, 80);
 
-/// Width of one per-core cell: "C12 ■■■■■ 100% ".
-const CORE_CELL_WIDTH: u16 = 15;
+/// Narrowest per-core cell: "C12 ■■■■■ 100% ".
+const CORE_CELL_MIN_WIDTH: u16 = 15;
+/// Cells at least this wide also show the core frequency.
+const CORE_FREQ_MIN_WIDTH: usize = 28;
+/// Compact per-core cell without a meter: "C12  34% ".
+const CORE_CELL_COMPACT_WIDTH: u16 = 10;
+/// Share of the terminal height the CPU box grows to (btop uses about a third).
+const CPU_BOX_SHARE_PERCENT: u16 = 28;
+/// The CPU box never takes more than this share of the height; denser cell
+/// styles are used instead.
+const CPU_BOX_MAX_PERCENT: u16 = 45;
+/// Smallest useful heights of the left column boxes (borders included).
+const MIN_BOX_HEIGHT: u16 = 3;
 /// Lines below the core grid (load/temperatures, power/fans).
 const CPU_INFO_LINES: u16 = 2;
-/// Lines per GPU with and without the utilization history graph.
-const GPU_ROWS_FULL: u16 = 3;
-const GPU_ROWS_COMPACT: u16 = 2;
+/// Text lines per GPU; history graph rows come on top.
+const GPU_TEXT_ROWS: u16 = 2;
+/// Maximum history graph rows per GPU when there is spare height.
+const GPU_GRAPH_MAX_ROWS: u16 = 4;
+/// Network box height: preferred minimum, and when space is short.
+const NET_MIN_HEIGHT: u16 = 8;
+const NET_COMPACT_HEIGHT: u16 = 5;
+/// Rows kept for the network graphs before listing interfaces.
+const NET_GRAPH_MIN_ROWS: u16 = 4;
 /// SMART results older than this are flagged as stale.
 const SMART_STALE_SECS: u64 = 3600;
+/// Scrubs older than this are flagged (a monthly scrub is the common advice).
+const SCRUB_STALE_SECS: u64 = 35 * 86_400;
 
 /// Draws one frame.
 pub fn draw(frame: &mut Frame, app: &mut App) {
@@ -79,10 +100,10 @@ fn draw_screen(frame: &mut Frame, app: &App, table_state: &mut TableState) {
         return;
     };
 
-    let cpu_height = cpu_box_height(snapshot, area.width);
+    let cpu_layout = cpu_layout(snapshot.cpu.per_core_percent.len(), area);
     let [top, bottom] =
-        Layout::vertical([Constraint::Length(cpu_height), Constraint::Fill(1)]).areas(area);
-    draw_cpu(frame, app, snapshot, top);
+        Layout::vertical([Constraint::Length(cpu_layout.height), Constraint::Fill(1)]).areas(area);
+    draw_cpu(frame, app, snapshot, top, cpu_layout);
 
     let left_width = (area.width * 45 / 100).max(44).min(area.width);
     let [left, right] =
@@ -92,16 +113,23 @@ fn draw_screen(frame: &mut Frame, app: &App, table_state: &mut TableState) {
     let [mem, gpu, storage, net] = Layout::vertical([
         Constraint::Length(heights.memory),
         Constraint::Length(heights.gpu),
-        Constraint::Fill(1),
+        Constraint::Length(heights.storage),
         Constraint::Length(heights.network),
     ])
     .areas(left);
-    draw_memory(frame, snapshot, mem);
+    // Boxes that did not fit are left out rather than drawn empty.
+    if heights.memory > 0 {
+        draw_memory(frame, snapshot, mem);
+    }
     if heights.gpu > 0 {
         draw_gpus(frame, app, snapshot, gpu);
     }
-    draw_storage(frame, snapshot, storage);
-    draw_network(frame, app, snapshot, net);
+    if heights.storage > 0 {
+        draw_storage(frame, snapshot, storage);
+    }
+    if heights.network > 0 {
+        draw_network(frame, app, snapshot, net);
+    }
     draw_processes(frame, app, snapshot, right, table_state);
 
     if let Some(confirm) = &app.confirm {
@@ -115,36 +143,63 @@ fn draw_screen(frame: &mut Frame, app: &App, table_state: &mut TableState) {
     }
 }
 
-/// Box heights of the left column (storage takes the rest).
+/// Box heights of the left column; 0 means the box is not shown.
+#[derive(Debug, PartialEq, Eq)]
 struct LeftHeights {
     memory: u16,
     gpu: u16,
+    storage: u16,
     network: u16,
 }
 
-/// Distributes the left column so that the storage box, rigtop's main
-/// addition over btop, shows all its lines whenever possible: the GPU history
-/// graphs are dropped first, then the network box shrinks.
+/// Distributes the left column by priority:
+/// 1. memory, 2. storage (rigtop's main addition over btop, exactly the lines
+///    it needs), 3. GPUs (text rows), 4. network.
+///
+/// A box that does not get its minimum is hidden. Spare height is split
+/// between taller GPU history graphs and the network box.
 fn left_column_heights(snapshot: &Snapshot, area: Rect) -> LeftHeights {
-    let gpus = snapshot.gpus.len() as u16;
-    let storage_needed = storage_lines(snapshot, area.width.saturating_sub(2)).len() as u16 + 2;
-    let mut heights = LeftHeights {
-        memory: 7,
-        gpu: if gpus == 0 {
-            0
-        } else {
-            gpus * GPU_ROWS_FULL + 2
-        },
-        network: 8,
+    let mut remaining = area.height;
+    // Takes up to `wanted` rows if at least `minimum` are left.
+    let mut take = |wanted: u16, minimum: u16| {
+        if wanted == 0 || remaining < minimum.min(wanted) {
+            return 0;
+        }
+        let got = wanted.min(remaining);
+        remaining -= got;
+        got
     };
-    let total = |h: &LeftHeights| h.memory + h.gpu + h.network + storage_needed;
-    if total(&heights) > area.height && gpus > 0 {
-        heights.gpu = gpus * GPU_ROWS_COMPACT + 2;
+
+    let gpus = snapshot.gpus.len() as u16;
+    let memory = take(
+        memory_rows(&snapshot.memory).len() as u16 + 2,
+        MIN_BOX_HEIGHT,
+    );
+    let storage_needed = storage_lines(snapshot, area.width.saturating_sub(2)).len() as u16 + 2;
+    let storage = take(storage_needed, MIN_BOX_HEIGHT);
+    let gpu_text = if gpus == 0 {
+        0
+    } else {
+        gpus * GPU_TEXT_ROWS + 2
+    };
+    let mut gpu = take(gpu_text, gpu_text);
+    let mut network = take(NET_MIN_HEIGHT, NET_COMPACT_HEIGHT);
+
+    if gpu > 0 {
+        // Half of the spare height becomes GPU history graph rows.
+        let per_gpu = (remaining / 2 / gpus).min(GPU_GRAPH_MAX_ROWS);
+        gpu += per_gpu * gpus;
+        remaining -= per_gpu * gpus;
     }
-    if total(&heights) > area.height {
-        heights.network = 5;
+    if network > 0 {
+        network += remaining;
     }
-    heights
+    LeftHeights {
+        memory,
+        gpu,
+        storage,
+        network,
+    }
 }
 
 /// A rounded box with a colored title, btop style.
@@ -193,21 +248,85 @@ fn colored(text: impl Into<String>, color: Color) -> Span<'static> {
 
 // ---------------------------------------------------------------- CPU
 
-/// Height of the CPU box so that every core fits in the grid.
-fn cpu_box_height(snapshot: &Snapshot, width: u16) -> u16 {
-    let cores = snapshot.cpu.per_core_percent.len().max(1) as u16;
-    let columns = (core_area_width(width) / CORE_CELL_WIDTH).max(1);
+/// How the CPU box is drawn for a terminal size.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CpuLayout {
+    /// Box height including borders.
+    height: u16,
+    /// Whether the usage graph takes the left 40% of the box.
+    graph: bool,
+    /// Whether core cells have meters (otherwise the compact "C12  34%").
+    meters: bool,
+}
+
+impl CpuLayout {
+    /// Narrowest cell for this style.
+    fn cell_min_width(self) -> u16 {
+        if self.meters {
+            CORE_CELL_MIN_WIDTH
+        } else {
+            CORE_CELL_COMPACT_WIDTH
+        }
+    }
+
+    /// Width of the core grid inside a box of `width`.
+    fn grid_width(self, width: u16) -> u16 {
+        let inner = width.saturating_sub(2);
+        if self.graph {
+            inner - inner * 40 / 100
+        } else {
+            inner
+        }
+    }
+
+    /// Box height when the grid may use up to `rows` rows.
+    fn height_for(self, cores: usize, width: u16, rows: u16) -> u16 {
+        let (_, used_rows, _) =
+            core_grid_layout(cores, self.grid_width(width), rows, self.cell_min_width());
+        used_rows as u16 + CPU_INFO_LINES + 2
+    }
+}
+
+/// Chooses the richest CPU box style whose core grid fits in
+/// [`CPU_BOX_MAX_PERCENT`] of the height (graph + meters, then meters only,
+/// then compact cells), and grows it towards [`CPU_BOX_SHARE_PERCENT`] on
+/// tall terminals so that meters get longer.
+fn cpu_layout(cores: usize, area: Rect) -> CpuLayout {
+    let cores = cores.max(1);
+    let limit = (area.height * CPU_BOX_MAX_PERCENT / 100).max(7);
+    let styles = [(true, true), (false, true), (false, false)].map(|(graph, meters)| CpuLayout {
+        height: 0,
+        graph,
+        meters,
+    });
+    // The most compact grid of a style uses as many columns as fit (rows = 1 request).
+    let mut layout = styles
+        .into_iter()
+        .find(|style| style.height_for(cores, area.width, 1) <= limit)
+        .unwrap_or(styles[2]);
+    let minimal = layout.height_for(cores, area.width, 1);
+    let preferred = (area.height * CPU_BOX_SHARE_PERCENT / 100)
+        .min(limit)
+        .min(cores as u16 + CPU_INFO_LINES + 2);
+    // Allowing more rows means fewer, wider columns; the box then shrinks to
+    // the rows actually used, so no blank lines remain.
+    let rows = preferred.max(minimal).saturating_sub(CPU_INFO_LINES + 2);
+    layout.height = layout.height_for(cores, area.width, rows).max(7);
+    layout
+}
+
+/// Grid for `cores` cells in `width` x `height`: as few columns as the
+/// height allows (so meters get long), at most as many as fit.
+/// Returns `(columns, rows, cell_width)`.
+fn core_grid_layout(cores: usize, width: u16, height: u16, cell_min: u16) -> (usize, usize, usize) {
+    let max_columns = (width / cell_min).max(1) as usize;
+    let min_columns = cores.div_ceil(height.max(1) as usize).max(1);
+    let columns = min_columns.min(max_columns);
     let rows = cores.div_ceil(columns);
-    (rows + CPU_INFO_LINES + 2).max(7)
+    (columns, rows, width as usize / columns)
 }
 
-/// Width available for the core grid inside a CPU box of `width`.
-fn core_area_width(width: u16) -> u16 {
-    let inner = width.saturating_sub(2);
-    inner - inner * 40 / 100
-}
-
-fn draw_cpu(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
+fn draw_cpu(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect, layout: CpuLayout) {
     let cpu = &snapshot.cpu;
     let host = &snapshot.host;
     let block = panel("cpu", CPU_TITLE).title_top(
@@ -221,43 +340,68 @@ fn draw_cpu(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let graph_width = inner.width * 40 / 100;
+    let graph_width = if layout.graph {
+        inner.width * 40 / 100
+    } else {
+        0
+    };
     let [graph_area, cores_area] =
         Layout::horizontal([Constraint::Length(graph_width), Constraint::Fill(1)]).areas(inner);
 
-    let samples = app
-        .cpu_history
-        .last(BrailleGraph::capacity(graph_area.width));
-    frame.render_widget(BrailleGraph::new(&samples, 100.0), graph_area);
-    let label = Line::from(vec![
+    let total = Line::from(vec![
         colored(
             format!("{:.0}%", cpu.total_percent),
             percent_color(cpu.total_percent as f64),
         ),
         dim(format!(" {}", cpu.model)),
     ]);
-    frame.render_widget(
-        Paragraph::new(label),
-        Rect {
-            height: 1,
-            ..graph_area
-        },
-    );
-
-    let [grid_area, info_area] =
+    let [grid_area, info_area] = if layout.graph {
+        let samples = app
+            .cpu_history
+            .last(BrailleGraph::capacity(graph_area.width));
+        frame.render_widget(BrailleGraph::new(&samples, 100.0), graph_area);
+        frame.render_widget(
+            Paragraph::new(total),
+            Rect {
+                height: 1,
+                ..graph_area
+            },
+        );
         Layout::vertical([Constraint::Fill(1), Constraint::Length(CPU_INFO_LINES)])
-            .areas(cores_area);
-    draw_core_grid(frame, &cpu.per_core_percent, grid_area);
+            .areas(cores_area)
+    } else {
+        // No graph: the total goes on the first line instead.
+        let [total_area, grid, info] = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Fill(1),
+            Constraint::Length(CPU_INFO_LINES),
+        ])
+        .areas(cores_area);
+        frame.render_widget(Paragraph::new(total), total_area);
+        [grid, info]
+    };
+    draw_core_grid(frame, cpu, layout, grid_area);
     frame.render_widget(Paragraph::new(cpu_info_lines(app, snapshot)), info_area);
 }
 
-fn draw_core_grid(frame: &mut Frame, cores: &[f32], area: Rect) {
-    if area.width < CORE_CELL_WIDTH || area.height == 0 {
+fn draw_core_grid(frame: &mut Frame, cpu: &CpuStats, layout: CpuLayout, area: Rect) {
+    let cores = &cpu.per_core_percent;
+    let cell_min = layout.cell_min_width();
+    if area.width < cell_min || area.height == 0 || cores.is_empty() {
         return;
     }
-    let columns = (area.width / CORE_CELL_WIDTH) as usize;
-    let rows = cores.len().div_ceil(columns);
+    let (columns, rows, cell_width) =
+        core_grid_layout(cores.len(), area.width, area.height, cell_min);
     let digits = cores.len().saturating_sub(1).to_string().len();
+    // "C" + index + space + [meter] + " 100%" + gap, plus " 4.2G" when wide.
+    let show_freq =
+        layout.meters && cell_width >= CORE_FREQ_MIN_WIDTH && !cpu.per_core_mhz.is_empty();
+    let fixed = 1 + digits + 1 + 5 + 1 + if show_freq { 5 } else { 0 };
+    let meter_width = if layout.meters {
+        cell_width.saturating_sub(fixed).max(3)
+    } else {
+        0
+    };
     let mut lines: Vec<Line> = Vec::with_capacity(rows);
     for row in 0..rows {
         let mut spans = Vec::new();
@@ -268,15 +412,18 @@ fn draw_core_grid(frame: &mut Frame, cores: &[f32], area: Rect) {
                 continue;
             };
             spans.push(dim(format!("C{index:<digits$} ")));
-            spans.extend(meter(5, usage as f64 / 100.0));
+            spans.extend(meter(meter_width, usage as f64 / 100.0));
             spans.push(colored(
                 format!("{usage:>4.0}%"),
                 percent_color(usage as f64),
             ));
-            let used = 2 + digits + 5 + 5;
-            spans.push(Span::raw(
-                " ".repeat((CORE_CELL_WIDTH as usize).saturating_sub(used)),
-            ));
+            if show_freq {
+                let ghz = cpu.per_core_mhz.get(index).copied().unwrap_or(0) as f64 / 1000.0;
+                spans.push(dim(format!(" {ghz:.1}G")));
+            }
+            // Pad to the cell width (the text excludes the trailing gap).
+            let text_width = fixed - 1 + meter_width;
+            spans.push(Span::raw(" ".repeat(cell_width.saturating_sub(text_width))));
         }
         lines.push(Line::from(spans));
     }
@@ -356,27 +503,7 @@ fn draw_memory(frame: &mut Frame, snapshot: &Snapshot, area: Rect) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let total = memory.total_bytes.max(1) as f64;
-    let swap_total = memory.swap_total_bytes.max(1) as f64;
-    let mut rows: Vec<(&str, u64, f64)> = vec![
-        ("Used", memory.used_bytes, memory.used_bytes as f64 / total),
-        (
-            "Avail",
-            memory.available_bytes,
-            memory.available_bytes as f64 / total,
-        ),
-    ];
-    if let Some(cached) = memory.cached_bytes {
-        rows.push(("Cached", cached, cached as f64 / total));
-    }
-    rows.push(("Free", memory.free_bytes, memory.free_bytes as f64 / total));
-    if memory.swap_total_bytes > 0 {
-        rows.push((
-            "Swap",
-            memory.swap_used_bytes,
-            memory.swap_used_bytes as f64 / swap_total,
-        ));
-    }
+    let rows = memory_rows(memory);
 
     // "Cached ■■■■■■ 58.0G  65%"
     let meter_width = (inner.width as usize).saturating_sub(7 + 13);
@@ -393,6 +520,32 @@ fn draw_memory(frame: &mut Frame, snapshot: &Snapshot, area: Rect) {
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
+/// Rows of the memory box: label, bytes and ratio of the total.
+fn memory_rows(memory: &MemoryStats) -> Vec<(&'static str, u64, f64)> {
+    let total = memory.total_bytes.max(1) as f64;
+    let mut rows = vec![
+        ("Used", memory.used_bytes, memory.used_bytes as f64 / total),
+        (
+            "Avail",
+            memory.available_bytes,
+            memory.available_bytes as f64 / total,
+        ),
+    ];
+    if let Some(cached) = memory.cached_bytes {
+        rows.push(("Cached", cached, cached as f64 / total));
+    }
+    rows.push(("Free", memory.free_bytes, memory.free_bytes as f64 / total));
+    if memory.swap_total_bytes > 0 {
+        let swap_total = memory.swap_total_bytes as f64;
+        rows.push((
+            "Swap",
+            memory.swap_used_bytes,
+            memory.swap_used_bytes as f64 / swap_total,
+        ));
+    }
+    rows
+}
+
 // ---------------------------------------------------------------- GPU
 
 fn draw_gpus(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
@@ -400,12 +553,10 @@ fn draw_gpus(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    // Drop the history graphs when the layout gave only compact rows.
-    let rows_per_gpu = if inner.height >= snapshot.gpus.len() as u16 * GPU_ROWS_FULL {
-        GPU_ROWS_FULL
-    } else {
-        GPU_ROWS_COMPACT
-    };
+    // The layout decides how many history graph rows each GPU gets (possibly none).
+    let gpus = snapshot.gpus.len().max(1) as u16;
+    let rows_per_gpu = (inner.height / gpus).max(GPU_TEXT_ROWS);
+    let graph_rows = rows_per_gpu - GPU_TEXT_ROWS;
     for (i, gpu) in snapshot.gpus.iter().enumerate() {
         let y = inner.y + i as u16 * rows_per_gpu;
         if y + rows_per_gpu > inner.y + inner.height {
@@ -450,7 +601,7 @@ fn draw_gpus(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
         };
         frame.render_widget(Paragraph::new(Line::from(line1)), rows);
         frame.render_widget(Paragraph::new(Line::from(line2)), Rect { y: y + 1, ..rows });
-        if rows_per_gpu < GPU_ROWS_FULL {
+        if graph_rows == 0 {
             continue;
         }
         let samples = app
@@ -460,7 +611,11 @@ fn draw_gpus(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
             .unwrap_or_default();
         frame.render_widget(
             BrailleGraph::new(&samples, 100.0),
-            Rect { y: y + 2, ..rows },
+            Rect {
+                y: y + GPU_TEXT_ROWS,
+                height: graph_rows,
+                ..rows
+            },
         );
     }
 }
@@ -575,27 +730,9 @@ fn storage_lines(snapshot: &Snapshot, width: u16) -> Vec<Line<'static>> {
                 )));
             }
         }
-        let missing = fs.device_stats.iter().filter(|d| d.missing).count();
-        spans.push(dim(format!("{} devs ", fs.devices.len())));
-        let errors: u64 = fs.device_stats.iter().map(|d| d.total_errors()).sum();
-        if missing > 0 {
-            spans.push(colored(format!("{missing} MISSING "), BAD));
-        }
-        if errors > 0 {
-            let detail: Vec<String> = fs
-                .device_stats
-                .iter()
-                .filter(|d| d.total_errors() > 0)
-                .map(|d| format!("devid {}: {}", d.devid, d.total_errors()))
-                .collect();
-            spans.push(colored(
-                format!("errors {errors} ({})", detail.join(", ")),
-                BAD,
-            ));
-        } else if missing == 0 {
-            spans.push(colored("no errors", OK));
-        }
+        spans.push(dim(format!("{} devs", fs.devices.len())));
         lines.push(Line::from(spans));
+        lines.push(btrfs_health_line(fs, now_secs));
     }
 
     // mdadm arrays.
@@ -628,7 +765,61 @@ fn storage_lines(snapshot: &Snapshot, width: u16) -> Vec<Line<'static>> {
     lines
 }
 
-/// "SMART ok wear 3%" / "SMART FAIL" / "SMART stale", for one drive.
+/// Second btrfs line: live error counters, then the last scrub, e.g.
+/// "  errors 0 (live) · scrub 3d ago ok, 1h12m".
+fn btrfs_health_line(fs: &BtrfsFilesystem, now_secs: u64) -> Line<'static> {
+    let mut spans = vec![Span::raw("  ")];
+    let missing = fs.device_stats.iter().filter(|d| d.missing).count();
+    if missing > 0 {
+        spans.push(colored(format!("{missing} device(s) MISSING "), BAD));
+    }
+    let errors: u64 = fs.device_stats.iter().map(|d| d.total_errors()).sum();
+    if errors > 0 {
+        let detail: Vec<String> = fs
+            .device_stats
+            .iter()
+            .filter(|d| d.total_errors() > 0)
+            .map(|d| format!("devid {}: {}", d.devid, d.total_errors()))
+            .collect();
+        spans.push(colored(
+            format!("errors {errors} ({})", detail.join(", ")),
+            BAD,
+        ));
+    } else {
+        spans.push(colored("errors 0", OK));
+    }
+    // The counters are read every poll but only grow when data is read.
+    spans.push(dim(" (live) · "));
+    match &fs.scrub {
+        None => spans.push(colored("scrub: no record", WARN)),
+        Some(scrub) => {
+            let age_secs = now_secs.saturating_sub(scrub.started_at_ms / 1000);
+            let age_color = if age_secs > SCRUB_STALE_SECS {
+                WARN
+            } else {
+                DIM
+            };
+            spans.push(colored(
+                format!("scrub {} ", format::age(age_secs)),
+                age_color,
+            ));
+            let (text, color) = match scrub.state.as_str() {
+                "finished" if scrub.uncorrectable > 0 => {
+                    (format!("{} uncorrectable", scrub.uncorrectable), BAD)
+                }
+                "finished" if scrub.errors > 0 => (format!("{} corrected", scrub.corrected), WARN),
+                "finished" => ("ok".to_owned(), OK),
+                "canceled" => ("canceled".to_owned(), WARN),
+                _ => ("unfinished".to_owned(), WARN),
+            };
+            spans.push(colored(text, color));
+            spans.push(dim(format!(", {}", format::duration(scrub.duration_secs))));
+        }
+    }
+    Line::from(spans)
+}
+
+/// "SMART ok wear 3% (8m ago)" / "SMART FAIL" / "SMART error: ...", for one drive.
 fn smart_spans(smart: &SmartDevice, now_secs: u64) -> Vec<Span<'static>> {
     let mut spans = vec![dim(" SMART ")];
     if let Some(error) = &smart.error {
@@ -663,11 +854,15 @@ fn smart_spans(smart: &SmartDevice, now_secs: u64) -> Vec<Span<'static>> {
     if let Some(n) = smart.media_errors.filter(|n| *n > 0) {
         spans.push(colored(format!(" media err {n}"), BAD));
     }
-    let stale = smart
-        .collected_at_ms
-        .is_some_and(|ms| now_secs.saturating_sub(ms / 1000) > SMART_STALE_SECS);
-    if stale {
-        spans.push(colored(" stale", WARN));
+    // Results come from a timer and may lag (sleeping disks keep the old one).
+    if let Some(ms) = smart.collected_at_ms {
+        let age_secs = now_secs.saturating_sub(ms / 1000);
+        let color = if age_secs > SMART_STALE_SECS {
+            WARN
+        } else {
+            DIM
+        };
+        spans.push(colored(format!(" ({})", format::age(age_secs)), color));
     }
     spans
 }
@@ -675,21 +870,80 @@ fn smart_spans(smart: &SmartDevice, now_secs: u64) -> Vec<Span<'static>> {
 // ---------------------------------------------------------------- network
 
 fn draw_network(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
+    let selected = app
+        .net_interface
+        .as_deref()
+        .and_then(|name| snapshot.networks.iter().find(|n| n.name == name));
     let name = app.net_interface.clone().unwrap_or_else(|| "-".to_owned());
-    let block = panel("net", NET_TITLE).title_top(
-        Line::from(vec![
-            colored(format!(" {name} "), Color::White),
-            dim("n:next "),
-        ])
-        .right_aligned(),
-    );
+    let mut title = vec![colored(format!(" {name} "), Color::White)];
+    if let Some(speed) = selected.and_then(link_label) {
+        title.push(dim(format!("{speed} ")));
+    }
+    title.push(dim("n:next "));
+    let block = panel("net", NET_TITLE).title_top(Line::from(title).right_aligned());
     let inner = block.inner(area);
     frame.render_widget(block, area);
     if inner.height < 2 {
         return;
     }
 
-    let capacity = BrailleGraph::capacity(inner.width);
+    // Physical interfaces that are up, listed under the graphs when there is room.
+    let listed: Vec<&NetworkStats> = snapshot
+        .networks
+        .iter()
+        .filter(|n| !is_virtual_interface(&n.name) && n.link_up != Some(false))
+        .collect();
+    let list_rows = (listed.len() as u16).min(inner.height.saturating_sub(NET_GRAPH_MIN_ROWS));
+    let [graphs, list_area] =
+        Layout::vertical([Constraint::Fill(1), Constraint::Length(list_rows)]).areas(inner);
+    draw_network_graphs(frame, app, selected, graphs);
+
+    let lines: Vec<Line> = listed
+        .iter()
+        .take(list_rows as usize)
+        .map(|n| {
+            let marker = if Some(&n.name) == app.net_interface.as_ref() {
+                "▸"
+            } else {
+                " "
+            };
+            Line::from(vec![
+                colored(marker, NET_TITLE),
+                Span::raw(format!("{:<12}", format::truncate(&n.name, 12))),
+                dim(format!("{:<22}", link_label(n).unwrap_or_default())),
+                Span::raw(format!(
+                    "▼{:>8} ▲{:>8}",
+                    format::rate(n.rx_bytes_per_sec),
+                    format::rate(n.tx_bytes_per_sec)
+                )),
+            ])
+        })
+        .collect();
+    frame.render_widget(Paragraph::new(lines), list_area);
+}
+
+/// Link speed text: "10G" for wired links, "Wi-Fi 576/865M -74dBm" for wireless.
+fn link_label(net: &NetworkStats) -> Option<String> {
+    if let Some(wifi) = &net.wireless {
+        let mut text = "Wi-Fi".to_owned();
+        if let (Some(rx), Some(tx)) = (wifi.rx_bitrate_mbps, wifi.tx_bitrate_mbps) {
+            text.push_str(&format!(" {:.0}/{}", rx, format::link_speed(tx as f64)));
+        }
+        if let Some(signal) = wifi.signal_dbm {
+            text.push_str(&format!(" {signal}dBm"));
+        }
+        return Some(text);
+    }
+    net.link_speed_mbps
+        .map(|mbps| format::link_speed(mbps as f64))
+}
+
+/// Download graph on top, upload graph mirrored below, for the selected interface.
+fn draw_network_graphs(frame: &mut Frame, app: &App, selected: Option<&NetworkStats>, area: Rect) {
+    if area.height < 2 {
+        return;
+    }
+    let capacity = BrailleGraph::capacity(area.width);
     let rx = app.net_rx_history.last(capacity);
     let tx = app.net_tx_history.last(capacity);
     // Shared scale so download and upload are comparable; at least 10 KiB/s
@@ -701,7 +955,7 @@ fn draw_network(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
         .max(10.0 * 1024.0);
 
     let [rx_area, tx_area] =
-        Layout::vertical([Constraint::Fill(1), Constraint::Fill(1)]).areas(inner);
+        Layout::vertical([Constraint::Fill(1), Constraint::Fill(1)]).areas(area);
     frame.render_widget(BrailleGraph::new(&rx, max).color(graph::rx_color), rx_area);
     frame.render_widget(
         BrailleGraph::new(&tx, max)
@@ -710,11 +964,7 @@ fn draw_network(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
         tx_area,
     );
 
-    let iface = snapshot
-        .networks
-        .iter()
-        .find(|n| Some(&n.name) == app.net_interface.as_ref());
-    let (rx_rate, tx_rate, rx_total, tx_total) = iface.map_or((0.0, 0.0, 0, 0), |n| {
+    let (rx_rate, tx_rate, rx_total, tx_total) = selected.map_or((0.0, 0.0, 0, 0), |n| {
         (
             n.rx_bytes_per_sec,
             n.tx_bytes_per_sec,
@@ -782,25 +1032,18 @@ fn draw_processes(
         .title_top(Line::from(title).right_aligned())
         .title_bottom(footer);
 
-    let header_cell = |key: SortKey, text: &str| {
-        if app.sort_key == key {
-            Cell::from(format!("{text}{arrow}"))
-                .style(Style::default().fg(PROC_TITLE).add_modifier(Modifier::BOLD))
-        } else {
-            Cell::from(text.to_owned())
-        }
+    let header_cell = |key: Option<SortKey>, text: &str| match key {
+        Some(key) if app.sort_key == key => Cell::from(format!("{text}{arrow}"))
+            .style(Style::default().fg(PROC_TITLE).add_modifier(Modifier::BOLD)),
+        _ => Cell::from(text.to_owned()),
     };
-    let header = Row::new(vec![
-        header_cell(SortKey::Pid, "Pid"),
-        header_cell(SortKey::Name, "Program"),
-        Cell::from("Command"),
-        header_cell(SortKey::Threads, "Thr"),
-        header_cell(SortKey::User, "User"),
-        header_cell(SortKey::Memory, "Mem"),
-        header_cell(SortKey::Cpu, "Cpu%"),
-        header_cell(SortKey::Gpu, "Gpu%"),
-        header_cell(SortKey::Vram, "VRAM"),
-    ])
+    let has_gpus = !snapshot.gpus.is_empty();
+    let columns = process_columns(area.width.saturating_sub(2), has_gpus);
+    let header = Row::new(
+        columns
+            .iter()
+            .map(|c| header_cell(c.sort_key(), c.header())),
+    )
     .style(Style::default().add_modifier(Modifier::BOLD));
 
     let table_rows: Vec<Row> = rows
@@ -808,37 +1051,33 @@ fn draw_processes(
         .map(|row| {
             let p = row.info;
             let cpu = p.cpu_percent as f64;
-            Row::new(vec![
-                Cell::from(p.pid.to_string()),
-                Cell::from(p.name.clone()),
-                Cell::from(Span::styled(p.command.clone(), Style::default().fg(DIM))),
-                Cell::from(p.threads.map_or(String::new(), |t| t.to_string())),
-                Cell::from(p.user.clone()),
-                Cell::from(format::bytes(p.memory_bytes)),
-                Cell::from(Span::styled(
+            Row::new(columns.iter().map(|column| match column {
+                ProcColumn::Pid => Cell::from(p.pid.to_string()),
+                ProcColumn::Program => Cell::from(p.name.clone()),
+                ProcColumn::Command => {
+                    Cell::from(Span::styled(p.command.clone(), Style::default().fg(DIM)))
+                }
+                ProcColumn::Threads => {
+                    Cell::from(p.threads.map_or(String::new(), |t| t.to_string()))
+                }
+                ProcColumn::User => Cell::from(p.user.clone()),
+                ProcColumn::Memory => Cell::from(format::bytes(p.memory_bytes)),
+                ProcColumn::Cpu => Cell::from(Span::styled(
                     format!("{cpu:.1}"),
                     Style::default().fg(if cpu > 0.0 { percent_color(cpu) } else { DIM }),
                 )),
-                Cell::from(row.gpu_percent.map_or(String::new(), |g| format!("{g:.0}"))),
-                Cell::from(Span::styled(
+                ProcColumn::Gpu => {
+                    Cell::from(row.gpu_percent.map_or(String::new(), |g| format!("{g:.0}")))
+                }
+                ProcColumn::Vram => Cell::from(Span::styled(
                     row.vram_bytes.map_or(String::new(), format::bytes),
                     Style::default().fg(GPU_TITLE),
                 )),
-            ])
+            }))
         })
         .collect();
 
-    let widths = [
-        Constraint::Length(7),
-        Constraint::Length(15),
-        Constraint::Fill(1),
-        Constraint::Length(4),
-        Constraint::Length(9),
-        Constraint::Length(6),
-        Constraint::Length(6),
-        Constraint::Length(5),
-        Constraint::Length(6),
-    ];
+    let widths: Vec<Constraint> = columns.iter().map(|c| c.constraint()).collect();
     let table = Table::new(table_rows, widths)
         .header(header)
         .block(block)
@@ -856,6 +1095,121 @@ fn draw_processes(
         *state.offset_mut() = max_offset;
     }
     frame.render_stateful_widget(table, area, state);
+}
+
+/// Columns of the process table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProcColumn {
+    Pid,
+    Program,
+    Command,
+    Threads,
+    User,
+    Memory,
+    Cpu,
+    Gpu,
+    Vram,
+}
+
+impl ProcColumn {
+    /// Display order.
+    const ORDER: [ProcColumn; 9] = [
+        ProcColumn::Pid,
+        ProcColumn::Program,
+        ProcColumn::Command,
+        ProcColumn::Threads,
+        ProcColumn::User,
+        ProcColumn::Memory,
+        ProcColumn::Cpu,
+        ProcColumn::Gpu,
+        ProcColumn::Vram,
+    ];
+
+    fn header(self) -> &'static str {
+        match self {
+            ProcColumn::Pid => "Pid",
+            ProcColumn::Program => "Program",
+            ProcColumn::Command => "Command",
+            ProcColumn::Threads => "Thr",
+            ProcColumn::User => "User",
+            ProcColumn::Memory => "Mem",
+            ProcColumn::Cpu => "Cpu%",
+            ProcColumn::Gpu => "Gpu%",
+            ProcColumn::Vram => "VRAM",
+        }
+    }
+
+    fn sort_key(self) -> Option<SortKey> {
+        match self {
+            ProcColumn::Pid => Some(SortKey::Pid),
+            ProcColumn::Program => Some(SortKey::Name),
+            ProcColumn::Command => None,
+            ProcColumn::Threads => Some(SortKey::Threads),
+            ProcColumn::User => Some(SortKey::User),
+            ProcColumn::Memory => Some(SortKey::Memory),
+            ProcColumn::Cpu => Some(SortKey::Cpu),
+            ProcColumn::Gpu => Some(SortKey::Gpu),
+            ProcColumn::Vram => Some(SortKey::Vram),
+        }
+    }
+
+    /// Width used to decide whether the column fits (Command: its minimum).
+    fn width(self) -> u16 {
+        match self {
+            ProcColumn::Pid => 7,
+            ProcColumn::Program => 15,
+            ProcColumn::Command => 12,
+            ProcColumn::Threads => 4,
+            ProcColumn::User => 9,
+            ProcColumn::Memory => 6,
+            ProcColumn::Cpu => 6,
+            ProcColumn::Gpu => 5,
+            ProcColumn::Vram => 6,
+        }
+    }
+
+    fn constraint(self) -> Constraint {
+        match self {
+            // The command line takes all remaining width.
+            ProcColumn::Command => Constraint::Fill(1),
+            other => Constraint::Length(other.width()),
+        }
+    }
+}
+
+/// Columns that fit in `width`: Pid, Program, Mem and Cpu% always, then
+/// User, Thr, Gpu%, VRAM and Command as space allows (GPU columns only on
+/// hosts with GPUs). Returned in display order.
+fn process_columns(width: u16, has_gpus: bool) -> Vec<ProcColumn> {
+    let mut chosen = vec![
+        ProcColumn::Pid,
+        ProcColumn::Program,
+        ProcColumn::Memory,
+        ProcColumn::Cpu,
+    ];
+    let optional = [
+        ProcColumn::User,
+        ProcColumn::Threads,
+        ProcColumn::Gpu,
+        ProcColumn::Vram,
+        ProcColumn::Command,
+    ];
+    // Every column is followed by one space of column spacing.
+    let used = |cols: &[ProcColumn]| cols.iter().map(|c| c.width() + 1).sum::<u16>();
+    for column in optional {
+        if !has_gpus && matches!(column, ProcColumn::Gpu | ProcColumn::Vram) {
+            continue;
+        }
+        let mut candidate = chosen.clone();
+        candidate.push(column);
+        if used(&candidate) <= width + 1 {
+            chosen = candidate;
+        }
+    }
+    ProcColumn::ORDER
+        .into_iter()
+        .filter(|c| chosen.contains(c))
+        .collect()
 }
 
 fn draw_confirm(frame: &mut Frame, area: Rect, pid: u32, name: &str, signal: &str) {
@@ -1031,6 +1385,60 @@ mod tests {
         let screen = render(&mut app, 120, 40);
         assert!(screen.contains("DEGRADED"), "{screen}");
         assert!(screen.contains("devid 2"), "{screen}");
+    }
+
+    #[test]
+    fn cpu_layout_degrades_on_small_terminals() {
+        // 32 cores on 210x70: graph + meters, grown so that no row is blank.
+        let big = cpu_layout(32, Rect::new(0, 0, 210, 70));
+        assert!(big.graph && big.meters);
+        let (_, rows, _) = core_grid_layout(
+            32,
+            big.grid_width(210),
+            big.height - 4,
+            big.cell_min_width(),
+        );
+        assert_eq!(big.height, rows as u16 + 4);
+        assert!(big.height <= 70 * CPU_BOX_MAX_PERCENT / 100);
+
+        // 80x24: neither graph+meters (11 rows) nor meters only fit in 10 lines.
+        let small = cpu_layout(32, Rect::new(0, 0, 80, 24));
+        assert!(!small.graph && !small.meters);
+        assert!(small.height <= 10, "{small:?}");
+    }
+
+    #[test]
+    fn left_column_hides_boxes_that_do_not_fit() {
+        let snapshot = sample_snapshot();
+        // Tall: everything shown, the network box absorbs the rest.
+        let tall = left_column_heights(&snapshot, Rect::new(0, 0, 90, 60));
+        assert!(
+            tall.memory > 0 && tall.gpu > 0 && tall.storage > 0 && tall.network >= NET_MIN_HEIGHT
+        );
+        assert_eq!(tall.memory + tall.gpu + tall.storage + tall.network, 60);
+        // Short: memory and storage win, the rest is hidden rather than squashed.
+        let short = left_column_heights(&snapshot, Rect::new(0, 0, 90, 12));
+        assert!(short.memory > 0 && short.storage > 0);
+        assert_eq!(short.gpu, 0);
+        assert!(short.memory + short.gpu + short.storage + short.network <= 12);
+    }
+
+    #[test]
+    fn process_columns_keep_essentials_when_narrow() {
+        let narrow = process_columns(36, true);
+        assert_eq!(
+            narrow,
+            vec![
+                ProcColumn::Pid,
+                ProcColumn::Program,
+                ProcColumn::Memory,
+                ProcColumn::Cpu
+            ]
+        );
+        let wide = process_columns(120, true);
+        assert_eq!(wide, ProcColumn::ORDER.to_vec());
+        // No GPU columns on hosts without GPUs.
+        assert!(!process_columns(120, false).contains(&ProcColumn::Vram));
     }
 
     #[test]
