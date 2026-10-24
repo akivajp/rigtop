@@ -1,12 +1,14 @@
 //! Application state, the resizable tile layout and the per-frame entry point.
 
+use std::path::PathBuf;
+use std::thread;
 use std::time::{Duration, Instant};
 
 use egui::{
     Color32, CornerRadius, FontId, Id, Margin, RichText, Sense, Stroke, TextStyle, Ui, Visuals,
 };
 use egui_tiles::{Container, SimplificationOptions, Tile, TileId, Tiles, Tree, UiResponse};
-use rigtop_core::config::OverviewSection;
+use rigtop_core::config::{HostConfig, OverviewSection};
 use rigtop_core::hosts::{HostKind, HostSpec, host_specs};
 use rigtop_core::remote::RemoteSource;
 use rigtop_core::view::{
@@ -15,6 +17,7 @@ use rigtop_core::view::{
 use rigtop_core::worker::{Command, Event, Worker};
 use rigtop_core::{Config, DataSource, LocalSource, ProcessSignal, Snapshot};
 
+use crate::hosts_dialog::{self, HostsDialog};
 use crate::overview;
 use crate::panels;
 use crate::widgets::{self, BACKGROUND, BORDER, DIM, TEXT};
@@ -95,6 +98,8 @@ pub enum ViewAction {
     ZoomOut,
     ZoomReset,
     ResetLayout,
+    /// Open the window for adding and editing hosts.
+    EditHosts,
 }
 
 /// Everything the panels read and modify.
@@ -278,6 +283,18 @@ pub struct RigtopApp {
     pub hosts: Vec<HostEntry>,
     pub view: View,
     pub overview: OverviewSettings,
+    /// The loaded configuration; `hosts` changes when edited in the GUI.
+    config: Config,
+    /// Where host changes are saved (`None` if there is no config directory).
+    config_path: Option<PathBuf>,
+    /// Hosts given with `--host`, which are not saved.
+    cli_hosts: Vec<String>,
+    remote_command: Option<String>,
+    interval: Duration,
+    /// Context for waking the UI from new workers; `None` in tests, where
+    /// hosts get no worker.
+    repaint: Option<egui::Context>,
+    pub hosts_dialog: HostsDialog,
     tree: Tree<Pane>,
     /// Processes per overview card (hosts not shown in detail send only these).
     overview_processes: usize,
@@ -299,35 +316,11 @@ impl RigtopApp {
     pub fn new(
         cc: &eframe::CreationContext<'_>,
         config: Config,
+        config_path: Option<PathBuf>,
         interval: Duration,
         extra_hosts: &[String],
         remote_command: Option<&str>,
     ) -> Self {
-        let specs = host_specs(&config, extra_hosts, remote_command);
-        let hosts = specs
-            .into_iter()
-            .map(|spec| {
-                let source_config = config.clone();
-                let repaint = cc.egui_ctx.clone();
-                let kind = spec.kind.clone();
-                let worker = Worker::spawn_with_notify(
-                    move || -> Box<dyn DataSource> {
-                        match kind {
-                            HostKind::Remote(target) => Box::new(RemoteSource::new(target)),
-                            HostKind::Local => Box::new(LocalSource::with_config(&source_config)),
-                        }
-                    },
-                    interval,
-                    move || repaint.request_repaint(),
-                );
-                HostEntry {
-                    spec,
-                    worker: Some(worker),
-                    state: GuiState::new(config.clone()),
-                    sent_limit: None,
-                }
-            })
-            .collect();
         let storage = cc.storage;
         let initial_zoom = storage
             .and_then(|s| eframe::get_value::<f32>(s, ZOOM_KEY))
@@ -339,49 +332,155 @@ impl RigtopApp {
         let overview = storage
             .and_then(|s| eframe::get_value::<OverviewSettings>(s, OVERVIEW_KEY))
             .unwrap_or_else(|| OverviewSettings::from_config(&config));
-        Self::assemble(
-            hosts,
-            tree,
-            overview,
-            config.overview.processes,
-            initial_zoom,
-        )
+        let mut app = Self::assemble(config, tree, overview, initial_zoom);
+        app.config_path = config_path;
+        app.cli_hosts = extra_hosts.to_vec();
+        app.remote_command = remote_command.map(str::to_owned);
+        app.interval = interval;
+        app.repaint = Some(cc.egui_ctx.clone());
+        app.update_hosts();
+        app
     }
 
+    /// An app without hosts; `update_hosts` (or a test) adds them.
     fn assemble(
-        hosts: Vec<HostEntry>,
+        config: Config,
         tree: Tree<Pane>,
         overview: OverviewSettings,
-        overview_processes: usize,
         initial_zoom: f32,
     ) -> Self {
-        // With a single host there is nothing to overview: show it directly.
-        let view = if hosts.len() > 1 {
-            View::Overview
-        } else {
-            View::Host(0)
-        };
         Self {
-            hosts,
-            view,
+            hosts: Vec::new(),
+            view: View::Host(0),
             overview,
+            overview_processes: config.overview.processes,
+            config,
+            config_path: None,
+            cli_hosts: Vec::new(),
+            remote_command: None,
+            interval: Duration::from_secs(1),
+            repaint: None,
+            hosts_dialog: HostsDialog::default(),
             tree,
-            overview_processes,
             styled: false,
             initial_zoom,
             zoom: initial_zoom,
         }
     }
 
+    /// Starts collecting from `spec` (no worker in tests).
+    fn start_host(&self, spec: HostSpec) -> HostEntry {
+        let worker = self.repaint.clone().map(|repaint| {
+            let source_config = self.config.clone();
+            let kind = spec.kind.clone();
+            Worker::spawn_with_notify(
+                move || -> Box<dyn DataSource> {
+                    match kind {
+                        HostKind::Remote(target) => Box::new(RemoteSource::new(target)),
+                        HostKind::Local => Box::new(LocalSource::with_config(&source_config)),
+                    }
+                },
+                self.interval,
+                move || repaint.request_repaint(),
+            )
+        });
+        HostEntry {
+            spec,
+            worker,
+            state: GuiState::new(self.config.clone()),
+            sent_limit: None,
+        }
+    }
+
+    /// Brings the running hosts in line with the configuration and the
+    /// command line: unchanged hosts keep their collector and history, new
+    /// ones are started and removed ones stopped.
+    fn update_hosts(&mut self) {
+        let specs = host_specs(
+            &self.config,
+            &self.cli_hosts,
+            self.remote_command.as_deref(),
+        );
+        let shown = match self.view {
+            View::Host(index) => self.hosts.get(index).map(|h| h.spec.name.clone()),
+            View::Overview => None,
+        };
+        let was_multi = self.hosts.len() > 1;
+        let mut old = std::mem::take(&mut self.hosts);
+        let mut hosts = Vec::with_capacity(specs.len());
+        for spec in specs {
+            match old
+                .iter()
+                .position(|h| h.spec.name == spec.name && h.spec.kind == spec.kind)
+            {
+                Some(position) => {
+                    let mut entry = old.swap_remove(position);
+                    entry.spec = spec;
+                    hosts.push(entry);
+                }
+                None => hosts.push(self.start_host(spec)),
+            }
+        }
+        // Stopping a worker joins its thread, which can take a while for a
+        // host that is still connecting; do not freeze the UI meanwhile.
+        let stopped: Vec<Worker> = old.into_iter().filter_map(|h| h.worker).collect();
+        if !stopped.is_empty() {
+            thread::spawn(move || drop(stopped));
+        }
+        self.hosts = hosts;
+        // Like at startup, the overview opens once there are several hosts
+        // and needs at least two; otherwise stay on the same host if it is
+        // still there.
+        let multi = self.hosts.len() > 1;
+        let position = shown.and_then(|name| self.hosts.iter().position(|h| h.spec.name == name));
+        self.view = match position {
+            Some(index) if was_multi || !multi => View::Host(index),
+            _ if multi => View::Overview,
+            _ => View::Host(0),
+        };
+    }
+
+    /// Writes `hosts` to the configuration file and applies them.
+    fn save_hosts(&mut self, hosts: Vec<HostConfig>) {
+        let Some(path) = self.config_path.clone() else {
+            self.hosts_dialog
+                .report("no configuration file to save to".to_owned(), false);
+            return;
+        };
+        match Config::save_hosts(&path, &hosts) {
+            Ok(()) => {
+                self.config.hosts = hosts;
+                self.update_hosts();
+                self.hosts_dialog
+                    .report(format!("saved to {}", path.display()), true);
+            }
+            Err(err) => self.hosts_dialog.report(format!("not saved: {err}"), false),
+        }
+    }
+
+    /// Names that cannot be used for a new host: this machine and hosts
+    /// from the command line.
+    fn fixed_host_names(&self) -> Vec<String> {
+        self.hosts
+            .iter()
+            .filter(|h| {
+                h.spec.is_local() || !self.config.hosts.iter().any(|c| c.name == h.spec.name)
+            })
+            .map(|h| h.spec.name.clone())
+            .collect()
+    }
+
     /// Creates the app for `names` (the first one local) without workers;
     /// snapshots come from `state.apply`.
     #[cfg(test)]
     pub fn for_test(config: Config, names: &[&str]) -> Self {
-        let hosts = names
+        let overview = OverviewSettings::from_config(&config);
+        let mut app = Self::assemble(config, default_tree(), overview, 1.0);
+        app.hosts = names
             .iter()
             .enumerate()
-            .map(|(i, name)| HostEntry {
-                spec: HostSpec {
+            .map(|(i, name)| {
+                app.start_host(HostSpec {
                     name: (*name).to_owned(),
                     kind: if i == 0 {
                         HostKind::Local
@@ -391,21 +490,15 @@ impl RigtopApp {
                             "rigtop --agent",
                         ))
                     },
-                    sections: config.overview.sections.clone(),
-                },
-                worker: None,
-                state: GuiState::new(config.clone()),
-                sent_limit: None,
+                    sections: app.config.overview.sections.clone(),
+                })
             })
             .collect();
-        let overview = OverviewSettings::from_config(&config);
-        Self::assemble(
-            hosts,
-            default_tree(),
-            overview,
-            config.overview.processes,
-            1.0,
-        )
+        // With a single host there is nothing to overview: show it directly.
+        if app.hosts.len() > 1 {
+            app.view = View::Overview;
+        }
+        app
     }
 
     /// A single-host app without a worker (tests).
@@ -505,7 +598,18 @@ impl RigtopApp {
                 ViewAction::ZoomOut => set_zoom(&ctx, ctx.zoom_factor() - ZOOM_STEP),
                 ViewAction::ZoomReset => set_zoom(&ctx, 1.0),
                 ViewAction::ResetLayout => self.tree = default_tree(),
+                ViewAction::EditHosts => self.hosts_dialog.open(),
             }
+        }
+        let fixed = self.fixed_host_names();
+        if let Some(hosts) = hosts_dialog::show(
+            &ctx,
+            &mut self.hosts_dialog,
+            &self.config.hosts,
+            &fixed,
+            self.config_path.as_deref(),
+        ) {
+            self.save_hosts(hosts);
         }
 
         // The host shown in detail sends every process; the others only
@@ -552,6 +656,8 @@ impl RigtopApp {
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 overview::zoom_controls(ui, self.zoom, actions);
+                ui.add_space(8.0);
+                overview::hosts_button(ui, actions);
             });
         });
         ui.add_space(2.0);
@@ -1025,14 +1131,70 @@ mod tests {
         assert!(!harness.state().overview.include_local);
     }
 
+    #[test]
+    fn hosts_window_adds_and_removes_hosts() {
+        use egui::accesskit::Role;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let mut harness = harness_with(sample_snapshot());
+        harness.state_mut().config_path = Some(path.clone());
+        harness.run();
+        harness.get_by_label("hosts…").click();
+        harness.run();
+        harness.get_by_label("add host").click();
+        harness.run();
+        // The first text field is the name; the others are optional.
+        // The name field; the process filter is a text field too.
+        let name_field = || {
+            egui_kittest::kittest::by()
+                .role(Role::TextInput)
+                .label("Name")
+        };
+        harness.get(name_field()).click();
+        harness.run();
+        harness.get(name_field()).type_text("zefat");
+        harness.run();
+        harness.get_by_label("save").click();
+        harness.run();
+
+        let saved = Config::load(&path).unwrap();
+        assert_eq!(saved.hosts.len(), 1);
+        assert_eq!(saved.hosts[0].name, "zefat");
+        assert_eq!(
+            saved.hosts[0].ssh, None,
+            "the destination defaults to the name"
+        );
+        let app = harness.state();
+        let names: Vec<&str> = app.hosts.iter().map(|h| h.spec.name.as_str()).collect();
+        assert_eq!(names, ["local", "zefat"]);
+        assert!(
+            app.hosts[0].state.snapshot.is_some(),
+            "the local host keeps its data"
+        );
+        assert_eq!(
+            app.view,
+            View::Overview,
+            "several hosts: the overview opens"
+        );
+
+        harness.get_by_label("remove").click();
+        harness.run();
+        assert!(Config::load(&path).unwrap().hosts.is_empty());
+        assert_eq!(harness.state().hosts.len(), 1);
+        assert_eq!(harness.state().view, View::Host(0));
+    }
+
     /// Renders the real machine to a PNG for visual checks:
     /// `RIGTOP_GUI_SCREENSHOT=/tmp/gui.png cargo test -p rigtop-gui -- --ignored screenshot`
     ///
     /// Optional: `RIGTOP_GUI_FILTER` (process filter, e.g. to keep personal
     /// processes out of published images) and `RIGTOP_GUI_SAMPLES` (number of
     /// samples taken 300 ms apart, to fill the graphs; default 20),
-    /// `RIGTOP_GUI_SIZE` (window size such as `1000x700`; default 1400x900)
-    /// and `RIGTOP_GUI_HOSTS` (comma-separated names for an overview).
+    /// `RIGTOP_GUI_SIZE` (window size such as `1000x700`; default 1400x900),
+    /// `RIGTOP_GUI_HOSTS` (comma-separated names for an overview) and
+    /// `RIGTOP_GUI_CLICK` (comma-separated labels clicked in order, e.g.
+    /// `hosts…,add host` to show the hosts window).
     #[test]
     #[ignore]
     fn screenshot_local_machine() {
@@ -1070,6 +1232,12 @@ mod tests {
             .with_size(size)
             .build_ui_state(|ui, app: &mut RigtopApp| app.show(ui), app);
         harness.run();
+        if let Ok(clicks) = std::env::var("RIGTOP_GUI_CLICK") {
+            for label in clicks.split(',') {
+                harness.get_by_label(label).click();
+                harness.run();
+            }
+        }
         harness
             .render()
             .expect("render")

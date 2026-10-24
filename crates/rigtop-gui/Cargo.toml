@@ -25,6 +25,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 
 [dev-dependencies]
 egui_kittest = { version = "0.37.0", features = ["wgpu", "snapshot"] }
+tempfile = "3.27.0"
 
 [target."cfg(windows)".dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Console", "Win32_UI_WindowsAndMessaging"] }

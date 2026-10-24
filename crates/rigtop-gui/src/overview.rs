@@ -98,6 +98,17 @@ pub fn zoom_controls(ui: &mut Ui, zoom: f32, actions: &mut Vec<ViewAction>) {
     }
 }
 
+/// "hosts…": opens the window for adding and editing remote hosts.
+pub fn hosts_button(ui: &mut Ui, actions: &mut Vec<ViewAction>) {
+    if ui
+        .add(egui::Button::new(dim("hosts…")).frame(false))
+        .on_hover_text("add, edit or remove remote hosts")
+        .clicked()
+    {
+        actions.push(ViewAction::EditHosts);
+    }
+}
+
 /// Draws the overview. Returns the index of a host whose card title was
 /// clicked (to open its detail tab).
 pub fn show(

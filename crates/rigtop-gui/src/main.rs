@@ -10,6 +10,7 @@
 
 mod app;
 mod console;
+mod hosts_dialog;
 mod overview;
 mod panels;
 mod widgets;
@@ -70,9 +71,11 @@ fn run() -> Result<()> {
             MIN_POLL_INTERVAL.as_millis()
         );
     }
-    let config = match &cli.config {
+    // Hosts added in the GUI are saved to the same file.
+    let config_path = cli.config.clone().or_else(Config::default_path);
+    let config = match &config_path {
         Some(path) => Config::load(path),
-        None => Config::load_default(),
+        None => Ok(Config::default()),
     }
     .context("failed to load the configuration")?;
 
@@ -91,6 +94,7 @@ fn run() -> Result<()> {
             Ok(Box::new(app::RigtopApp::new(
                 cc,
                 config,
+                config_path,
                 interval,
                 &cli.hosts,
                 cli.remote_command.as_deref(),

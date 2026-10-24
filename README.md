@@ -99,6 +99,8 @@ rigtop                          # TUI: hosts from the configuration
 rigtop-gui --host hermon        # GUI: plus a host from the command line (repeatable)
 ```
 
+In the GUI, **hosts…** (in the tab bar, or in the CPU panel title while only this machine is shown) adds, edits and removes hosts and can test the connection first. Changes are written to the `[[hosts]]` of the configuration file, so the TUI sees them too; the rest of the file is left as it is.
+
 With more than one host, rigtop opens on an **overview** with one card per host, plus a tab per host (this machine included) for the full detail view. Cards show alerts (storage errors, failing SMART, degraded RAID, nearly full filesystems, hot GPUs) and then CPU, GPU, memory, the top processes, network and storage, in that order and as far as the card has room. Change the default order with `[overview] sections`, per host with `sections`, or in the GUI with each card's "sections" menu. Whether this machine gets a card is `[overview] include_local` (or the checkbox in the GUI, `l` in the TUI). In the TUI, `Tab` and `0`-`9` switch between the overview and the hosts.
 
 rigtop starts `rigtop --agent` on each remote host through your system's `ssh` (the built-in OpenSSH client on Windows), so `~/.ssh/config`, keys and `ProxyJump` work as usual. There is no daemon to run and no port to open; the agent exits when the connection closes, and rigtop reconnects by itself. Hosts not shown in detail only send their top processes.

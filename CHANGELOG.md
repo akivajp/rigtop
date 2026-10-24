@@ -23,6 +23,9 @@ include breaking changes).
   `l` to toggle this machine in the overview
 - Hosts not shown in detail send only their top processes
   (`[overview] processes`, default 10)
+- GUI: "hosts…" window to add, edit, test and remove remote hosts; they
+  are saved to `[[hosts]]` in the configuration file, leaving the rest of
+  the file untouched
 
 ### Changed
 
