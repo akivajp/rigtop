@@ -2,7 +2,7 @@
 
 [![crates.io](https://img.shields.io/crates/v/rigtop.svg)](https://crates.io/crates/rigtop) [![CI](https://github.com/akivajp/rigtop/actions/workflows/ci.yml/badge.svg)](https://github.com/akivajp/rigtop/actions/workflows/ci.yml)
 
-> **開発の初期段階です（v0.1）。** TUI と GUI は Linux と Windows で動きます。遠隔監視はまだありません。
+> **開発の初期段階です（v0.2）。** TUI と GUI は Linux と Windows で動き、SSH で遠隔のホストを1台監視できます。複数ホストの同時監視は次の段階です。
 
 btop に倣ったシステムモニターです。収集部分を共通にして、2つの画面を用意しています。
 
@@ -26,7 +26,7 @@ btop に倣ったシステムモニターです。収集部分を共通にして
 1. ~~収集部分と TUI（Linux）~~（v0.1）
 2. ~~ネイティブ GUI（Linux）~~（v0.1）
 3. ~~Windows 対応~~（v0.1。温度・ファン・CPU 電力は未対応。macOS はビルドのみ、実機検証なし）
-4. 登録した複数ホストの SSH 経由の監視
+4. SSH による遠隔監視: ホスト1台（v0.2）、その次に登録した複数ホストの一覧表示
 
 ## インストール
 

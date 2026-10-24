@@ -2,7 +2,7 @@
 
 [![crates.io](https://img.shields.io/crates/v/rigtop.svg)](https://crates.io/crates/rigtop) [![CI](https://github.com/akivajp/rigtop/actions/workflows/ci.yml/badge.svg)](https://github.com/akivajp/rigtop/actions/workflows/ci.yml)
 
-> **Early development (v0.1).** The TUI and GUI work on Linux and Windows; remote monitoring is not there yet.
+> **Early development (v0.2).** The TUI and GUI work on Linux and Windows and can monitor a remote host over SSH; watching several hosts at once is next.
 
 A btop-inspired system monitor with two front-ends that share one data-collection core:
 
@@ -26,7 +26,7 @@ A btop-inspired system monitor with two front-ends that share one data-collectio
 1. ~~Collection core and the TUI on Linux~~ (v0.1)
 2. ~~Native GUI on Linux~~ (v0.1)
 3. ~~Windows support~~ (v0.1; temperatures, fans and CPU power still missing; macOS builds without hardware testing)
-4. Remote monitoring of registered hosts over SSH
+4. Remote monitoring over SSH: one host (v0.2), then several registered hosts with an overview
 
 ## Installation
 

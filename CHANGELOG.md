@@ -7,6 +7,8 @@ include breaking changes).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-25
+
 ### Added
 
 - Remote monitoring over SSH: `rigtop --host <destination>` and
@@ -51,5 +53,6 @@ First release.
 - Windows support (CPU, memory, processes, network with link speeds, drives,
   NVIDIA GPUs; temperatures, fans and CPU power are not available yet)
 
-[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/akivajp/rigtop/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/akivajp/rigtop/releases/tag/v0.1.0
