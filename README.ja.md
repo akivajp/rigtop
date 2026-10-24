@@ -59,6 +59,17 @@ cargo run --release -p rigtop-gui            # オプションは TUI と同じ�
 
 マウス操作が有効なため、多くの端末では Shift+ドラッグで文字を選択できます。
 
+## Windows
+
+`rigtop` と `rigtop-gui` は Windows でもビルド・実行できます。最新の `main` をビルドしたものを [CI の実行結果](https://github.com/akivajp/rigtop/actions/workflows/ci.yml) に添付しています（成果物 `rigtop-windows-x86_64`）。
+
+Linux との違い:
+
+- CPU 使用率、メモリ、プロセス、ネットワーク（リンク速度を含む）、ドライブの容量とドライブごとの I/O、NVIDIA の GPU（ドライバ付属の `nvml.dll` 経由）は、追加のソフト無しで表示できます。
+- 温度・ファン・CPU の消費電力は、Windows が標準で持たないハードウェアのドライバが必要です。Windows 自身が出す値だけを表示するので、多くの環境では何も出ません（LibreHardwareMonitor 経由の読み取りを予定しています）。
+- ロードアベレージとディスクの使用率（busy %）はありません。
+- Windows にはシグナルがありません。「強制終了」（`K`）はプロセスを即座に終了し、「終了」（`k`）はタスクマネージャーの「タスクの終了」と同じくプロセスのウィンドウに閉じる要求を送ります。ウィンドウの無いプロセス（コンソールのプログラムやサービス）では、その旨を表示します。
+
 ## SMART と btrfs の scrub 結果（任意）
 
 SMART と btrfs の scrub 結果は root しか読めません。rigtop 自身は root で動かさず、デバイスの権限も緩めません。代わりに root の systemd タイマーが10分ごとに集めて `/var/lib/rigtop/` の下に誰でも読めるファイルとして置き、rigtop はそれを読みます。

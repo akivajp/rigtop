@@ -282,11 +282,10 @@ fn cpu_info(ui: &mut Ui, state: &GuiState, snapshot: &Snapshot) {
     let cpu = &snapshot.cpu;
     let config = &state.config;
     ui.horizontal_wrapped(|ui| {
-        ui.label(dim("Load"));
-        ui.label(format!(
-            "{:.2} {:.2} {:.2}",
-            cpu.load_average[0], cpu.load_average[1], cpu.load_average[2]
-        ));
+        if let Some(load) = cpu.load_average {
+            ui.label(dim("Load"));
+            ui.label(format!("{:.2} {:.2} {:.2}", load[0], load[1], load[2]));
+        }
         // CPU sensors, plus other sensors once the user has named them.
         let named = snapshot
             .sensors
@@ -502,10 +501,9 @@ fn storage(ui: &mut Ui, state: &GuiState) {
                     ui.label(format!("{:>8}", format::rate(disk.read_bytes_per_sec)));
                     ui.label(dim("W"));
                     ui.label(format!("{:>8}", format::rate(disk.write_bytes_per_sec)));
-                    ui.label(colored(
-                        format!("{:>3.0}%", disk.busy_percent),
-                        percent_color(disk.busy_percent),
-                    ));
+                    if let Some(busy) = disk.busy_percent {
+                        ui.label(colored(format!("{busy:>3.0}%"), percent_color(busy)));
+                    }
                     if let Some(t) = disk.temperature_c {
                         ui.label(colored(format!("{t:.0}°C"), temperature_color(t)));
                     }

@@ -59,6 +59,17 @@ Zoom with Ctrl + mouse wheel, Ctrl + `+` / `-` / `0`, or the `A-` / `A+` buttons
 
 With mouse support on, most terminals select text with Shift+drag.
 
+## Windows
+
+Both `rigtop` and `rigtop-gui` build and run on Windows. Pre-built binaries from the latest `main` are attached to the [CI runs](https://github.com/akivajp/rigtop/actions/workflows/ci.yml) (artifact `rigtop-windows-x86_64`).
+
+What differs from Linux:
+
+- CPU load, memory, processes, network (with link speeds), drive capacity and per-drive I/O, and NVIDIA GPUs (via `nvml.dll` from the driver) work without extra software.
+- Temperatures, fans and CPU power need hardware drivers that Windows does not ship; only what Windows itself reports is shown, which is often nothing. (Reading them through LibreHardwareMonitor is planned.)
+- There is no load average and no disk busy percentage.
+- Windows has no signals: "kill" (`K`) ends the process immediately; "terminate" (`k`) asks the process's windows to close, like Task Manager's "End task", and reports when the process has no window (console programs, services).
+
 ## SMART and btrfs scrub results (optional)
 
 SMART data and btrfs scrub results are readable only by root, and rigtop never runs as root or loosens device permissions. Instead, a root systemd timer collects them every 10 minutes into world-readable files under `/var/lib/rigtop/`, and rigtop reads those:

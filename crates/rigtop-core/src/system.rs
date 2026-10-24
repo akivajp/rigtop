@@ -2,7 +2,9 @@
 //! network traffic and filesystem capacity.
 //!
 //! Platform-specific extras (sensors, RAID, per-device I/O) live in
-//! [`crate::linux`] and are merged by [`crate::source::LocalSource`].
+//! [`crate::linux`] and are merged by [`crate::source::LocalSource`]. On other
+//! platforms this module also provides per-volume I/O and the temperatures
+//! `sysinfo` can see.
 
 use std::collections::HashMap;
 
@@ -14,6 +16,19 @@ use sysinfo::{
 use crate::snapshot::{
     CpuStats, FilesystemUsage, HostInfo, MemoryStats, NetworkStats, ProcessInfo,
 };
+#[cfg(not(target_os = "linux"))]
+use crate::snapshot::{DiskIo, SensorChip, Temperature};
+
+/// What to refresh for disks: capacity everywhere; per-volume I/O counters
+/// only where `/proc/diskstats` (per physical device) is not available.
+fn disk_refresh_kind() -> DiskRefreshKind {
+    let kind = DiskRefreshKind::nothing().with_storage();
+    if cfg!(target_os = "linux") {
+        kind
+    } else {
+        kind.with_io_usage()
+    }
+}
 
 /// Filesystem types that are never interesting in a disk panel.
 const PSEUDO_FILESYSTEMS: &[&str] = &[
@@ -37,6 +52,9 @@ pub struct SystemCollector {
     networks: Networks,
     disks: Disks,
     users: Users,
+    /// Temperature sensors, where hwmon is not available.
+    #[cfg(not(target_os = "linux"))]
+    components: sysinfo::Components,
 }
 
 impl SystemCollector {
@@ -45,10 +63,10 @@ impl SystemCollector {
         let mut collector = Self {
             system: System::new(),
             networks: Networks::new_with_refreshed_list(),
-            disks: Disks::new_with_refreshed_list_specifics(
-                DiskRefreshKind::nothing().with_storage(),
-            ),
+            disks: Disks::new_with_refreshed_list_specifics(disk_refresh_kind()),
             users: Users::new_with_refreshed_list(),
+            #[cfg(not(target_os = "linux"))]
+            components: sysinfo::Components::new_with_refreshed_list(),
         };
         collector.refresh();
         collector
@@ -72,8 +90,7 @@ impl SystemCollector {
                 .with_cmd(UpdateKind::OnlyIfNotSet),
         );
         self.networks.refresh(true);
-        self.disks
-            .refresh_specifics(true, DiskRefreshKind::nothing().with_storage());
+        self.disks.refresh_specifics(true, disk_refresh_kind());
     }
 
     /// Host name, OS and uptime.
@@ -98,7 +115,8 @@ impl SystemCollector {
             total_percent: self.system.global_cpu_usage(),
             per_core_percent: cpus.iter().map(|c| c.cpu_usage()).collect(),
             per_core_mhz: cpus.iter().map(|c| c.frequency()).collect(),
-            load_average: [load.one, load.five, load.fifteen],
+            // Windows has no load average (sysinfo reports zeros).
+            load_average: cfg!(unix).then_some([load.one, load.five, load.fifteen]),
             temperatures: Vec::new(),
         }
     }
@@ -150,15 +168,21 @@ impl SystemCollector {
             }
             let device = disk.name().to_string_lossy().into_owned();
             let mount_point = disk.mount_point().to_string_lossy().into_owned();
-            let entry = by_device
-                .entry(device.clone())
-                .or_insert_with(|| FilesystemUsage {
-                    device,
-                    fs_type,
-                    mount_points: Vec::new(),
-                    total_bytes: disk.total_space(),
-                    available_bytes: disk.available_space(),
-                });
+            // On Unix the name is the source device, which merges btrfs
+            // subvolumes and bind mounts. On Windows it is the volume label,
+            // often empty or shared, so each drive letter stands alone.
+            let key = if cfg!(windows) || device.is_empty() {
+                mount_point.clone()
+            } else {
+                device.clone()
+            };
+            let entry = by_device.entry(key).or_insert_with(|| FilesystemUsage {
+                device,
+                fs_type,
+                mount_points: Vec::new(),
+                total_bytes: disk.total_space(),
+                available_bytes: disk.available_space(),
+            });
             entry.mount_points.push(mount_point);
         }
         let mut filesystems: Vec<FilesystemUsage> = by_device.into_values().collect();
@@ -171,6 +195,75 @@ impl SystemCollector {
             (key(a).len(), key(a)).cmp(&(key(b).len(), key(b)))
         });
         filesystems
+    }
+
+    /// I/O rates per mounted volume, for platforms without per-device
+    /// counters (Linux uses `/proc/diskstats` instead).
+    #[cfg(not(target_os = "linux"))]
+    pub fn volume_io(&self, elapsed_secs: Option<f64>) -> Vec<DiskIo> {
+        let mut volumes: Vec<DiskIo> = self
+            .disks
+            .list()
+            .iter()
+            .filter(|disk| disk.total_space() > 0)
+            .map(|disk| {
+                let usage = disk.usage();
+                // "C:\" -> "C:"; elsewhere the mount point as is.
+                let mount = disk.mount_point().to_string_lossy();
+                let name = mount.trim_end_matches(['\\', '/']);
+                DiskIo {
+                    name: if name.is_empty() {
+                        mount.to_string()
+                    } else {
+                        name.to_owned()
+                    },
+                    read_bytes_per_sec: rate(usage.read_bytes, elapsed_secs),
+                    write_bytes_per_sec: rate(usage.written_bytes, elapsed_secs),
+                    ..Default::default()
+                }
+            })
+            .collect();
+        volumes.sort_by(|a, b| a.name.cmp(&b.name));
+        volumes.dedup_by(|a, b| a.name == b.name);
+        volumes
+    }
+
+    /// Temperatures `sysinfo` can read (on Windows only what WMI exposes,
+    /// often nothing without vendor drivers), as one sensor chip plus the
+    /// readings that look like CPU sensors.
+    #[cfg(not(target_os = "linux"))]
+    pub fn components(&mut self) -> (Vec<SensorChip>, Vec<Temperature>) {
+        self.components.refresh(true);
+        let temperatures: Vec<Temperature> = self
+            .components
+            .list()
+            .iter()
+            .filter_map(|c| {
+                Some(Temperature {
+                    key: format!("system/{}", c.label()),
+                    label: c.label().to_owned(),
+                    celsius: c.temperature()?,
+                    max_celsius: c.max(),
+                    critical_celsius: c.critical(),
+                })
+            })
+            .collect();
+        let cpu: Vec<Temperature> = temperatures
+            .iter()
+            .filter(|t| is_cpu_sensor_label(&t.label))
+            .cloned()
+            .collect();
+        let chips = if temperatures.is_empty() {
+            Vec::new()
+        } else {
+            vec![SensorChip {
+                key: "system".to_owned(),
+                name: "system".to_owned(),
+                temperatures,
+                fans: Vec::new(),
+            }]
+        };
+        (chips, cpu)
     }
 
     /// All processes (threads excluded). `elapsed_secs` converts the I/O
@@ -237,10 +330,41 @@ impl Default for SystemCollector {
     }
 }
 
+/// Whether a sensor label from `sysinfo` describes the CPU (e.g. "CPU",
+/// "CPU Package", "Tctl", "Core 0").
+#[cfg_attr(target_os = "linux", allow(dead_code))]
+fn is_cpu_sensor_label(label: &str) -> bool {
+    let label = label.to_lowercase();
+    ["cpu", "package", "tctl", "tdie", "tccd", "core "]
+        .iter()
+        .any(|word| label.contains(word))
+}
+
 /// Converts a byte count accumulated over `elapsed_secs` into bytes per second.
 fn rate(bytes: u64, elapsed_secs: Option<f64>) -> f64 {
     match elapsed_secs {
         Some(secs) if secs > 0.0 => bytes as f64 / secs,
         _ => 0.0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cpu_sensor_labels() {
+        for label in [
+            "CPU",
+            "CPU Package",
+            "Tctl",
+            "Core 3",
+            "coretemp Package id 0",
+        ] {
+            assert!(is_cpu_sensor_label(label), "{label}");
+        }
+        for label in ["GPU", "nvme Composite", "acpitz"] {
+            assert!(!is_cpu_sensor_label(label), "{label}");
+        }
     }
 }

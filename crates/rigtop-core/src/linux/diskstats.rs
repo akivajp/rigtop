@@ -68,7 +68,7 @@ impl DiskStatsMeter {
                             * SECTOR_BYTES
                             / secs;
                     let busy_ms = cur.io_ticks_ms.saturating_sub(prev.io_ticks_ms) as f64;
-                    io.busy_percent = (busy_ms / (secs * 1000.0) * 100.0).min(100.0) as f32;
+                    io.busy_percent = Some((busy_ms / (secs * 1000.0) * 100.0).min(100.0) as f32);
                 }
                 Some(io)
             })
@@ -164,6 +164,6 @@ mod tests {
         let second = meter.sample(&roots, t0 + Duration::from_millis(500));
         assert!((second[0].read_bytes_per_sec - 2.0 * 1024.0 * 1024.0).abs() < 1e-6);
         assert!((second[0].write_bytes_per_sec - 1024.0 * 1024.0).abs() < 1e-6);
-        assert!((second[0].busy_percent - 50.0).abs() < 1e-3);
+        assert!((second[0].busy_percent.unwrap() - 50.0).abs() < 1e-3);
     }
 }

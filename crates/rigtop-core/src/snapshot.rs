@@ -95,8 +95,9 @@ pub struct CpuStats {
     pub per_core_percent: Vec<f32>,
     /// Current frequency of each logical core in MHz.
     pub per_core_mhz: Vec<u64>,
-    /// 1, 5 and 15 minute load averages (zero on platforms without them).
-    pub load_average: [f64; 3],
+    /// 1, 5 and 15 minute load averages; `None` on platforms without them
+    /// (Windows).
+    pub load_average: Option<[f64; 3]>,
     /// CPU temperature readings, e.g. `Tctl`, `Tccd1`, `Tccd2` on AMD or
     /// `Package id 0`, `Core 0`.. on Intel.
     pub temperatures: Vec<Temperature>,
@@ -243,8 +244,9 @@ pub struct DiskIo {
     pub read_bytes_per_sec: f64,
     /// Write throughput.
     pub write_bytes_per_sec: f64,
-    /// Fraction of time the device had I/O in flight.
-    pub busy_percent: f32,
+    /// Fraction of time the device had I/O in flight, where the platform
+    /// reports it (Linux).
+    pub busy_percent: Option<f32>,
     /// Drive temperature (NVMe composite sensor), if available.
     pub temperature_c: Option<f32>,
 }

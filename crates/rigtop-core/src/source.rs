@@ -164,10 +164,24 @@ impl LocalSource {
 
         #[cfg(target_os = "linux")]
         self.collect_linux(&mut snapshot, now);
+        #[cfg(not(target_os = "linux"))]
+        self.collect_portable(&mut snapshot, elapsed);
 
         let power = &mut snapshot.power;
         power.total_w = sum_present([power.cpu_package_w, power.gpus_w]);
         snapshot
+    }
+
+    /// Adds what `sysinfo` offers beyond the basics on non-Linux platforms:
+    /// per-volume I/O, temperatures and (on Windows) link speeds.
+    #[cfg(not(target_os = "linux"))]
+    fn collect_portable(&mut self, snapshot: &mut Snapshot, elapsed: Option<f64>) {
+        snapshot.disks = self.system.volume_io(elapsed);
+        let (chips, cpu_temperatures) = self.system.components();
+        snapshot.sensors = chips;
+        snapshot.cpu.temperatures = cpu_temperatures;
+        #[cfg(windows)]
+        crate::windows::annotate_links(&mut snapshot.networks);
     }
 
     /// Adds sensors, power, per-device I/O and RAID state from `/sys` and `/proc`.
@@ -247,8 +261,11 @@ fn send_signal(pid: u32, signal: ProcessSignal) -> std::io::Result<()> {
     }
 }
 
+#[cfg(windows)]
+use crate::windows::send_signal;
+
 /// Sends a signal to a local process (not implemented on this platform yet).
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 fn send_signal(_pid: u32, _signal: ProcessSignal) -> std::io::Result<()> {
     Err(std::io::Error::from(std::io::ErrorKind::Unsupported))
 }

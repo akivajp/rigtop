@@ -452,13 +452,14 @@ fn cpu_info_lines(app: &App, snapshot: &Snapshot) -> Vec<Line<'static>> {
     let cpu = &snapshot.cpu;
     let config = &app.config;
 
-    let mut first = vec![
-        dim("Load "),
-        Span::raw(format!(
+    let mut first = Vec::new();
+    if let Some(load) = cpu.load_average {
+        first.push(dim("Load "));
+        first.push(Span::raw(format!(
             "{:.2} {:.2} {:.2}",
-            cpu.load_average[0], cpu.load_average[1], cpu.load_average[2]
-        )),
-    ];
+            load[0], load[1], load[2]
+        )));
+    }
     let cpu_temps = cpu.temperatures.iter();
     // Other sensors appear only once the user has named them.
     let named_temps = snapshot
@@ -472,7 +473,8 @@ fn cpu_info_lines(app: &App, snapshot: &Snapshot) -> Vec<Line<'static>> {
         if config.is_hidden(&temp.key) {
             continue;
         }
-        first.push(dim(format!("  {} ", config.temperature_label(temp))));
+        let gap = if first.is_empty() { "" } else { "  " };
+        first.push(dim(format!("{gap}{} ", config.temperature_label(temp))));
         first.push(colored(
             format!("{:.0}°C", temp.celsius),
             temperature_color(temp.celsius),
@@ -689,11 +691,13 @@ fn storage_lines(snapshot: &Snapshot, width: u16) -> Vec<Line<'static>> {
             Span::raw(format!("{:>7}", format::rate(disk.read_bytes_per_sec))),
             dim(" W "),
             Span::raw(format!("{:>7}", format::rate(disk.write_bytes_per_sec))),
-            colored(
-                format!(" {:>3.0}%", disk.busy_percent),
-                percent_color(disk.busy_percent as f64),
-            ),
         ];
+        if let Some(busy) = disk.busy_percent {
+            spans.push(colored(
+                format!(" {busy:>3.0}%"),
+                percent_color(busy as f64),
+            ));
+        }
         if let Some(t) = disk.temperature_c {
             spans.push(colored(format!(" {t:.0}°C"), temperature_color(t)));
         }

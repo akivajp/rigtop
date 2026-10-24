@@ -18,6 +18,8 @@ pub mod snapshot;
 pub mod source;
 pub mod system;
 pub mod view;
+#[cfg(windows)]
+mod windows;
 pub mod worker;
 
 pub use config::Config;
