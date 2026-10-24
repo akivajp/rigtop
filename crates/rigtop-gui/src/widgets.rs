@@ -149,29 +149,48 @@ fn vertex(pos: Pos2, color: Color32) -> Vertex {
     }
 }
 
-/// Paints a horizontal meter made of small segments colored along its
-/// length, like btop's `■■■■` bars.
+/// Paints a horizontal meter: a rounded track with a smooth fill whose
+/// color follows btop's gradient along the full length (green at the left,
+/// red at the right end), so a fuller meter also reads "hotter".
 pub fn paint_meter(ui: &Ui, rect: Rect, ratio: f32) {
     let painter = ui.painter_at(rect);
-    const SEGMENT: f32 = 6.0;
-    const GAP: f32 = 2.0;
-    let count = ((rect.width() + GAP) / (SEGMENT + GAP)).floor().max(1.0) as usize;
-    let filled = (ratio.clamp(0.0, 1.0) * count as f32).round() as usize;
-    let segment_height = (rect.height() * 0.7).max(2.0);
-    let y = rect.center().y - segment_height / 2.0;
-    for i in 0..count {
-        let x = rect.left() + i as f32 * (SEGMENT + GAP);
-        let color = if i < filled {
-            heat_color((i as f32 + 0.5) / count as f32)
-        } else {
-            EMPTY
-        };
-        painter.rect_filled(
-            Rect::from_min_size(pos2(x, y), vec2(SEGMENT, segment_height)),
-            1.0,
-            color,
-        );
+    let bar_height = (rect.height() * 0.6).clamp(3.0, 10.0);
+    let bar = Rect::from_center_size(rect.center(), vec2(rect.width(), bar_height));
+    let radius = bar_height / 2.0;
+    painter.rect_filled(bar, radius, EMPTY);
+
+    let ratio = ratio.clamp(0.0, 1.0);
+    let fill_width = bar.width() * ratio;
+    if fill_width < 0.5 {
+        return;
     }
+    // A strip of quads with per-vertex colors gives a smooth gradient. The
+    // fill is drawn as a capsule: half-discs at both ends, gradient between.
+    const SLICES: usize = 24;
+    let mut mesh = Mesh::default();
+    let left = bar.left() + radius.min(fill_width / 2.0);
+    let right = (bar.left() + fill_width - radius).max(left);
+    for i in 0..=SLICES {
+        let t = i as f32 / SLICES as f32;
+        let x = left + (right - left) * t;
+        // Color by position along the whole meter, not just the filled part.
+        let color = heat_color((x - bar.left()) / bar.width());
+        let index = mesh.vertices.len() as u32;
+        mesh.vertices.push(vertex(pos2(x, bar.top()), color));
+        mesh.vertices.push(vertex(pos2(x, bar.bottom()), color));
+        if i > 0 {
+            mesh.add_triangle(index - 2, index - 1, index);
+            mesh.add_triangle(index - 1, index, index + 1);
+        }
+    }
+    painter.add(mesh);
+    let cap_radius = radius.min(fill_width / 2.0);
+    painter.circle_filled(pos2(left, bar.center().y), cap_radius, heat_color(0.0));
+    painter.circle_filled(
+        pos2(right, bar.center().y),
+        cap_radius,
+        heat_color((right - bar.left()) / bar.width()),
+    );
 }
 
 #[cfg(test)]

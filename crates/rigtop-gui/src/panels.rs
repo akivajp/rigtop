@@ -13,7 +13,7 @@ use rigtop_core::snapshot::{
 use rigtop_core::view::{SortKey, is_virtual_interface, signal_name};
 use rigtop_core::worker::Command;
 
-use crate::app::{GuiState, Pane};
+use crate::app::{GuiState, Pane, ViewAction};
 use crate::widgets::{self, BAD, DIM, OK, TEXT, WARN, percent_color, temperature_color};
 
 /// Height of one text row in the custom-painted parts.
@@ -58,9 +58,13 @@ pub fn title_extras(ui: &mut Ui, pane: Pane, state: &mut GuiState) {
                 FontId::monospace(14.0),
                 TEXT,
             );
+            let uptime = format!("up {}", format::duration(host.uptime_secs));
+            let hostname = host.hostname.clone();
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.label(dim(format!("up {}", format::duration(host.uptime_secs))));
-                ui.label(colored(host.hostname.clone(), TEXT));
+                ui.label(dim(uptime));
+                ui.label(colored(hostname, TEXT));
+                ui.add_space(12.0);
+                view_controls(ui, state);
             });
         }
         Pane::Memory => {
@@ -78,6 +82,40 @@ pub fn title_extras(ui: &mut Ui, pane: Pane, state: &mut GuiState) {
             });
         }
         Pane::Gpu | Pane::Storage => {}
+    }
+}
+
+/// Zoom buttons and layout reset (right-to-left layout: drawn right first).
+fn view_controls(ui: &mut Ui, state: &mut GuiState) {
+    let small = |text: &str| egui::Button::new(RichText::new(text).color(DIM)).frame(false);
+    if ui
+        .add(small("reset layout"))
+        .on_hover_text("restore the default panel layout")
+        .clicked()
+    {
+        state.view_actions.push(ViewAction::ResetLayout);
+    }
+    if ui
+        .add(small("A+"))
+        .on_hover_text("zoom in (Ctrl + + / Ctrl + wheel)")
+        .clicked()
+    {
+        state.view_actions.push(ViewAction::ZoomIn);
+    }
+    let percent = format!("{:.0}%", state.zoom * 100.0);
+    if ui
+        .add(small(&percent))
+        .on_hover_text("reset zoom (Ctrl + 0)")
+        .clicked()
+    {
+        state.view_actions.push(ViewAction::ZoomReset);
+    }
+    if ui
+        .add(small("A-"))
+        .on_hover_text("zoom out (Ctrl + - / Ctrl + wheel)")
+        .clicked()
+    {
+        state.view_actions.push(ViewAction::ZoomOut);
     }
 }
 

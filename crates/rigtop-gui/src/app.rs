@@ -18,8 +18,18 @@ use crate::widgets::{self, BACKGROUND, BORDER, DIM, TEXT};
 /// How long a status message stays visible.
 const STATUS_TTL: Duration = Duration::from_secs(5);
 
+/// Allowed UI zoom range (1.0 = 100%).
+const MIN_ZOOM: f32 = 0.5;
+const MAX_ZOOM: f32 = 3.0;
+/// Zoom change per button press or Ctrl +/- (egui's own step).
+const ZOOM_STEP: f32 = 0.1;
+
+/// Keys of the values eframe persists between runs.
+const ZOOM_KEY: &str = "zoom";
+const LAYOUT_KEY: &str = "layout";
+
 /// One panel of the layout.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Pane {
     Cpu,
     Memory,
@@ -30,6 +40,16 @@ pub enum Pane {
 }
 
 impl Pane {
+    /// Every panel, used to validate a restored layout.
+    pub const ALL: [Pane; 6] = [
+        Pane::Cpu,
+        Pane::Memory,
+        Pane::Gpu,
+        Pane::Storage,
+        Pane::Network,
+        Pane::Processes,
+    ];
+
     /// Title shown in the panel border.
     pub fn title(self) -> &'static str {
         match self {
@@ -63,6 +83,15 @@ pub struct ConfirmSignal {
     pub signal: ProcessSignal,
 }
 
+/// View changes requested from inside the panels, applied after drawing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ViewAction {
+    ZoomIn,
+    ZoomOut,
+    ZoomReset,
+    ResetLayout,
+}
+
 /// Everything the panels read and modify.
 pub struct GuiState {
     pub config: Config,
@@ -77,6 +106,10 @@ pub struct GuiState {
     pub confirm: Option<ConfirmSignal>,
     /// Commands queued for the worker during this frame.
     pub commands: Vec<Command>,
+    /// View changes queued during this frame.
+    pub view_actions: Vec<ViewAction>,
+    /// Current UI zoom factor, for display in the panels.
+    pub zoom: f32,
     status: Option<(String, Instant)>,
 }
 
@@ -94,6 +127,8 @@ impl GuiState {
             selected_pid: None,
             confirm: None,
             commands: Vec::new(),
+            view_actions: Vec::new(),
+            zoom: 1.0,
             status: None,
         }
     }
@@ -172,25 +207,39 @@ pub struct RigtopApp {
     tree: Tree<Pane>,
     /// `None` in tests, which feed snapshots directly.
     worker: Option<Worker>,
-    /// Whether the theme has been applied to the egui context.
+    /// Whether the theme (and restored zoom) has been applied to the context.
     styled: bool,
+    /// Zoom restored from the previous run, applied on the first frame.
+    initial_zoom: f32,
 }
 
 impl RigtopApp {
     /// Starts collecting on a worker thread that wakes the UI on new data.
-    pub fn new(ctx: &egui::Context, config: Config, interval: Duration) -> Self {
+    ///
+    /// The zoom factor and panel layout of the previous run are restored from
+    /// eframe's storage when available.
+    pub fn new(cc: &eframe::CreationContext<'_>, config: Config, interval: Duration) -> Self {
         let source_config = config.clone();
-        let repaint = ctx.clone();
+        let repaint = cc.egui_ctx.clone();
         let worker = Worker::spawn_with_notify(
             move || LocalSource::with_config(&source_config),
             interval,
             move || repaint.request_repaint(),
         );
+        let storage = cc.storage;
+        let initial_zoom = storage
+            .and_then(|s| eframe::get_value::<f32>(s, ZOOM_KEY))
+            .map_or(1.0, |z| z.clamp(MIN_ZOOM, MAX_ZOOM));
+        let tree = storage
+            .and_then(|s| eframe::get_value::<Tree<Pane>>(s, LAYOUT_KEY))
+            .filter(is_complete_layout)
+            .unwrap_or_else(default_tree);
         Self {
             state: GuiState::new(config),
-            tree: default_tree(),
+            tree,
             worker: Some(worker),
             styled: false,
+            initial_zoom,
         }
     }
 
@@ -202,15 +251,25 @@ impl RigtopApp {
             tree: default_tree(),
             worker: None,
             styled: false,
+            initial_zoom: 1.0,
         }
     }
 
     /// Draws one frame.
     pub fn show(&mut self, ui: &mut Ui) {
+        let ctx = ui.ctx().clone();
         if !self.styled {
-            setup_style(ui.ctx());
+            setup_style(&ctx);
+            ctx.set_zoom_factor(self.initial_zoom);
             self.styled = true;
         }
+        // Ctrl + mouse wheel (or pinch) zooms the whole UI; egui already
+        // handles Ctrl + "+" / "-" / "0" itself.
+        let wheel_zoom = ctx.input(|i| i.zoom_delta());
+        if wheel_zoom != 1.0 {
+            set_zoom(&ctx, ctx.zoom_factor() * wheel_zoom);
+        }
+        self.state.zoom = ctx.zoom_factor();
         if let Some(worker) = &self.worker {
             while let Some(event) = worker.try_recv() {
                 self.state.apply(event);
@@ -234,6 +293,15 @@ impl RigtopApp {
             });
         panels::confirm_dialog(ui.ctx(), &mut self.state);
 
+        for action in std::mem::take(&mut self.state.view_actions) {
+            match action {
+                ViewAction::ZoomIn => set_zoom(&ctx, ctx.zoom_factor() + ZOOM_STEP),
+                ViewAction::ZoomOut => set_zoom(&ctx, ctx.zoom_factor() - ZOOM_STEP),
+                ViewAction::ZoomReset => set_zoom(&ctx, 1.0),
+                ViewAction::ResetLayout => self.tree = default_tree(),
+            }
+        }
+
         if let Some(worker) = &self.worker {
             for command in self.state.commands.drain(..) {
                 worker.send(command);
@@ -251,6 +319,31 @@ impl eframe::App for RigtopApp {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         self.show(ui);
     }
+
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        eframe::set_value(storage, ZOOM_KEY, &self.state.zoom);
+        eframe::set_value(storage, LAYOUT_KEY, &self.tree);
+    }
+}
+
+/// Sets the UI zoom, clamped and rounded to whole percents.
+fn set_zoom(ctx: &egui::Context, zoom: f32) {
+    let zoom = (zoom.clamp(MIN_ZOOM, MAX_ZOOM) * 100.0).round() / 100.0;
+    ctx.set_zoom_factor(zoom);
+}
+
+/// Whether a restored layout still contains every panel exactly once (a
+/// layout saved by another version might not).
+fn is_complete_layout(tree: &Tree<Pane>) -> bool {
+    let panes: Vec<Pane> = tree
+        .tiles
+        .iter()
+        .filter_map(|(_, tile)| match tile {
+            Tile::Pane(pane) => Some(*pane),
+            Tile::Container(_) => None,
+        })
+        .collect();
+    panes.len() == Pane::ALL.len() && Pane::ALL.iter().all(|p| panes.contains(p))
 }
 
 /// Dark theme with monospace text everywhere, like a terminal monitor.
@@ -529,6 +622,28 @@ mod tests {
         harness.get_by_label("Cancel").click();
         harness.run();
         assert!(harness.state().state.confirm.is_none());
+    }
+
+    #[test]
+    fn layout_validation_and_zoom_controls() {
+        assert!(is_complete_layout(&default_tree()));
+        // A layout missing a panel (e.g. from another version) is rejected.
+        let partial = Tree::new_vertical(Id::unique("partial"), vec![Pane::Cpu, Pane::Memory]);
+        assert!(!is_complete_layout(&partial));
+
+        let mut harness = harness_with(sample_snapshot());
+        harness.run();
+        harness.get_by_label("A+").click();
+        harness.run();
+        assert!((harness.ctx.zoom_factor() - 1.1).abs() < 1e-4);
+        harness.get_by_label("A-").click();
+        harness.run();
+        harness.get_by_label("A-").click();
+        harness.run();
+        assert!((harness.ctx.zoom_factor() - 0.9).abs() < 1e-4);
+        harness.get_by_label("90%").click();
+        harness.run();
+        assert!((harness.ctx.zoom_factor() - 1.0).abs() < 1e-4);
     }
 
     /// Renders the real machine to a PNG for visual checks:

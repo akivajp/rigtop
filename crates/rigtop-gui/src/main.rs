@@ -56,13 +56,7 @@ fn main() -> Result<()> {
     eframe::run_native(
         "rigtop",
         options,
-        Box::new(move |cc| {
-            Ok(Box::new(app::RigtopApp::new(
-                &cc.egui_ctx,
-                config,
-                interval,
-            )))
-        }),
+        Box::new(move |cc| Ok(Box::new(app::RigtopApp::new(cc, config, interval)))),
     )
     .map_err(|err| anyhow!("failed to start the GUI: {err}"))
 }

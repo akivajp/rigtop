@@ -53,6 +53,8 @@ cargo run --release -p rigtop-gui            # same options: --interval-ms, --co
 
 Drag panel borders to resize and panel titles to rearrange. Click a column header to sort, right-click a process to terminate or kill it (asks first), and pick the network interface from the list.
 
+Zoom with Ctrl + mouse wheel, Ctrl + `+` / `-` / `0`, or the `A-` / `A+` buttons in the CPU panel title. The zoom level and panel layout are restored on the next start; "reset layout" brings back the default arrangement.
+
 With mouse support on, most terminals select text with Shift+drag.
 
 ## SMART and btrfs scrub results (optional)
