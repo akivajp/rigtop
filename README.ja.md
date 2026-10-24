@@ -25,7 +25,7 @@ btop に倣ったシステムモニターです。収集部分を共通にして
 
 1. ~~収集部分と TUI（Linux）~~（v0.1）
 2. ~~ネイティブ GUI（Linux）~~（v0.1）
-3. ~~Windows 対応~~（v0.1。温度・ファン・CPU 電力は未対応。macOS はビルドのみ、実機検証なし）
+3. ~~Windows 対応~~（v0.1。温度・ファン・CPU 電力は v0.4 で LibreHardwareMonitor 経由。macOS はビルドのみ、実機検証なし）
 4. ~~SSH による遠隔監視~~: ホスト1台（v0.2）、複数ホストのオーバービュー（v0.3）
 
 ## インストール
@@ -116,9 +116,17 @@ rigtop は OS の `ssh`（Windows では標準の OpenSSH クライアント）�
 Linux との違い:
 
 - CPU 使用率、メモリ、プロセス、ネットワーク（リンク速度を含む）、ドライブの容量とドライブごとの I/O、NVIDIA の GPU（ドライバ付属の `nvml.dll` 経由）は、追加のソフト無しで表示できます。
-- 温度・ファン・CPU の消費電力は、Windows が標準で持たないハードウェアのドライバが必要です。Windows 自身が出す値だけを表示するので、多くの環境では何も出ません（LibreHardwareMonitor 経由の読み取りを予定しています）。
+- 温度・ファン・CPU の消費電力は、Windows が標準で持たないハードウェアのドライバが必要です。[LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor) が動いていればそこから読み取ります（下記）。動いていなければ Windows 自身が出す値だけを表示するので、多くの環境では何も出ません。
 - ロードアベレージとディスクの使用率（busy %）はありません。
 - Windows にはシグナルがありません。「強制終了」（`K`）はプロセスを即座に終了し、「終了」（`k`）はタスクマネージャーの「タスクの終了」と同じくプロセスのウィンドウに閉じる要求を送ります。ウィンドウの無いプロセス（コンソールのプログラムやサービス）では、その旨を表示します。
+
+### LibreHardwareMonitor で温度・ファン・CPU の消費電力を表示する
+
+1. LibreHardwareMonitor を [リリース](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases) から入手して起動します（管理者権限を求められます。CPU のセンサーに要る PawnIO ドライバの導入を促されることがあります）。
+2. **Options → Remote Web Server → Run** を有効にします（ポート 8085）。rigtop は `http://127.0.0.1:8085/data.json` を読み、10秒以内に値を表示し始めます。
+3. 必要なら **Options → Run On Windows Startup** と **Start Minimized** も有効にします。
+
+Web サーバーは認証無しにしてください。Windows ファイアウォールで塞がない限り、このポートには他の機械からも接続できます。アドレスやポートを変えた場合は[設定](#設定)の `[lhm] url` で指定し、`url = ""` で読み取りを止められます。NVIDIA の GPU は LibreHardwareMonitor ではなく、従来どおりドライバから読みます。
 
 ## SMART と btrfs の scrub 結果（任意）
 
@@ -153,6 +161,10 @@ dir = "/var/lib/rigtop/smart"
 
 [btrfs]
 scrub_dir = "/var/lib/rigtop/btrfs"
+
+[lhm]
+# Windows: LibreHardwareMonitor の Web サーバー（"" で無効）
+url = "http://127.0.0.1:8085/data.json"
 ```
 
 ## ライセンス

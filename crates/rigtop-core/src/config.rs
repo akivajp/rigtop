@@ -19,6 +19,10 @@
 //! # Directory with btrfs scrub status files copied by the root timer.
 //! scrub_dir = "/var/lib/rigtop/btrfs"
 //!
+//! [lhm]
+//! # Windows: LibreHardwareMonitor's web server ("" to disable).
+//! url = "http://127.0.0.1:8085/data.json"
+//!
 //! [overview]
 //! # Sections of each host card, most important first.
 //! sections = ["cpu", "gpu", "memory", "processes", "network", "storage"]
@@ -51,6 +55,8 @@ use crate::snapshot::{Fan, Temperature};
 pub const DEFAULT_SMART_DIR: &str = "/var/lib/rigtop/smart";
 /// Default location of the copied btrfs scrub status files.
 pub const DEFAULT_SCRUB_DIR: &str = "/var/lib/rigtop/btrfs";
+/// Default address of LibreHardwareMonitor's web server (Windows sensors).
+pub const DEFAULT_LHM_URL: &str = "http://127.0.0.1:8085/data.json";
 
 /// Errors while loading or saving the configuration.
 #[derive(Debug, thiserror::Error)]
@@ -94,6 +100,9 @@ pub struct Config {
     pub smart: SmartConfig,
     /// btrfs scrub status files.
     pub btrfs: BtrfsConfig,
+    /// LibreHardwareMonitor's web server, the source of temperatures, fans
+    /// and CPU power on Windows.
+    pub lhm: LhmConfig,
     /// The multi-host overview.
     pub overview: OverviewConfig,
     /// Remote hosts monitored over SSH (`[[hosts]]` tables).
@@ -220,6 +229,23 @@ impl Default for SmartConfig {
     fn default() -> Self {
         Self {
             dir: PathBuf::from(DEFAULT_SMART_DIR),
+        }
+    }
+}
+
+/// Where to read Windows sensors from.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct LhmConfig {
+    /// `data.json` of LibreHardwareMonitor's "Remote Web Server" (plain
+    /// HTTP without authentication); empty to disable.
+    pub url: String,
+}
+
+impl Default for LhmConfig {
+    fn default() -> Self {
+        Self {
+            url: DEFAULT_LHM_URL.to_owned(),
         }
     }
 }
@@ -411,6 +437,9 @@ hidden = ["nct6686:nct6683.2592/temp4"]
 
 [smart]
 dir = "/tmp/smart"
+
+[lhm]
+url = ""
 "#,
         )
         .unwrap();
@@ -430,6 +459,8 @@ dir = "/tmp/smart"
         assert_eq!(config.fan_label(&other), "fan2");
         assert!(config.is_hidden("nct6686:nct6683.2592/temp4"));
         assert_eq!(config.smart.dir, PathBuf::from("/tmp/smart"));
+        assert_eq!(config.lhm.url, "");
+        assert_eq!(Config::default().lhm.url, DEFAULT_LHM_URL);
     }
 
     #[test]

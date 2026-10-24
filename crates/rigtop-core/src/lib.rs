@@ -15,6 +15,9 @@ pub mod config;
 pub mod format;
 pub mod gpu;
 pub mod hosts;
+// Parsed (and tested) everywhere, used on Windows.
+#[cfg(any(windows, test))]
+mod lhm;
 #[cfg(target_os = "linux")]
 pub mod linux;
 pub mod remote;

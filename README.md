@@ -25,7 +25,7 @@ A btop-inspired system monitor with two front-ends that share one data-collectio
 
 1. ~~Collection core and the TUI on Linux~~ (v0.1)
 2. ~~Native GUI on Linux~~ (v0.1)
-3. ~~Windows support~~ (v0.1; temperatures, fans and CPU power still missing; macOS builds without hardware testing)
+3. ~~Windows support~~ (v0.1; temperatures, fans and CPU power through LibreHardwareMonitor in v0.4; macOS builds without hardware testing)
 4. ~~Remote monitoring over SSH~~: one host (v0.2), several hosts with an overview (v0.3)
 
 ## Installation
@@ -116,9 +116,17 @@ Both `rigtop` and `rigtop-gui` run on Windows (see [Installation](#installation)
 What differs from Linux:
 
 - CPU load, memory, processes, network (with link speeds), drive capacity and per-drive I/O, and NVIDIA GPUs (via `nvml.dll` from the driver) work without extra software.
-- Temperatures, fans and CPU power need hardware drivers that Windows does not ship; only what Windows itself reports is shown, which is often nothing. (Reading them through LibreHardwareMonitor is planned.)
+- Temperatures, fans and CPU power need hardware drivers that Windows does not ship. rigtop reads them from [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor) when it is running (see below); otherwise only what Windows itself reports is shown, which is often nothing.
 - There is no load average and no disk busy percentage.
 - Windows has no signals: "kill" (`K`) ends the process immediately; "terminate" (`k`) asks the process's windows to close, like Task Manager's "End task", and reports when the process has no window (console programs, services).
+
+### Temperatures, fans and CPU power with LibreHardwareMonitor
+
+1. Download LibreHardwareMonitor from its [releases](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases) and run it (it asks for administrator rights and may offer to install its PawnIO driver, which it needs for CPU sensors).
+2. Turn on **Options → Remote Web Server → Run** (port 8085). rigtop reads `http://127.0.0.1:8085/data.json` and picks the values up within 10 seconds.
+3. Optionally enable **Options → Run On Windows Startup** and **Start Minimized**.
+
+The web server must not require authentication. Its port can be reached from other machines unless Windows Firewall blocks it. For another address or port, set `[lhm] url` in the [configuration](#configuration); `url = ""` turns this off. NVIDIA GPUs keep coming from the driver, not LibreHardwareMonitor.
 
 ## SMART and btrfs scrub results (optional)
 
@@ -153,6 +161,10 @@ dir = "/var/lib/rigtop/smart"
 
 [btrfs]
 scrub_dir = "/var/lib/rigtop/btrfs"
+
+[lhm]
+# Windows: LibreHardwareMonitor's web server ("" to disable).
+url = "http://127.0.0.1:8085/data.json"
 ```
 
 ## License

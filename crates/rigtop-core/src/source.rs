@@ -114,6 +114,9 @@ pub struct LocalSource {
     /// Directories searched for btrfs scrub status files, in order.
     #[cfg(target_os = "linux")]
     scrub_dirs: Vec<std::path::PathBuf>,
+    /// Temperatures, fans and CPU power from LibreHardwareMonitor.
+    #[cfg(windows)]
+    lhm: crate::lhm::LhmReader,
 }
 
 impl LocalSource {
@@ -144,6 +147,8 @@ impl LocalSource {
             net_links: NetLinkReader::new(),
             // The copy made by the root collector first, then btrfs-progs'
             // own file in case rigtop runs as root.
+            #[cfg(windows)]
+            lhm: crate::lhm::LhmReader::new(&config.lhm.url),
             #[cfg(target_os = "linux")]
             scrub_dirs: vec![
                 config.btrfs.scrub_dir.clone(),
@@ -212,7 +217,20 @@ impl LocalSource {
         snapshot.sensors = chips;
         snapshot.cpu.temperatures = cpu_temperatures;
         #[cfg(windows)]
-        crate::windows::annotate_links(&mut snapshot.networks);
+        {
+            crate::windows::annotate_links(&mut snapshot.networks);
+            // LibreHardwareMonitor, when running, knows far more than the
+            // ACPI thermal zones sysinfo can see.
+            if let Some(lhm) = self.lhm.read(Instant::now()) {
+                if !lhm.chips.is_empty() {
+                    snapshot.sensors = lhm.chips;
+                }
+                if !lhm.cpu_temperatures.is_empty() {
+                    snapshot.cpu.temperatures = lhm.cpu_temperatures;
+                }
+                snapshot.power.cpu_package_w = lhm.cpu_package_w;
+            }
+        }
     }
 
     /// Adds sensors, power, per-device I/O and RAID state from `/sys` and `/proc`.
