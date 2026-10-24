@@ -33,6 +33,9 @@ pub enum SourceError {
     /// The source is no longer available (e.g. the SSH connection closed).
     #[error("source disconnected: {0}")]
     Disconnected(String),
+    /// The remote agent reported a problem or does not speak our protocol.
+    #[error("remote: {0}")]
+    Remote(String),
     /// Sending a signal to a process failed (no such process, permission denied, ...).
     #[error("cannot signal process {pid}: {source}")]
     Signal {
@@ -64,6 +67,34 @@ pub trait DataSource {
     /// Sends `signal` to process `pid` on the monitored host, with the
     /// privileges of the user the source runs as.
     fn signal_process(&mut self, pid: u32, signal: ProcessSignal) -> Result<(), SourceError>;
+
+    /// Tells the source how often it will be polled. Remote sources forward
+    /// this to the agent, which samples on its own schedule; local sources
+    /// need nothing.
+    fn set_interval(&mut self, _interval: Duration) {}
+
+    /// Limits snapshots to the top `limit` processes by CPU (`None`: all).
+    /// Remote sources use this to save bandwidth for hosts in an overview.
+    fn set_process_limit(&mut self, _limit: Option<usize>) {}
+}
+
+/// Boxed sources, so front-ends can choose local or remote at run time.
+impl<T: DataSource + ?Sized> DataSource for Box<T> {
+    fn poll(&mut self) -> Result<Snapshot, SourceError> {
+        (**self).poll()
+    }
+
+    fn signal_process(&mut self, pid: u32, signal: ProcessSignal) -> Result<(), SourceError> {
+        (**self).signal_process(pid, signal)
+    }
+
+    fn set_interval(&mut self, interval: Duration) {
+        (**self).set_interval(interval);
+    }
+
+    fn set_process_limit(&mut self, limit: Option<usize>) {
+        (**self).set_process_limit(limit);
+    }
 }
 
 /// Collects snapshots of the machine rigtop runs on.

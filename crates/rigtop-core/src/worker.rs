@@ -17,6 +17,8 @@ pub enum Command {
     Signal { pid: u32, signal: ProcessSignal },
     /// Change the polling interval.
     SetInterval(Duration),
+    /// Limit snapshots to the top processes (`None`: all).
+    SetProcessLimit(Option<usize>),
 }
 
 /// Messages from the worker to the UI.
@@ -128,6 +130,7 @@ fn run<S: DataSource, N: Fn()>(
 ) {
     // The source has just taken its warm-up sample; the first real sample
     // only needs the minimum interval, so the UI fills quickly.
+    source.set_interval(interval);
     let mut last_poll = Instant::now();
     let mut next_poll = last_poll + MIN_POLL_INTERVAL;
     loop {
@@ -150,8 +153,10 @@ fn run<S: DataSource, N: Fn()>(
             }
             Ok(Command::SetInterval(new_interval)) => {
                 interval = new_interval.max(MIN_POLL_INTERVAL);
+                source.set_interval(interval);
                 next_poll = last_poll + interval;
             }
+            Ok(Command::SetProcessLimit(limit)) => source.set_process_limit(limit),
             Err(RecvTimeoutError::Timeout) => {
                 let event = match source.poll() {
                     Ok(snapshot) => Event::Snapshot(Box::new(snapshot)),

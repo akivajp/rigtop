@@ -5,14 +5,18 @@
 //! - [`source`]: the [`DataSource`] trait and the [`LocalSource`] implementation.
 //! - [`config`]: user configuration (sensor labels, SMART directory).
 //! - [`system`], [`gpu`], [`smart`], `linux`: the individual collectors.
+//! - [`agent`], [`remote`]: remote monitoring over SSH (`rigtop --agent` and
+//!   the [`remote::RemoteSource`] that talks to it).
 //! - [`worker`], [`view`], [`format`]: front-end helpers shared by the TUI
 //!   and the GUI (background polling thread, process table logic, units).
 
+pub mod agent;
 pub mod config;
 pub mod format;
 pub mod gpu;
 #[cfg(target_os = "linux")]
 pub mod linux;
+pub mod remote;
 pub mod smart;
 pub mod snapshot;
 pub mod source;
