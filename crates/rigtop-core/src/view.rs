@@ -155,6 +155,126 @@ impl MetricHistory {
     }
 }
 
+/// How urgent an [`Alert`] is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Severity {
+    /// Worth a look (e.g. a filesystem filling up, a RAID resync).
+    Warning,
+    /// Data at risk (errors, a missing device, a failing drive).
+    Critical,
+}
+
+/// A condition on a host that needs attention, for overviews.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Alert {
+    pub severity: Severity,
+    pub text: String,
+}
+
+/// Filesystem usage that triggers a warning, and a critical alert.
+const FS_WARN_PERCENT: f64 = 90.0;
+const FS_CRITICAL_PERCENT: f64 = 97.0;
+/// GPU temperature that triggers a warning.
+const GPU_HOT_CELSIUS: f32 = 85.0;
+
+/// Conditions in `snapshot` that need attention, most severe first:
+/// storage errors and failing drives, degraded RAID, full filesystems, hot GPUs.
+pub fn alerts(snapshot: &Snapshot) -> Vec<Alert> {
+    let mut alerts = Vec::new();
+    let mut add = |severity, text: String| alerts.push(Alert { severity, text });
+    for fs in &snapshot.raid.btrfs {
+        let name = fs
+            .mount_points
+            .first()
+            .map_or(fs.fsid.as_str(), String::as_str);
+        let missing = fs.device_stats.iter().filter(|d| d.missing).count();
+        if missing > 0 {
+            add(
+                Severity::Critical,
+                format!("btrfs {name}: {missing} device(s) missing"),
+            );
+        }
+        let errors: u64 = fs.device_stats.iter().map(|d| d.total_errors()).sum();
+        if errors > 0 {
+            add(
+                Severity::Critical,
+                format!("btrfs {name}: {errors} I/O errors"),
+            );
+        }
+        if let Some(scrub) = &fs.scrub {
+            if scrub.uncorrectable > 0 {
+                add(
+                    Severity::Critical,
+                    format!(
+                        "btrfs {name}: scrub found {} uncorrectable errors",
+                        scrub.uncorrectable
+                    ),
+                );
+            } else if scrub.errors > 0 {
+                add(
+                    Severity::Warning,
+                    format!("btrfs {name}: scrub corrected {} errors", scrub.corrected),
+                );
+            }
+        }
+    }
+    for md in &snapshot.raid.md {
+        if md.active && md.is_degraded() {
+            add(
+                Severity::Critical,
+                format!("{} ({}) degraded", md.name, md.level),
+            );
+        } else if !md.active {
+            add(Severity::Warning, format!("{} inactive", md.name));
+        }
+        if let Some(sync) = &md.sync {
+            add(
+                Severity::Warning,
+                format!("{} {} {:.0}%", md.name, sync.action, sync.percent),
+            );
+        }
+    }
+    for smart in &snapshot.smart {
+        if let Some(error) = &smart.error {
+            add(
+                Severity::Warning,
+                format!("{}: SMART unreadable ({error})", smart.device),
+            );
+        } else if smart.passed == Some(false) {
+            add(
+                Severity::Critical,
+                format!("{}: SMART failed", smart.device),
+            );
+        } else if smart.needs_attention() {
+            add(
+                Severity::Critical,
+                format!("{}: SMART warning", smart.device),
+            );
+        }
+    }
+    for fs in &snapshot.filesystems {
+        let used = fs.total_bytes.saturating_sub(fs.available_bytes);
+        let percent = used as f64 / fs.total_bytes.max(1) as f64 * 100.0;
+        let name = fs
+            .mount_points
+            .first()
+            .map_or(fs.device.as_str(), String::as_str);
+        if percent >= FS_CRITICAL_PERCENT {
+            add(Severity::Critical, format!("{name} {percent:.0}% full"));
+        } else if percent >= FS_WARN_PERCENT {
+            add(Severity::Warning, format!("{name} {percent:.0}% full"));
+        }
+    }
+    for gpu in &snapshot.gpus {
+        if let Some(t) = gpu.temperature_c.filter(|t| *t >= GPU_HOT_CELSIUS) {
+            add(Severity::Warning, format!("GPU {} at {t:.0}°C", gpu.index));
+        }
+    }
+    // Stable sort keeps the order above within each severity.
+    alerts.sort_by_key(|a| std::cmp::Reverse(a.severity));
+    alerts
+}
+
 /// How the process table is filtered and sorted.
 #[derive(Debug, Clone, Copy)]
 pub struct ProcessQuery<'q> {
@@ -372,6 +492,59 @@ mod tests {
         assert!(history.net_rx.last(10).is_empty());
         history.record(&snapshot);
         assert_eq!(history.net_tx.last(1), vec![5.0]);
+    }
+
+    #[test]
+    fn alerts_flag_storage_problems_first() {
+        use crate::snapshot::{
+            BtrfsDeviceStats, BtrfsFilesystem, FilesystemUsage, MdArray, RaidStats, SmartDevice,
+        };
+        let snapshot = Snapshot {
+            filesystems: vec![FilesystemUsage {
+                mount_points: vec!["/data".to_owned()],
+                total_bytes: 100,
+                available_bytes: 8,
+                ..Default::default()
+            }],
+            raid: RaidStats {
+                btrfs: vec![BtrfsFilesystem {
+                    mount_points: vec!["/".to_owned()],
+                    device_stats: vec![BtrfsDeviceStats {
+                        devid: 1,
+                        corruption_errs: 2,
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }],
+                md: vec![MdArray {
+                    name: "md0".to_owned(),
+                    active: true,
+                    level: "raid1".to_owned(),
+                    expected_devices: Some(2),
+                    working_devices: Some(1),
+                    ..Default::default()
+                }],
+            },
+            smart: vec![SmartDevice {
+                device: "sda".to_owned(),
+                passed: Some(true),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let alerts = alerts(&snapshot);
+        let texts: Vec<&str> = alerts.iter().map(|a| a.text.as_str()).collect();
+        assert_eq!(
+            texts,
+            vec![
+                "btrfs /: 2 I/O errors",
+                "md0 (raid1) degraded",
+                "/data 92% full"
+            ]
+        );
+        assert_eq!(alerts[0].severity, Severity::Critical);
+        assert_eq!(alerts[2].severity, Severity::Warning);
+        assert!(super::alerts(&Snapshot::default()).is_empty());
     }
 
     #[test]

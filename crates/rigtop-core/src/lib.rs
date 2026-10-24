@@ -14,6 +14,7 @@ pub mod agent;
 pub mod config;
 pub mod format;
 pub mod gpu;
+pub mod hosts;
 #[cfg(target_os = "linux")]
 pub mod linux;
 pub mod remote;

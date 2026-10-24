@@ -18,6 +18,21 @@
 //! [btrfs]
 //! # Directory with btrfs scrub status files copied by the root timer.
 //! scrub_dir = "/var/lib/rigtop/btrfs"
+//!
+//! [overview]
+//! # Sections of each host card, most important first.
+//! sections = ["cpu", "gpu", "memory", "processes", "network", "storage"]
+//! include_local = true
+//! processes = 10
+//!
+//! [[hosts]]
+//! name = "zefat"
+//!
+//! [[hosts]]
+//! name = "nas"
+//! ssh = "admin@nas.local"
+//! command = "/usr/local/bin/rigtop --agent"
+//! sections = ["storage", "cpu", "network"]
 //! ```
 //!
 //! Labels are applied by front-ends rather than by data sources, so that a
@@ -71,6 +86,107 @@ pub struct Config {
     pub smart: SmartConfig,
     /// btrfs scrub status files.
     pub btrfs: BtrfsConfig,
+    /// The multi-host overview.
+    pub overview: OverviewConfig,
+    /// Remote hosts monitored over SSH (`[[hosts]]` tables).
+    pub hosts: Vec<HostConfig>,
+}
+
+/// A block of information on a host card in the overview.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OverviewSection {
+    Cpu,
+    Gpu,
+    Memory,
+    Processes,
+    Network,
+    Storage,
+}
+
+impl OverviewSection {
+    /// All sections in the default priority order.
+    pub const ALL: [OverviewSection; 6] = [
+        OverviewSection::Cpu,
+        OverviewSection::Gpu,
+        OverviewSection::Memory,
+        OverviewSection::Processes,
+        OverviewSection::Network,
+        OverviewSection::Storage,
+    ];
+
+    /// Name shown in menus.
+    pub fn label(self) -> &'static str {
+        match self {
+            OverviewSection::Cpu => "CPU",
+            OverviewSection::Gpu => "GPU",
+            OverviewSection::Memory => "Memory",
+            OverviewSection::Processes => "Processes",
+            OverviewSection::Network => "Network",
+            OverviewSection::Storage => "Storage",
+        }
+    }
+}
+
+/// Settings of the multi-host overview.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct OverviewConfig {
+    /// Sections shown on each host card, most important first. Sections are
+    /// dropped from the end when a card is too small; leaving one out of
+    /// the list hides it.
+    pub sections: Vec<OverviewSection>,
+    /// Whether this machine also gets a card (it always has its own tab).
+    pub include_local: bool,
+    /// Processes listed per card. Hosts not shown in detail only send this
+    /// many, to keep SSH traffic small.
+    pub processes: usize,
+}
+
+impl Default for OverviewConfig {
+    fn default() -> Self {
+        Self {
+            sections: OverviewSection::ALL.to_vec(),
+            include_local: true,
+            processes: 10,
+        }
+    }
+}
+
+/// A remote host to monitor.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HostConfig {
+    /// Name shown in tabs and on the overview card.
+    pub name: String,
+    /// SSH destination (a `~/.ssh/config` host, `user@host`, ...);
+    /// defaults to `name`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ssh: Option<String>,
+    /// Command that starts the agent; defaults to `rigtop --agent`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    /// Overview sections for this host, overriding `[overview] sections`
+    /// (e.g. storage first for a file server).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sections: Option<Vec<OverviewSection>>,
+}
+
+impl HostConfig {
+    /// A host given only by its SSH destination (e.g. on the command line).
+    pub fn from_destination(destination: &str) -> Self {
+        Self {
+            name: destination.to_owned(),
+            ssh: None,
+            command: None,
+            sections: None,
+        }
+    }
+
+    /// The SSH destination.
+    pub fn destination(&self) -> &str {
+        self.ssh.as_deref().unwrap_or(&self.name)
+    }
 }
 
 /// Sensor naming and visibility.
@@ -243,6 +359,43 @@ dir = "/tmp/smart"
         assert_eq!(config.fan_label(&other), "fan2");
         assert!(config.is_hidden("nct6686:nct6683.2592/temp4"));
         assert_eq!(config.smart.dir, PathBuf::from("/tmp/smart"));
+    }
+
+    #[test]
+    fn parses_hosts_and_overview() {
+        let config: Config = toml::from_str(
+            r#"
+[overview]
+sections = ["storage", "cpu"]
+include_local = false
+
+[[hosts]]
+name = "zefat"
+
+[[hosts]]
+name = "nas"
+ssh = "admin@nas.local"
+sections = ["storage"]
+"#,
+        )
+        .unwrap();
+        assert_eq!(
+            config.overview.sections,
+            vec![OverviewSection::Storage, OverviewSection::Cpu]
+        );
+        assert!(!config.overview.include_local);
+        assert_eq!(config.overview.processes, 10, "default kept");
+        assert_eq!(config.hosts.len(), 2);
+        assert_eq!(config.hosts[0].destination(), "zefat");
+        assert_eq!(config.hosts[1].destination(), "admin@nas.local");
+        assert_eq!(
+            config.hosts[1].sections,
+            Some(vec![OverviewSection::Storage])
+        );
+        // Defaults: every section in priority order, local included.
+        let defaults = Config::default();
+        assert_eq!(defaults.overview.sections, OverviewSection::ALL.to_vec());
+        assert!(defaults.overview.include_local);
     }
 
     #[test]
