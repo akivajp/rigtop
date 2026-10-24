@@ -4,7 +4,10 @@
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 
-use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use ratatui::crossterm::event::{
+    KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
+use ratatui::layout::{Position, Rect};
 use ratatui::widgets::TableState;
 use rigtop_core::snapshot::ProcessInfo;
 use rigtop_core::{Config, ProcessSignal, Snapshot};
@@ -14,6 +17,9 @@ use super::worker::{Command, Event};
 /// Number of samples kept for graphs (wider than any realistic terminal in
 /// braille dots: 2 samples per cell).
 const HISTORY_LEN: usize = 1024;
+
+/// Rows moved per mouse wheel step in the process table.
+const WHEEL_STEP: isize = 3;
 
 /// How long a status message stays visible.
 const STATUS_TTL: Duration = Duration::from_secs(5);
@@ -99,6 +105,19 @@ pub struct ConfirmSignal {
     pub signal: ProcessSignal,
 }
 
+/// Where the process table was drawn in the last frame, for mouse hit-testing.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ProcTableHit {
+    /// Screen row of the column headers.
+    pub header_y: u16,
+    /// Area of the data rows.
+    pub rows: Rect,
+    /// Horizontal extent `(x, width)` and sort key of each column.
+    pub columns: Vec<(u16, u16, Option<SortKey>)>,
+    /// Index of the first visible row.
+    pub offset: usize,
+}
+
 /// Whole UI state.
 pub struct App {
     pub config: Config,
@@ -123,6 +142,8 @@ pub struct App {
     pub selected_pid: Option<u32>,
     pub table_state: TableState,
     pub confirm: Option<ConfirmSignal>,
+    /// Process table geometry from the last frame.
+    pub proc_hit: Option<ProcTableHit>,
     status: Option<(String, Instant)>,
     pub interval: Duration,
     pub should_quit: bool,
@@ -148,6 +169,7 @@ impl App {
             selected_pid: None,
             table_state: TableState::default(),
             confirm: None,
+            proc_hit: None,
             status: None,
             interval,
             should_quit: false,
@@ -382,8 +404,67 @@ impl App {
             .position(|k| *k == self.sort_key)
             .unwrap_or(0) as isize;
         let len = SortKey::ALL.len() as isize;
-        self.sort_key = SortKey::ALL[(index + delta).rem_euclid(len) as usize];
-        self.sort_descending = self.sort_key.descending_by_default();
+        self.set_sort(SortKey::ALL[(index + delta).rem_euclid(len) as usize]);
+    }
+
+    /// Sorts by `key` in its natural direction, or reverses the order when
+    /// it is already the sort key (like clicking a column header twice).
+    fn toggle_sort(&mut self, key: SortKey) {
+        if self.sort_key == key {
+            self.sort_descending = !self.sort_descending;
+        } else {
+            self.set_sort(key);
+        }
+    }
+
+    fn set_sort(&mut self, key: SortKey) {
+        self.sort_key = key;
+        self.sort_descending = key.descending_by_default();
+    }
+
+    /// Handles a mouse event: click a row to select it, click a header to
+    /// sort, wheel to move the selection. Only the process table reacts.
+    pub fn handle_mouse(&mut self, mouse: MouseEvent) {
+        // While a signal confirmation is open, a stray click must not change
+        // which process the pending signal is about.
+        if self.confirm.is_some() {
+            return;
+        }
+        let Some(hit) = self.proc_hit.clone() else {
+            return;
+        };
+        let position = Position::new(mouse.column, mouse.row);
+        let in_columns = mouse.column >= hit.rows.x && mouse.column < hit.rows.right();
+        let on_header = mouse.row == hit.header_y && in_columns;
+        let in_rows = hit.rows.contains(position);
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) if on_header => {
+                let key = hit
+                    .columns
+                    .iter()
+                    .find(|(x, width, _)| mouse.column >= *x && mouse.column < x + width)
+                    .and_then(|(_, _, key)| *key);
+                if let Some(key) = key {
+                    self.toggle_sort(key);
+                }
+            }
+            MouseEventKind::Down(MouseButton::Left) if in_rows => {
+                let index = hit.offset + (mouse.row - hit.rows.y) as usize;
+                if let Some(pid) = self.process_rows().get(index).map(|r| r.info.pid) {
+                    self.table_state.select(Some(index));
+                    self.selected_pid = Some(pid);
+                }
+            }
+            MouseEventKind::ScrollUp if in_rows || on_header => {
+                let len = self.process_rows().len();
+                self.move_selection(-WHEEL_STEP, len);
+            }
+            MouseEventKind::ScrollDown if in_rows || on_header => {
+                let len = self.process_rows().len();
+                self.move_selection(WHEEL_STEP, len);
+            }
+            _ => {}
+        }
     }
 
     fn cycle_interface(&mut self) {
@@ -618,6 +699,78 @@ mod tests {
         app.apply(Event::Snapshot(Box::new(snapshot)));
         app.sync_selection();
         assert_eq!(app.selected_pid, Some(30));
+    }
+
+    fn click(column: u16, row: u16) -> MouseEvent {
+        MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column,
+            row,
+            modifiers: KeyModifiers::NONE,
+        }
+    }
+
+    /// A table at x=10..50 with the header on row 5 and rows from row 6.
+    fn hit_map() -> ProcTableHit {
+        ProcTableHit {
+            header_y: 5,
+            rows: Rect::new(10, 6, 40, 10),
+            columns: vec![
+                (10, 7, Some(SortKey::Pid)),
+                (18, 15, Some(SortKey::Name)),
+                (34, 6, Some(SortKey::Cpu)),
+            ],
+            offset: 0,
+        }
+    }
+
+    #[test]
+    fn click_selects_row_and_header_sorts() {
+        let mut app = app_with(vec![
+            process(10, "bash", 1.0, false),
+            process(30, "python", 2.0, false),
+        ]);
+        app.proc_hit = Some(hit_map());
+        // Rows are sorted by CPU: python (30) first, bash (10) second.
+        app.handle_mouse(click(20, 7));
+        assert_eq!(app.selected_pid, Some(10));
+        assert_eq!(app.table_state.selected(), Some(1));
+        // Clicking below the last process does nothing.
+        app.handle_mouse(click(20, 12));
+        assert_eq!(app.selected_pid, Some(10));
+
+        // Header: "Program" sorts by name ascending; again reverses.
+        app.handle_mouse(click(20, 5));
+        assert_eq!(app.sort_key, SortKey::Name);
+        assert!(!app.sort_descending);
+        app.handle_mouse(click(20, 5));
+        assert!(app.sort_descending);
+        // Gap between columns: no change.
+        app.handle_mouse(click(17, 5));
+        assert_eq!(app.sort_key, SortKey::Name);
+    }
+
+    #[test]
+    fn wheel_moves_selection_and_confirm_blocks_clicks() {
+        let processes = (1..=10)
+            .map(|pid| process(pid, "p", pid as f32, false))
+            .collect();
+        let mut app = app_with(processes);
+        app.proc_hit = Some(hit_map());
+        app.handle_mouse(click(20, 6));
+        let first = app.selected_pid;
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            ..click(20, 8)
+        });
+        assert_eq!(app.table_state.selected(), Some(3));
+
+        // With a confirmation pending, clicks leave the selection alone.
+        app.handle_key(key(KeyCode::Char('k')));
+        assert!(app.confirm.is_some());
+        app.handle_mouse(click(20, 6));
+        assert_ne!(app.selected_pid, first);
+        assert_eq!(app.table_state.selected(), Some(3));
     }
 
     #[test]

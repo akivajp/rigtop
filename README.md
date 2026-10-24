@@ -41,6 +41,9 @@ cargo run --release -p rigtop -- --help  # options (--interval-ms, --config, --d
 | `n` | switch the network interface |
 | `+` / `-` | slower / faster updates |
 | `q` | quit |
+| mouse | click a process to select it, click a column header to sort (again to reverse), wheel to scroll |
+
+With mouse support on, most terminals select text with Shift+drag.
 
 ## SMART and btrfs scrub results (optional)
 

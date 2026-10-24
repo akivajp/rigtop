@@ -14,7 +14,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use ratatui::Frame;
-use ratatui::layout::{Alignment, Constraint, Layout, Rect};
+use ratatui::layout::{Alignment, Constraint, Flex, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Cell, Clear, Paragraph, Row, Table, TableState};
@@ -23,7 +23,7 @@ use rigtop_core::snapshot::{
     BtrfsFilesystem, CpuStats, MemoryStats, NetworkStats, SmartDevice, device_matches_disk,
 };
 
-use super::app::{App, SortKey, is_virtual_interface, signal_name};
+use super::app::{App, ProcTableHit, SortKey, is_virtual_interface, signal_name};
 use super::format;
 use super::graph::{self, BrailleGraph};
 
@@ -80,11 +80,13 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     // The table state is mutated while rendering rows that borrow `app`;
     // move it out for the duration of the frame.
     let mut table_state = std::mem::take(&mut app.table_state);
-    draw_screen(frame, app, &mut table_state);
+    let hit = draw_screen(frame, app, &mut table_state);
     app.table_state = table_state;
+    app.proc_hit = hit;
 }
 
-fn draw_screen(frame: &mut Frame, app: &App, table_state: &mut TableState) {
+/// Draws everything and returns where the process table went (for the mouse).
+fn draw_screen(frame: &mut Frame, app: &App, table_state: &mut TableState) -> Option<ProcTableHit> {
     let area = frame.area();
     let Some(snapshot) = &app.snapshot else {
         let waiting = Paragraph::new("collecting…")
@@ -97,7 +99,7 @@ fn draw_screen(frame: &mut Frame, app: &App, table_state: &mut TableState) {
         ])
         .areas(area);
         frame.render_widget(waiting, middle);
-        return;
+        return None;
     };
 
     let cpu_layout = cpu_layout(snapshot.cpu.per_core_percent.len(), area);
@@ -130,7 +132,7 @@ fn draw_screen(frame: &mut Frame, app: &App, table_state: &mut TableState) {
     if heights.network > 0 {
         draw_network(frame, app, snapshot, net);
     }
-    draw_processes(frame, app, snapshot, right, table_state);
+    let hit = draw_processes(frame, app, snapshot, right, table_state);
 
     if let Some(confirm) = &app.confirm {
         draw_confirm(
@@ -141,6 +143,7 @@ fn draw_screen(frame: &mut Frame, app: &App, table_state: &mut TableState) {
             signal_name(confirm.signal),
         );
     }
+    Some(hit)
 }
 
 /// Box heights of the left column; 0 means the box is not shown.
@@ -329,14 +332,26 @@ fn core_grid_layout(cores: usize, width: u16, height: u16, cell_min: u16) -> (us
 fn draw_cpu(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect, layout: CpuLayout) {
     let cpu = &snapshot.cpu;
     let host = &snapshot.host;
-    let block = panel("cpu", CPU_TITLE).title_top(
-        Line::from(vec![
-            dim(" "),
-            colored(host.hostname.clone(), Color::White),
-            dim(format!(" up {} ", format::duration(host.uptime_secs))),
-        ])
-        .right_aligned(),
-    );
+    // Local wall-clock time of the machine running the UI, like btop's clock.
+    let clock = chrono::Local::now().format(" %H:%M:%S ").to_string();
+    let block = panel("cpu", CPU_TITLE)
+        .title_top(
+            Line::from(Span::styled(
+                clock,
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ))
+            .centered(),
+        )
+        .title_top(
+            Line::from(vec![
+                dim(" "),
+                colored(host.hostname.clone(), Color::White),
+                dim(format!(" up {} ", format::duration(host.uptime_secs))),
+            ])
+            .right_aligned(),
+        );
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -1010,7 +1025,7 @@ fn draw_processes(
     snapshot: &Snapshot,
     area: Rect,
     state: &mut TableState,
-) {
+) -> ProcTableHit {
     let rows = app.process_rows();
     let arrow = if app.sort_descending { "▼" } else { "▲" };
     let mut title = vec![dim(format!(
@@ -1078,7 +1093,7 @@ fn draw_processes(
         .collect();
 
     let widths: Vec<Constraint> = columns.iter().map(|c| c.constraint()).collect();
-    let table = Table::new(table_rows, widths)
+    let table = Table::new(table_rows, widths.clone())
         .header(header)
         .block(block)
         .row_highlight_style(
@@ -1095,6 +1110,33 @@ fn draw_processes(
         *state.offset_mut() = max_offset;
     }
     frame.render_stateful_widget(table, area, state);
+
+    // Same column split as ratatui's Table (Flex::Start, one space apart),
+    // so clicks can be mapped back to columns and rows.
+    let inner = Rect {
+        x: area.x + 1,
+        y: area.y + 1,
+        width: area.width.saturating_sub(2),
+        height: area.height.saturating_sub(2),
+    };
+    let column_rects = Layout::horizontal(widths)
+        .flex(Flex::Start)
+        .spacing(1)
+        .split(inner);
+    ProcTableHit {
+        header_y: inner.y,
+        rows: Rect {
+            y: inner.y + 1,
+            height: inner.height.saturating_sub(1),
+            ..inner
+        },
+        columns: columns
+            .iter()
+            .zip(column_rects.iter())
+            .map(|(column, rect)| (rect.x, rect.width, column.sort_key()))
+            .collect(),
+        offset: state.offset(),
+    }
 }
 
 /// Columns of the process table.
@@ -1439,6 +1481,51 @@ mod tests {
         assert_eq!(wide, ProcColumn::ORDER.to_vec());
         // No GPU columns on hosts without GPUs.
         assert!(!process_columns(120, false).contains(&ProcColumn::Vram));
+    }
+
+    #[test]
+    fn clock_and_clickable_headers_after_render() {
+        use ratatui::crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+
+        let mut app = App::new(Config::default(), Duration::from_secs(1));
+        app.apply(Event::Snapshot(Box::new(sample_snapshot())));
+        let screen = render(&mut app, 160, 50);
+        // "HH:MM:SS" somewhere on the first line.
+        let first_line = screen.lines().next().unwrap();
+        assert!(
+            first_line.as_bytes().windows(8).any(|w| {
+                w[2] == b':'
+                    && w[5] == b':'
+                    && w.iter()
+                        .enumerate()
+                        .all(|(i, c)| i == 2 || i == 5 || c.is_ascii_digit())
+            }),
+            "{first_line}"
+        );
+
+        let hit = app.proc_hit.clone().expect("process table geometry");
+        let (x, _, _) = *hit
+            .columns
+            .iter()
+            .find(|c| c.2 == Some(SortKey::Memory))
+            .unwrap();
+        // The header text at that position really is "Mem".
+        let header: String = screen
+            .lines()
+            .nth(hit.header_y as usize)
+            .unwrap()
+            .chars()
+            .skip(x as usize)
+            .take(3)
+            .collect();
+        assert_eq!(header, "Mem");
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: x,
+            row: hit.header_y,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert_eq!(app.sort_key, SortKey::Memory);
     }
 
     #[test]
