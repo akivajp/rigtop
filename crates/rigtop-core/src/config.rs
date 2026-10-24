@@ -74,6 +74,14 @@ pub enum ConfigError {
     /// The configuration could not be serialized.
     #[error("cannot serialize config: {0}")]
     Serialize(#[from] toml::ser::Error),
+    /// The file is not valid TOML, so it cannot be edited in place.
+    #[error("cannot edit {path}: {source}")]
+    Edit {
+        /// File that failed.
+        path: PathBuf,
+        /// Underlying error.
+        source: toml_edit::TomlError,
+    },
 }
 
 /// Top-level configuration.
@@ -283,6 +291,69 @@ impl Config {
         fs::rename(&tmp, path).map_err(io_err)
     }
 
+    /// Replaces the `[[hosts]]` of the configuration file at `path` with
+    /// `hosts`, keeping everything else in the file (other settings,
+    /// comments, formatting) untouched. Creates the file if needed.
+    ///
+    /// Used by the GUI's host editor. The edited file is checked to load as
+    /// a valid configuration before it replaces the old one.
+    pub fn save_hosts(path: &Path, hosts: &[HostConfig]) -> Result<(), ConfigError> {
+        let io_err = |source| ConfigError::Io {
+            path: path.to_owned(),
+            source,
+        };
+        let text = match fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(err) if err.kind() == io::ErrorKind::NotFound => String::new(),
+            Err(err) => return Err(io_err(err)),
+        };
+        let mut document: toml_edit::DocumentMut =
+            text.parse().map_err(|source| ConfigError::Edit {
+                path: path.to_owned(),
+                source,
+            })?;
+        if hosts.is_empty() {
+            document.remove("hosts");
+        } else {
+            let mut tables = toml_edit::ArrayOfTables::new();
+            for host in hosts {
+                let mut table = toml_edit::Table::new();
+                table["name"] = toml_edit::value(host.name.as_str());
+                if let Some(ssh) = &host.ssh {
+                    table["ssh"] = toml_edit::value(ssh.as_str());
+                }
+                if let Some(command) = &host.command {
+                    table["command"] = toml_edit::value(command.as_str());
+                }
+                if let Some(sections) = &host.sections {
+                    let mut array = toml_edit::Array::new();
+                    for section in sections {
+                        // Serialized names match the serde representation.
+                        let name = toml::Value::try_from(section)?;
+                        if let Some(name) = name.as_str() {
+                            array.push(name);
+                        }
+                    }
+                    table["sections"] = toml_edit::value(array);
+                }
+                tables.push(table);
+            }
+            document["hosts"] = toml_edit::Item::ArrayOfTables(tables);
+        }
+        let edited = document.to_string();
+        // Never write a file that rigtop itself could not load afterwards.
+        toml::from_str::<Config>(&edited).map_err(|source| ConfigError::Parse {
+            path: path.to_owned(),
+            source,
+        })?;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(io_err)?;
+        }
+        let tmp = path.with_extension("toml.tmp");
+        fs::write(&tmp, edited).map_err(io_err)?;
+        fs::rename(&tmp, path).map_err(io_err)
+    }
+
     /// Display name of a fan: the user-defined label, or the driver/generic label.
     pub fn fan_label<'a>(&'a self, fan: &'a Fan) -> &'a str {
         self.label_for(&fan.key).unwrap_or(&fan.label)
@@ -396,6 +467,60 @@ sections = ["storage"]
         let defaults = Config::default();
         assert_eq!(defaults.overview.sections, OverviewSection::ALL.to_vec());
         assert!(defaults.overview.include_local);
+    }
+
+    #[test]
+    fn save_hosts_replaces_only_the_hosts() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("config.toml");
+        fs::write(
+            &path,
+            "# my settings\n[sensors]\nlabels = { \"a/fan1\" = \"CPU fan\" } # keep me\n\n[[hosts]]\nname = \"old\"\n",
+        )
+        .unwrap();
+        let hosts = vec![
+            HostConfig::from_destination("zefat"),
+            HostConfig {
+                name: "nas".to_owned(),
+                ssh: Some("admin@nas.local".to_owned()),
+                command: Some("/opt/rigtop --agent".to_owned()),
+                sections: Some(vec![OverviewSection::Storage, OverviewSection::Cpu]),
+            },
+        ];
+        Config::save_hosts(&path, &hosts).unwrap();
+
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(
+            text.contains("# my settings") && text.contains("# keep me"),
+            "{text}"
+        );
+        assert!(!text.contains("\"old\""), "{text}");
+        let config = Config::load(&path).unwrap();
+        assert_eq!(config.hosts, hosts);
+        assert_eq!(config.label_for("a/fan1"), Some("CPU fan"));
+
+        // Removing every host drops the [[hosts]] tables.
+        Config::save_hosts(&path, &[]).unwrap();
+        assert!(Config::load(&path).unwrap().hosts.is_empty());
+        assert!(fs::read_to_string(&path).unwrap().contains("# keep me"));
+    }
+
+    #[test]
+    fn save_hosts_creates_a_missing_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("new/rigtop/config.toml");
+        Config::save_hosts(&path, &[HostConfig::from_destination("zefat")]).unwrap();
+        assert_eq!(Config::load(&path).unwrap().hosts[0].name, "zefat");
+    }
+
+    #[test]
+    fn save_hosts_refuses_to_touch_a_broken_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("config.toml");
+        fs::write(&path, "[sensors\n").unwrap();
+        let err = Config::save_hosts(&path, &[]).unwrap_err();
+        assert!(matches!(err, ConfigError::Edit { .. }), "{err}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "[sensors\n");
     }
 
     #[test]

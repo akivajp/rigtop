@@ -3966,6 +3966,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "toml",
+ "toml_edit",
  "unicode-width",
  "windows-sys 0.61.2",
 ]
@@ -3984,6 +3985,7 @@ dependencies = [
  "egui_tiles",
  "rigtop-core",
  "serde",
+ "tempfile",
  "windows-sys 0.61.2",
 ]
 
@@ -4751,6 +4753,7 @@ dependencies = [
  "indexmap",
  "toml_datetime",
  "toml_parser",
+ "toml_writer",
  "winnow",
 ]
 
