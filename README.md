@@ -1,8 +1,8 @@
 # rigtop
 
-> **Work in progress.** The Linux TUI works and a first GUI is available; remote monitoring is not there yet.
+> **Early development (v0.1).** The TUI and GUI work on Linux and Windows; remote monitoring is not there yet.
 
-A btop-inspired system monitor for Linux, planned with two front-ends that share one data-collection core:
+A btop-inspired system monitor with two front-ends that share one data-collection core:
 
 - **`rigtop`** — terminal UI
 - **`rigtop-gui`** — native GUI (no web view) with a btop-like layout and resizable panels
@@ -21,10 +21,27 @@ A btop-inspired system monitor for Linux, planned with two front-ends that share
 
 ## Roadmap
 
-1. Collection core and the TUI on Linux
-2. Native GUI on Linux
-3. Windows support (macOS builds without hardware testing)
+1. ~~Collection core and the TUI on Linux~~ (v0.1)
+2. ~~Native GUI on Linux~~ (v0.1)
+3. ~~Windows support~~ (v0.1; temperatures, fans and CPU power still missing; macOS builds without hardware testing)
 4. Remote monitoring of registered hosts over SSH
+
+## Installation
+
+Download an archive for your platform from the [Releases](https://github.com/akivajp/rigtop/releases) page and put the binaries on your `PATH`:
+
+| Archive | Contents |
+|---|---|
+| `x86_64-unknown-linux-gnu` | `rigtop`, `rigtop-gui` (glibc 2.35 or newer) |
+| `aarch64-unknown-linux-gnu` | `rigtop` |
+| `x86_64-pc-windows-msvc` | `rigtop.exe`, `rigtop-gui.exe` |
+| `aarch64-apple-darwin` | `rigtop`, `rigtop-gui` (untested, unsigned) |
+
+`SHA256SUMS` lists the checksums. With a Rust toolchain you can also build from source:
+
+```sh
+cargo install --git https://github.com/akivajp/rigtop rigtop rigtop-gui
+```
 
 ## Usage
 
@@ -61,7 +78,7 @@ With mouse support on, most terminals select text with Shift+drag.
 
 ## Windows
 
-Both `rigtop` and `rigtop-gui` build and run on Windows. Pre-built binaries from the latest `main` are attached to the [CI runs](https://github.com/akivajp/rigtop/actions/workflows/ci.yml) (artifact `rigtop-windows-x86_64`).
+Both `rigtop` and `rigtop-gui` run on Windows (see [Installation](#installation)). Builds of the latest `main` are also attached to the [CI runs](https://github.com/akivajp/rigtop/actions/workflows/ci.yml) (artifact `rigtop-windows-x86_64`).
 
 What differs from Linux:
 

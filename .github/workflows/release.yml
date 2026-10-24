@@ -1,0 +1,127 @@
+name: Release
+
+# Pushing a tag such as v0.1.0 builds the binaries and publishes a GitHub
+# Release with notes from CHANGELOG.md. Running the workflow by hand only
+# builds the archives (uploaded as artifacts), to check packaging.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Older Ubuntu so that the glibc requirement stays low (2.35).
+          # Static musl builds are avoided: they cannot dlopen NVML.
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
+            packages: -p rigtop -p rigtop-gui
+            bins: rigtop rigtop-gui
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-22.04-arm
+            packages: -p rigtop
+            bins: rigtop
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            packages: -p rigtop -p rigtop-gui
+            bins: rigtop.exe rigtop-gui.exe
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            packages: -p rigtop -p rigtop-gui
+            bins: rigtop rigtop-gui
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }} ${{ matrix.packages }}
+      - name: Package
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="$GITHUB_REF_NAME"
+          else
+            version="dev-${GITHUB_SHA::7}"
+          fi
+          name="rigtop-${version}-${{ matrix.target }}"
+          mkdir -p "dist/$name"
+          for bin in ${{ matrix.bins }}; do
+            cp "target/${{ matrix.target }}/release/$bin" "dist/$name/"
+          done
+          cp README.md README.ja.md CHANGELOG.md LICENSE-MIT LICENSE-APACHE "dist/$name/"
+          if [[ "${{ matrix.target }}" == *linux* ]]; then
+            # Optional root collector for SMART and btrfs scrub results.
+            cp -r contrib "dist/$name/"
+          fi
+          cd dist
+          if [[ "${{ matrix.target }}" == *windows* ]]; then
+            7z a -tzip "$name.zip" "$name" > /dev/null
+          else
+            tar czf "$name.tar.gz" "$name"
+          fi
+          rm -rf "$name"
+          ls -l
+      - uses: actions/upload-artifact@v7
+        with:
+          name: rigtop-${{ matrix.target }}
+          path: dist/*
+          retention-days: 30
+
+  release:
+    name: Publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check that the tag matches the crate version
+        run: |
+          crate_version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [[ "v$crate_version" != "$GITHUB_REF_NAME" ]]; then
+            echo "tag $GITHUB_REF_NAME does not match Cargo.toml version $crate_version" >&2
+            exit 1
+          fi
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS
+      - name: Release notes from CHANGELOG.md
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          # The section of this version, without its heading.
+          awk -v v="$version" '
+            /^## \[/ { if (found) exit; if (index($0, "[" v "]")) { found = 1; next } }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          if [[ ! -s notes.md ]]; then
+            echo "CHANGELOG.md has no section for $version" >&2
+            exit 1
+          fi
+          cat notes.md
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "rigtop $GITHUB_REF_NAME" \
+            --notes-file notes.md \
+            --verify-tag

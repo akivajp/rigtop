@@ -4,7 +4,13 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 authors.workspace = true
+rust-version.workspace = true
+description = "Data collection core of rigtop: CPU, memory, GPU (NVML), sensors, storage health (SMART, btrfs, mdadm), network and processes as serializable snapshots"
+readme = "../../README.md"
+keywords = ["monitoring", "system", "btrfs", "smart", "nvidia"]
+categories = ["os", "hardware-support"]
 
 [dependencies]
 dirs = "7.0.0"

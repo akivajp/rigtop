@@ -4,7 +4,13 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 authors.workspace = true
+rust-version.workspace = true
+description = "btop-inspired terminal system monitor with storage health (SMART, btrfs RAID, mdadm), per-process GPU usage and power draw"
+readme = "../../README.md"
+keywords = ["monitor", "tui", "btop", "system", "gpu"]
+categories = ["command-line-utilities", "os"]
 
 [dependencies]
 anyhow = "1.0.104"

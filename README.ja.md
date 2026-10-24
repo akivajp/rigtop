@@ -1,8 +1,8 @@
 # rigtop
 
-> **開発中です。** Linux の TUI は動きます。GUI は最初の版があります。遠隔監視はまだありません。
+> **開発の初期段階です（v0.1）。** TUI と GUI は Linux と Windows で動きます。遠隔監視はまだありません。
 
-btop に倣った Linux 向けのシステムモニターです。収集部分を共通にして、2つの画面を用意する予定です。
+btop に倣ったシステムモニターです。収集部分を共通にして、2つの画面を用意しています。
 
 - **`rigtop`** — ターミナル UI（TUI）
 - **`rigtop-gui`** — ネイティブ GUI（WebView 不使用）。btop 風の配置で、各パネルをリサイズできる
@@ -21,10 +21,27 @@ btop に倣った Linux 向けのシステムモニターです。収集部分�
 
 ## ロードマップ
 
-1. 収集部分と TUI（Linux）
-2. ネイティブ GUI（Linux）
-3. Windows 対応（macOS はビルドのみ、実機検証なし）
+1. ~~収集部分と TUI（Linux）~~（v0.1）
+2. ~~ネイティブ GUI（Linux）~~（v0.1）
+3. ~~Windows 対応~~（v0.1。温度・ファン・CPU 電力は未対応。macOS はビルドのみ、実機検証なし）
 4. 登録した複数ホストの SSH 経由の監視
+
+## インストール
+
+[Releases](https://github.com/akivajp/rigtop/releases) のページから環境に合ったアーカイブを取得し、中のバイナリを `PATH` の通った場所に置いてください。
+
+| アーカイブ | 中身 |
+|---|---|
+| `x86_64-unknown-linux-gnu` | `rigtop`、`rigtop-gui`（glibc 2.35 以降） |
+| `aarch64-unknown-linux-gnu` | `rigtop` |
+| `x86_64-pc-windows-msvc` | `rigtop.exe`、`rigtop-gui.exe` |
+| `aarch64-apple-darwin` | `rigtop`、`rigtop-gui`（未検証・署名なし） |
+
+チェックサムは `SHA256SUMS` にあります。Rust の環境があれば、ソースからビルドすることもできます。
+
+```sh
+cargo install --git https://github.com/akivajp/rigtop rigtop rigtop-gui
+```
 
 ## 使い方
 
@@ -61,7 +78,7 @@ cargo run --release -p rigtop-gui            # オプションは TUI と同じ�
 
 ## Windows
 
-`rigtop` と `rigtop-gui` は Windows でもビルド・実行できます。最新の `main` をビルドしたものを [CI の実行結果](https://github.com/akivajp/rigtop/actions/workflows/ci.yml) に添付しています（成果物 `rigtop-windows-x86_64`）。
+`rigtop` と `rigtop-gui` は Windows でも動きます（[インストール](#インストール)を参照）。最新の `main` をビルドしたものも [CI の実行結果](https://github.com/akivajp/rigtop/actions/workflows/ci.yml) に添付しています（成果物 `rigtop-windows-x86_64`）。
 
 Linux との違い:
 
