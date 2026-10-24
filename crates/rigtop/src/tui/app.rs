@@ -61,6 +61,8 @@ pub struct App {
     status: Option<(String, Instant)>,
     pub interval: Duration,
     pub should_quit: bool,
+    /// Shown until the first snapshot arrives ("connecting to zefat…").
+    pub waiting_message: String,
 }
 
 impl App {
@@ -82,6 +84,7 @@ impl App {
             status: None,
             interval,
             should_quit: false,
+            waiting_message: "collecting…".to_owned(),
         }
     }
 

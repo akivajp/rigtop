@@ -6,11 +6,12 @@ use egui::{
     Color32, CornerRadius, FontId, Id, Margin, RichText, Sense, Stroke, TextStyle, Ui, Visuals,
 };
 use egui_tiles::{Container, SimplificationOptions, Tile, TileId, Tiles, Tree, UiResponse};
+use rigtop_core::remote::{RemoteSource, RemoteTarget};
 use rigtop_core::view::{
     MetricHistory, ProcessQuery, ProcessRow, SortKey, process_rows, signal_name,
 };
 use rigtop_core::worker::{Command, Event, Worker};
-use rigtop_core::{Config, LocalSource, ProcessSignal, Snapshot};
+use rigtop_core::{Config, DataSource, LocalSource, ProcessSignal, Snapshot};
 
 use crate::panels;
 use crate::widgets::{self, BACKGROUND, BORDER, DIM, TEXT};
@@ -211,6 +212,8 @@ pub struct RigtopApp {
     styled: bool,
     /// Zoom restored from the previous run, applied on the first frame.
     initial_zoom: f32,
+    /// Shown until the first snapshot arrives ("connecting to zefat…").
+    waiting_message: String,
 }
 
 impl RigtopApp {
@@ -218,11 +221,28 @@ impl RigtopApp {
     ///
     /// The zoom factor and panel layout of the previous run are restored from
     /// eframe's storage when available.
-    pub fn new(cc: &eframe::CreationContext<'_>, config: Config, interval: Duration) -> Self {
+    ///
+    /// With `remote`, the data comes from `rigtop --agent` on that host
+    /// over SSH instead of from this machine.
+    pub fn new(
+        cc: &eframe::CreationContext<'_>,
+        config: Config,
+        interval: Duration,
+        remote: Option<RemoteTarget>,
+    ) -> Self {
         let source_config = config.clone();
         let repaint = cc.egui_ctx.clone();
+        let waiting_message = match &remote {
+            Some(target) => format!("connecting to {}…", target.name),
+            None => "collecting…".to_owned(),
+        };
         let worker = Worker::spawn_with_notify(
-            move || LocalSource::with_config(&source_config),
+            move || -> Box<dyn DataSource> {
+                match remote {
+                    Some(target) => Box::new(RemoteSource::new(target)),
+                    None => Box::new(LocalSource::with_config(&source_config)),
+                }
+            },
             interval,
             move || repaint.request_repaint(),
         );
@@ -240,6 +260,7 @@ impl RigtopApp {
             worker: Some(worker),
             styled: false,
             initial_zoom,
+            waiting_message,
         }
     }
 
@@ -252,6 +273,7 @@ impl RigtopApp {
             worker: None,
             styled: false,
             initial_zoom: 1.0,
+            waiting_message: "collecting…".to_owned(),
         }
     }
 
@@ -281,8 +303,15 @@ impl RigtopApp {
             .inner_margin(Margin::same(4))
             .show(ui, |ui| {
                 if self.state.snapshot.is_none() {
-                    ui.centered_and_justified(|ui| {
-                        ui.label(RichText::new("collecting…").color(DIM))
+                    // Connection errors (e.g. "Permission denied (publickey)")
+                    // show under the waiting message.
+                    let status = self.state.status().map(str::to_owned);
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(ui.available_height() / 2.0 - 20.0);
+                        ui.label(RichText::new(&self.waiting_message).color(DIM));
+                        if let Some(status) = status {
+                            ui.label(RichText::new(status).color(widgets::WARN));
+                        }
                     });
                 } else {
                     let mut behavior = Behavior {

@@ -1,7 +1,8 @@
 //! rigtop: btop-inspired system monitor (terminal UI).
 //!
-//! Without options it starts the TUI. `--dump-json` prints one snapshot to
-//! check what the collectors see on a machine.
+//! Without options it starts the TUI for this machine; `--host` monitors a
+//! remote machine over SSH, where `rigtop --agent` streams the data.
+//! `--dump-json` prints one snapshot to check what the collectors see.
 
 mod tui;
 
@@ -12,6 +13,8 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use clap::Parser;
+use rigtop_core::agent::run_agent;
+use rigtop_core::remote::{DEFAULT_REMOTE_COMMAND, RemoteTarget};
 use rigtop_core::{Config, DataSource, LocalSource, MIN_POLL_INTERVAL};
 
 /// Command-line options.
@@ -37,6 +40,23 @@ struct Cli {
     /// Configuration file [default: <config dir>/rigtop/config.toml].
     #[arg(long, value_name = "PATH")]
     config: Option<PathBuf>,
+
+    /// Monitor a remote host over SSH instead of this machine. Takes any
+    /// destination `ssh` accepts (a ~/.ssh/config host, user@host, ...);
+    /// key-based authentication is required. The remote host needs rigtop
+    /// installed.
+    #[arg(long, value_name = "DESTINATION", conflicts_with_all = ["agent", "dump_json"])]
+    host: Option<String>,
+
+    /// Command that starts the agent on the remote host (with --host).
+    #[arg(long, value_name = "COMMAND", default_value = DEFAULT_REMOTE_COMMAND, requires = "host")]
+    remote_command: String,
+
+    /// Run as a remote agent: write snapshots to stdout as JSON lines and
+    /// read commands from stdin, until stdin is closed. Started by
+    /// `rigtop --host` / `rigtop-gui --host` through SSH.
+    #[arg(long, conflicts_with = "dump_json")]
+    agent: bool,
 }
 
 fn main() -> Result<()> {
@@ -58,7 +78,16 @@ fn main() -> Result<()> {
     if cli.dump_json {
         return dump_json(&config, interval, cli.pretty);
     }
-    tui::run(config, interval)
+    if cli.agent {
+        let source = LocalSource::with_config(&config);
+        let stdin = io::BufReader::new(io::stdin());
+        return run_agent(source, interval, stdin, io::stdout().lock()).context("agent failed");
+    }
+    let target = cli
+        .host
+        .as_deref()
+        .map(|host| RemoteTarget::ssh(host, &cli.remote_command));
+    tui::run(config, interval, target)
 }
 
 /// Takes a warm-up sample, waits one interval, and prints the second sample.

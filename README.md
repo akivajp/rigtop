@@ -78,6 +78,22 @@ Zoom with Ctrl + mouse wheel, Ctrl + `+` / `-` / `0`, or the `A-` / `A+` buttons
 
 With mouse support on, most terminals select text with Shift+drag.
 
+## Remote monitoring over SSH
+
+Install rigtop on the remote host too (the same version), then:
+
+```sh
+rigtop --host zefat          # TUI
+rigtop-gui --host zefat      # GUI
+```
+
+rigtop starts `rigtop --agent` on the remote host through your system's `ssh` (the built-in OpenSSH client on Windows), so `~/.ssh/config`, keys and `ProxyJump` work as usual. There is no daemon to run and no port to open; the agent exits when the connection closes, and rigtop reconnects by itself.
+
+- Authentication must work without a prompt (key or agent), and the host key must already be known: connect once with `ssh <host>` first.
+- If `rigtop` is not on the `PATH` of non-interactive SSH sessions, give the full command: `--remote-command '~/.cargo/bin/rigtop --agent'`.
+- Killing processes on the remote host uses the SSH user's permissions.
+- Watching several hosts at once is planned.
+
 ## Windows
 
 Both `rigtop` and `rigtop-gui` run on Windows (see [Installation](#installation)). Builds of the latest `main` are also attached to the [CI runs](https://github.com/akivajp/rigtop/actions/workflows/ci.yml) (artifact `rigtop-windows-x86_64`).

@@ -78,6 +78,22 @@ cargo run --release -p rigtop-gui            # オプションは TUI と同じ�
 
 マウス操作が有効なため、多くの端末では Shift+ドラッグで文字を選択できます。
 
+## SSH による遠隔監視
+
+監視される側にも同じバージョンの rigtop を入れたうえで、次のように起動します。
+
+```sh
+rigtop --host zefat          # TUI
+rigtop-gui --host zefat      # GUI
+```
+
+rigtop は OS の `ssh`（Windows では標準の OpenSSH クライアント）で、相手の `rigtop --agent` を起動します。`~/.ssh/config`・鍵・`ProxyJump` はいつもどおり使えます。常駐プロセスもポート開放も不要で、エージェントは接続が切れると終了し、rigtop は自動で再接続します。
+
+- パスワードを聞かれない認証（鍵や ssh-agent）が必要です。ホスト鍵も登録済みである必要があるので、先に一度 `ssh <ホスト>` で接続してください。
+- 非対話の SSH セッションで `rigtop` に `PATH` が通っていない場合は、コマンドを指定してください: `--remote-command '~/.cargo/bin/rigtop --agent'`
+- 遠隔のプロセスの終了は、SSH でログインしたユーザーの権限で行われます。
+- 複数ホストの同時監視は今後対応予定です。
+
 ## Windows
 
 `rigtop` と `rigtop-gui` は Windows でも動きます（[インストール](#インストール)を参照）。最新の `main` をビルドしたものも [CI の実行結果](https://github.com/akivajp/rigtop/actions/workflows/ci.yml) に添付しています（成果物 `rigtop-windows-x86_64`）。

@@ -12,7 +12,8 @@ use ratatui::crossterm::event::{
     self, DisableMouseCapture, EnableMouseCapture, Event as TermEvent,
 };
 use ratatui::crossterm::execute;
-use rigtop_core::{Config, LocalSource};
+use rigtop_core::remote::{RemoteSource, RemoteTarget};
+use rigtop_core::{Config, DataSource, LocalSource};
 
 use app::App;
 use rigtop_core::worker::Worker;
@@ -21,11 +22,25 @@ use rigtop_core::worker::Worker;
 /// something changed, so this mainly bounds input latency.
 const INPUT_POLL: Duration = Duration::from_millis(50);
 
-/// Runs the TUI on the local machine until the user quits.
-pub fn run(config: Config, interval: Duration) -> Result<()> {
+/// Runs the TUI until the user quits, for this machine or, with `remote`,
+/// for a host reached over SSH.
+pub fn run(config: Config, interval: Duration, remote: Option<RemoteTarget>) -> Result<()> {
     let source_config = config.clone();
-    let worker = Worker::spawn(move || LocalSource::with_config(&source_config), interval);
+    let waiting = match &remote {
+        Some(target) => format!("connecting to {}…", target.name),
+        None => "collecting…".to_owned(),
+    };
+    let worker = Worker::spawn(
+        move || -> Box<dyn DataSource> {
+            match remote {
+                Some(target) => Box::new(RemoteSource::new(target)),
+                None => Box::new(LocalSource::with_config(&source_config)),
+            }
+        },
+        interval,
+    );
     let mut app = App::new(config, interval);
+    app.waiting_message = waiting;
 
     // ratatui::init installs a panic hook that restores the terminal; mouse
     // capture is ours to undo, also when panicking.

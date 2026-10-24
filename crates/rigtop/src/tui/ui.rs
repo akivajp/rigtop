@@ -90,12 +90,16 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 fn draw_screen(frame: &mut Frame, app: &App, table_state: &mut TableState) -> Option<ProcTableHit> {
     let area = frame.area();
     let Some(snapshot) = &app.snapshot else {
-        let waiting = Paragraph::new("collecting…")
-            .alignment(Alignment::Center)
-            .style(Style::default().fg(DIM));
+        // Connection errors (e.g. "Permission denied (publickey)") show
+        // under the waiting message.
+        let mut lines = vec![Line::from(dim(app.waiting_message.clone()))];
+        if let Some(status) = app.status() {
+            lines.push(Line::from(colored(status.to_owned(), WARN)));
+        }
+        let waiting = Paragraph::new(lines).alignment(Alignment::Center);
         let [_, middle, _] = Layout::vertical([
             Constraint::Fill(1),
-            Constraint::Length(1),
+            Constraint::Length(2),
             Constraint::Fill(1),
         ])
         .areas(area);

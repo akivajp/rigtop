@@ -7,6 +7,17 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Added
+
+- Remote monitoring over SSH: `rigtop --host <destination>` and
+  `rigtop-gui --host <destination>` run `rigtop --agent` on the remote host
+  through the system `ssh` and show its data, including killing processes
+  there. No daemon or open port is needed; the agent exits with the
+  connection and the client reconnects automatically. `--remote-command`
+  sets the remote command
+- `rigtop --agent`: streams snapshots as JSON lines on stdout and takes
+  commands on stdin (protocol version 1)
+
 ## [0.1.0] - 2026-10-25
 
 First release.
