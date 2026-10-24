@@ -1,0 +1,20 @@
+[package]
+name = "rigtop-gui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
+clap = { version = "4.6.7", features = ["derive"] }
+eframe = "0.37.0"
+egui = "0.37"
+egui_extras = "0.37.0"
+egui_tiles = "0.18.0"
+rigtop-core = { version = "0.1.0", path = "../rigtop-core" }
+
+[dev-dependencies]
+egui_kittest = { version = "0.37.0", features = ["wgpu", "snapshot"] }

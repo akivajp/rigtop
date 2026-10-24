@@ -1,6 +1,6 @@
 # rigtop
 
-> **Work in progress.** The Linux TUI works; the GUI and remote monitoring are not there yet.
+> **Work in progress.** The Linux TUI works and a first GUI is available; remote monitoring is not there yet.
 
 A btop-inspired system monitor for Linux, planned with two front-ends that share one data-collection core:
 
@@ -44,6 +44,14 @@ cargo run --release -p rigtop -- --help  # options (--interval-ms, --config, --d
 | `+` / `-` | slower / faster updates |
 | `q` | quit |
 | mouse | click a process to select it, click a column header to sort (again to reverse), wheel to scroll |
+
+### GUI
+
+```sh
+cargo run --release -p rigtop-gui            # same options: --interval-ms, --config
+```
+
+Drag panel borders to resize and panel titles to rearrange. Click a column header to sort, right-click a process to terminate or kill it (asks first), and pick the network interface from the list.
 
 With mouse support on, most terminals select text with Shift+drag.
 
