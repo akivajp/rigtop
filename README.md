@@ -9,6 +9,8 @@ A btop-inspired system monitor for Linux, planned with two front-ends that share
 
 [日本語版 README](README.ja.md)
 
+![rigtop TUI: CPU cores, memory, two GPUs, storage health with SMART and btrfs RAID, network, and a process list with per-process VRAM](docs/images/rigtop-tui.png)
+
 ## Goals
 
 - The btop overview on one screen: CPU (total, per core, temperatures), every GPU, memory, storage, network, and a process list with kill / force kill.

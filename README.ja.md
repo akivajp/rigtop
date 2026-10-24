@@ -9,6 +9,8 @@ btop に倣った Linux 向けのシステムモニターです。収集部分�
 
 [English README](README.md)
 
+![rigtop の TUI: CPU の各コア、メモリ、GPU 2枚、SMART と btrfs RAID を含むストレージの状態、ネットワーク、プロセスごとの VRAM を出すプロセス一覧](docs/images/rigtop-tui.png)
+
 ## 目標
 
 - btop と同じ一覧性: CPU（全体・コアごと・温度）、全 GPU、メモリ、ストレージ、ネットワーク、プロセス一覧（kill / 強制 kill）を1画面に。
