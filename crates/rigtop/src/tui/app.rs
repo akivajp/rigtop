@@ -1,7 +1,6 @@
 //! UI state: latest snapshot, history for graphs, process table state and
 //! key handling. Kept free of drawing code so it can be unit tested.
 
-use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 
 use ratatui::crossterm::event::{
@@ -9,93 +8,17 @@ use ratatui::crossterm::event::{
 };
 use ratatui::layout::{Position, Rect};
 use ratatui::widgets::TableState;
-use rigtop_core::snapshot::ProcessInfo;
+use rigtop_core::view::{
+    self, History, ProcessQuery, ProcessRow, SortKey, default_interface, signal_name,
+};
+use rigtop_core::worker::{Command, Event};
 use rigtop_core::{Config, ProcessSignal, Snapshot};
-
-use super::worker::{Command, Event};
-
-/// Number of samples kept for graphs (wider than any realistic terminal in
-/// braille dots: 2 samples per cell).
-const HISTORY_LEN: usize = 1024;
 
 /// Rows moved per mouse wheel step in the process table.
 const WHEEL_STEP: isize = 3;
 
 /// How long a status message stays visible.
 const STATUS_TTL: Duration = Duration::from_secs(5);
-
-/// Interface name prefixes skipped when choosing the default network
-/// interface (container bridges and virtual links).
-const VIRTUAL_IFACE_PREFIXES: &[&str] = &["lo", "docker", "veth", "br-", "virbr"];
-
-/// Fixed-size history of samples, newest last.
-#[derive(Debug, Default, Clone)]
-pub struct History {
-    samples: VecDeque<f64>,
-}
-
-impl History {
-    /// Appends a sample, dropping the oldest when full.
-    pub fn push(&mut self, value: f64) {
-        if self.samples.len() == HISTORY_LEN {
-            self.samples.pop_front();
-        }
-        self.samples.push_back(value);
-    }
-
-    /// The newest `n` samples (or fewer), oldest first.
-    pub fn last(&self, n: usize) -> Vec<f64> {
-        let skip = self.samples.len().saturating_sub(n);
-        self.samples.iter().skip(skip).copied().collect()
-    }
-
-    /// Largest of the newest `n` samples.
-    pub fn max_of_last(&self, n: usize) -> f64 {
-        self.last(n).into_iter().fold(0.0, f64::max)
-    }
-}
-
-/// Columns the process table can be sorted by.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SortKey {
-    Pid,
-    Name,
-    Threads,
-    User,
-    Memory,
-    Cpu,
-    Gpu,
-    Vram,
-}
-
-impl SortKey {
-    /// Sort keys in column order, used to step left/right.
-    pub const ALL: [SortKey; 8] = [
-        SortKey::Pid,
-        SortKey::Name,
-        SortKey::Threads,
-        SortKey::User,
-        SortKey::Memory,
-        SortKey::Cpu,
-        SortKey::Gpu,
-        SortKey::Vram,
-    ];
-
-    /// Whether "descending" is the natural order (largest consumers first).
-    fn descending_by_default(self) -> bool {
-        !matches!(self, SortKey::Pid | SortKey::Name | SortKey::User)
-    }
-}
-
-/// One row of the process table: the process plus its GPU usage.
-#[derive(Debug, Clone)]
-pub struct ProcessRow<'a> {
-    pub info: &'a ProcessInfo,
-    /// Highest per-GPU SM utilization of the process.
-    pub gpu_percent: Option<f32>,
-    /// VRAM used by the process across all GPUs.
-    pub vram_bytes: Option<u64>,
-}
 
 /// A pending confirmation before sending a signal.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -238,67 +161,15 @@ impl App {
         let Some(snapshot) = &self.snapshot else {
             return Vec::new();
         };
-        // pid -> (max SM %, total VRAM) across GPUs.
-        let mut gpu_usage: HashMap<u32, (Option<f32>, Option<u64>)> = HashMap::new();
-        for gpu in &snapshot.gpus {
-            for p in &gpu.processes {
-                let entry = gpu_usage.entry(p.pid).or_default();
-                if let Some(sm) = p.sm_percent {
-                    entry.0 = Some(entry.0.map_or(sm, |v| v.max(sm)));
-                }
-                if let Some(mem) = p.memory_bytes {
-                    entry.1 = Some(entry.1.unwrap_or(0) + mem);
-                }
-            }
-        }
-
-        let filter = self.filter.to_lowercase();
-        let mut rows: Vec<ProcessRow<'_>> = snapshot
-            .processes
-            .iter()
-            .filter(|p| self.show_kernel_threads || !p.kernel_thread)
-            .filter(|p| {
-                filter.is_empty()
-                    || p.name.to_lowercase().contains(&filter)
-                    || p.command.to_lowercase().contains(&filter)
-                    || p.user.to_lowercase().contains(&filter)
-                    || p.pid.to_string() == filter
-            })
-            .map(|info| {
-                let (gpu_percent, vram_bytes) =
-                    gpu_usage.get(&info.pid).copied().unwrap_or_default();
-                ProcessRow {
-                    info,
-                    gpu_percent,
-                    vram_bytes,
-                }
-            })
-            .collect();
-
-        let key = self.sort_key;
-        rows.sort_by(|a, b| {
-            let ordering = match key {
-                SortKey::Pid => a.info.pid.cmp(&b.info.pid),
-                SortKey::Name => a.info.name.to_lowercase().cmp(&b.info.name.to_lowercase()),
-                SortKey::Threads => a.info.threads.cmp(&b.info.threads),
-                SortKey::User => a.info.user.cmp(&b.info.user),
-                SortKey::Memory => a.info.memory_bytes.cmp(&b.info.memory_bytes),
-                SortKey::Cpu => a.info.cpu_percent.total_cmp(&b.info.cpu_percent),
-                SortKey::Gpu => a
-                    .gpu_percent
-                    .unwrap_or(-1.0)
-                    .total_cmp(&b.gpu_percent.unwrap_or(-1.0)),
-                SortKey::Vram => a.vram_bytes.cmp(&b.vram_bytes),
-            }
-            // Stable tie-breaker so rows do not jump between frames.
-            .then(a.info.pid.cmp(&b.info.pid));
-            if self.sort_descending {
-                ordering.reverse()
-            } else {
-                ordering
-            }
-        });
-        rows
+        view::process_rows(
+            snapshot,
+            &ProcessQuery {
+                sort_key: self.sort_key,
+                descending: self.sort_descending,
+                filter: &self.filter,
+                show_kernel_threads: self.show_kernel_threads,
+            },
+        )
     }
 
     /// Synchronizes the table selection index with `selected_pid` after the
@@ -513,35 +384,11 @@ impl App {
     }
 }
 
-/// Name of a signal as shown to the user.
-pub fn signal_name(signal: ProcessSignal) -> &'static str {
-    match signal {
-        ProcessSignal::Terminate => "SIGTERM",
-        ProcessSignal::Kill => "SIGKILL",
-    }
-}
-
-/// Returns true for container bridges, veth pairs and loopback, which are
-/// skipped when choosing and listing interfaces.
-pub fn is_virtual_interface(name: &str) -> bool {
-    VIRTUAL_IFACE_PREFIXES.iter().any(|p| name.starts_with(p))
-}
-
-/// Picks the physical interface with the most traffic so far.
-fn default_interface(snapshot: &Snapshot) -> Option<String> {
-    snapshot
-        .networks
-        .iter()
-        .filter(|n| !is_virtual_interface(&n.name))
-        .max_by_key(|n| n.rx_total_bytes + n.tx_total_bytes)
-        .or_else(|| snapshot.networks.first())
-        .map(|n| n.name.clone())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rigtop_core::snapshot::{GpuProcess, GpuStats, NetworkStats};
+    use rigtop_core::snapshot::{GpuProcess, GpuStats, NetworkStats, ProcessInfo};
+    use rigtop_core::view::HISTORY_LEN;
 
     fn process(pid: u32, name: &str, cpu: f32, kernel: bool) -> ProcessInfo {
         ProcessInfo {

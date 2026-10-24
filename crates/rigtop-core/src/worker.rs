@@ -8,7 +8,7 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use rigtop_core::{DataSource, MIN_POLL_INTERVAL, ProcessSignal, Snapshot};
+use crate::{DataSource, MIN_POLL_INTERVAL, ProcessSignal, Snapshot};
 
 /// Requests from the UI to the worker.
 #[derive(Debug)]
@@ -140,7 +140,7 @@ fn run<S: DataSource>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rigtop_core::SourceError;
+    use crate::SourceError;
 
     /// A source that counts polls and records signals.
     struct FakeSource {

@@ -23,9 +23,10 @@ use rigtop_core::snapshot::{
     BtrfsFilesystem, CpuStats, MemoryStats, NetworkStats, SmartDevice, device_matches_disk,
 };
 
-use super::app::{App, ProcTableHit, SortKey, is_virtual_interface, signal_name};
-use super::format;
+use super::app::{App, ProcTableHit};
 use super::graph::{self, BrailleGraph};
+use rigtop_core::format;
+use rigtop_core::view::{SortKey, is_virtual_interface, signal_name};
 
 /// Box border color.
 const BORDER: Color = Color::Rgb(85, 85, 100);
@@ -1285,7 +1286,6 @@ fn draw_confirm(frame: &mut Frame, area: Rect, pid: u32, name: &str, signal: &st
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tui::worker::Event;
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use rigtop_core::Config;
@@ -1293,6 +1293,7 @@ mod tests {
         BtrfsDeviceStats, BtrfsFilesystem, CpuStats, DiskIo, GpuStats, HostInfo, MdArray,
         ProcessInfo,
     };
+    use rigtop_core::worker::Event;
     use std::time::Duration;
 
     fn sample_snapshot() -> Snapshot {

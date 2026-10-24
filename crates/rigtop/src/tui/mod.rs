@@ -1,10 +1,8 @@
 //! Terminal UI.
 
 mod app;
-mod format;
 mod graph;
 mod ui;
-mod worker;
 
 use std::io::stdout;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -17,7 +15,7 @@ use ratatui::crossterm::execute;
 use rigtop_core::{Config, LocalSource};
 
 use app::App;
-use worker::Worker;
+use rigtop_core::worker::Worker;
 
 /// How often to check for input while idle. Drawing only happens when
 /// something changed, so this mainly bounds input latency.
