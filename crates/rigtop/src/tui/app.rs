@@ -8,9 +8,7 @@ use ratatui::crossterm::event::{
 };
 use ratatui::layout::{Position, Rect};
 use ratatui::widgets::TableState;
-use rigtop_core::view::{
-    self, History, ProcessQuery, ProcessRow, SortKey, default_interface, signal_name,
-};
+use rigtop_core::view::{self, MetricHistory, ProcessQuery, ProcessRow, SortKey, signal_name};
 use rigtop_core::worker::{Command, Event};
 use rigtop_core::{Config, ProcessSignal, Snapshot};
 
@@ -45,15 +43,8 @@ pub struct ProcTableHit {
 pub struct App {
     pub config: Config,
     pub snapshot: Option<Snapshot>,
-    pub cpu_history: History,
-    pub memory_history: History,
-    /// Utilization history per GPU index.
-    pub gpu_history: Vec<History>,
-    /// Receive/transmit history of the selected interface.
-    pub net_rx_history: History,
-    pub net_tx_history: History,
-    /// Interface shown in the network box (`None`: choose automatically).
-    pub net_interface: Option<String>,
+    /// Graph histories, including the interface shown in the network box.
+    pub history: MetricHistory,
     pub sort_key: SortKey,
     pub sort_descending: bool,
     pub show_kernel_threads: bool,
@@ -78,12 +69,7 @@ impl App {
         Self {
             config,
             snapshot: None,
-            cpu_history: History::default(),
-            memory_history: History::default(),
-            gpu_history: Vec::new(),
-            net_rx_history: History::default(),
-            net_tx_history: History::default(),
-            net_interface: None,
+            history: MetricHistory::default(),
             sort_key: SortKey::Cpu,
             sort_descending: true,
             show_kernel_threads: false,
@@ -119,28 +105,7 @@ impl App {
     }
 
     fn apply_snapshot(&mut self, snapshot: Snapshot) {
-        self.cpu_history.push(snapshot.cpu.total_percent as f64);
-        let memory = &snapshot.memory;
-        if memory.total_bytes > 0 {
-            self.memory_history
-                .push(memory.used_bytes as f64 / memory.total_bytes as f64 * 100.0);
-        }
-        self.gpu_history
-            .resize_with(snapshot.gpus.len(), History::default);
-        for (history, gpu) in self.gpu_history.iter_mut().zip(&snapshot.gpus) {
-            history.push(gpu.utilization_percent.unwrap_or(0.0) as f64);
-        }
-        if self.net_interface.is_none() {
-            self.net_interface = default_interface(&snapshot);
-        }
-        let (rx, tx) = self
-            .net_interface
-            .as_deref()
-            .and_then(|name| snapshot.networks.iter().find(|n| n.name == name))
-            .map(|n| (n.rx_bytes_per_sec, n.tx_bytes_per_sec))
-            .unwrap_or((0.0, 0.0));
-        self.net_rx_history.push(rx);
-        self.net_tx_history.push(tx);
+        self.history.record(&snapshot);
         self.snapshot = Some(snapshot);
     }
 
@@ -342,20 +307,9 @@ impl App {
         let Some(snapshot) = &self.snapshot else {
             return;
         };
-        let names: Vec<&str> = snapshot.networks.iter().map(|n| n.name.as_str()).collect();
-        if names.is_empty() {
-            return;
+        if let Some(next) = self.history.next_interface(snapshot) {
+            self.set_status(format!("network: {next}"));
         }
-        let current = self
-            .net_interface
-            .as_deref()
-            .and_then(|name| names.iter().position(|n| *n == name));
-        let next = names[current.map_or(0, |i| (i + 1) % names.len())].to_owned();
-        self.set_status(format!("network: {next}"));
-        self.net_interface = Some(next);
-        // The old history belongs to another interface.
-        self.net_rx_history = History::default();
-        self.net_tx_history = History::default();
     }
 
     fn ask_signal(&mut self, signal: ProcessSignal) {
@@ -388,7 +342,7 @@ impl App {
 mod tests {
     use super::*;
     use rigtop_core::snapshot::{GpuProcess, GpuStats, NetworkStats, ProcessInfo};
-    use rigtop_core::view::HISTORY_LEN;
+    use rigtop_core::view::{HISTORY_LEN, History};
 
     fn process(pid: u32, name: &str, cpu: f32, kernel: bool) -> ProcessInfo {
         ProcessInfo {
@@ -623,7 +577,7 @@ mod tests {
     #[test]
     fn default_interface_skips_virtual_links() {
         let app = app_with(Vec::new());
-        assert_eq!(app.net_interface.as_deref(), Some("enp9s0"));
-        assert_eq!(app.net_rx_history.last(1), vec![1000.0]);
+        assert_eq!(app.history.net_interface.as_deref(), Some("enp9s0"));
+        assert_eq!(app.history.net_rx.last(1), vec![1000.0]);
     }
 }

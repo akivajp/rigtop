@@ -50,11 +50,29 @@ impl Worker {
         S: DataSource + 'static,
         F: FnOnce() -> S + Send + 'static,
     {
+        Self::spawn_with_notify(make_source, interval, || {})
+    }
+
+    /// Like [`Worker::spawn`], and calls `notify` after every event so that
+    /// an event-driven UI (e.g. egui's `request_repaint`) can wake up instead
+    /// of polling.
+    pub fn spawn_with_notify<S, F, N>(make_source: F, interval: Duration, notify: N) -> Self
+    where
+        S: DataSource + 'static,
+        F: FnOnce() -> S + Send + 'static,
+        N: Fn() + Send + 'static,
+    {
         let (command_tx, command_rx) = mpsc::channel();
         let (event_tx, event_rx) = mpsc::channel();
         let handle = thread::Builder::new()
             .name("rigtop-collector".to_owned())
-            .spawn(move || run(make_source(), interval, &command_rx, &event_tx))
+            .spawn(move || {
+                let events = Notifying {
+                    sender: event_tx,
+                    notify,
+                };
+                run(make_source(), interval, &command_rx, &events)
+            })
             .expect("failed to spawn the collector thread");
         Self {
             commands: Some(command_tx),
@@ -87,11 +105,26 @@ impl Drop for Worker {
 }
 
 /// Worker loop: poll on schedule, execute commands in between.
-fn run<S: DataSource>(
+/// Event sender that calls a notification hook after each send.
+struct Notifying<N: Fn()> {
+    sender: Sender<Event>,
+    notify: N,
+}
+
+impl<N: Fn()> Notifying<N> {
+    /// Sends an event; fails when the UI has gone away.
+    fn send(&self, event: Event) -> Result<(), mpsc::SendError<Event>> {
+        self.sender.send(event)?;
+        (self.notify)();
+        Ok(())
+    }
+}
+
+fn run<S: DataSource, N: Fn()>(
     mut source: S,
     mut interval: Duration,
     commands: &Receiver<Command>,
-    events: &Sender<Event>,
+    events: &Notifying<N>,
 ) {
     // The source has just taken its warm-up sample; the first real sample
     // only needs the minimum interval, so the UI fills quickly.
@@ -174,6 +207,33 @@ mod tests {
                 return event;
             }
             assert!(Instant::now() < deadline, "no event from worker");
+            thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    #[test]
+    fn notify_runs_after_each_event() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let (signal_tx, _signal_rx) = mpsc::channel();
+        let count = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&count);
+        let worker = Worker::spawn_with_notify(
+            move || FakeSource {
+                polls: 0,
+                signals: signal_tx,
+            },
+            MIN_POLL_INTERVAL,
+            move || {
+                counter.fetch_add(1, Ordering::SeqCst);
+            },
+        );
+        recv(&worker);
+        // The event is sent before the notification; wait for the latter.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while count.load(Ordering::SeqCst) == 0 {
+            assert!(Instant::now() < deadline, "notify was not called");
             thread::sleep(Duration::from_millis(5));
         }
     }

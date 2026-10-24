@@ -85,6 +85,76 @@ pub struct ProcessRow<'a> {
     pub vram_bytes: Option<u64>,
 }
 
+/// Graph histories of one host, updated from each snapshot.
+#[derive(Debug, Default, Clone)]
+pub struct MetricHistory {
+    /// Total CPU usage (%).
+    pub cpu: History,
+    /// Used memory (% of total).
+    pub memory: History,
+    /// Utilization (%) per GPU index.
+    pub gpus: Vec<History>,
+    /// Receive rate of `net_interface` (bytes/s).
+    pub net_rx: History,
+    /// Transmit rate of `net_interface` (bytes/s).
+    pub net_tx: History,
+    /// Interface whose traffic is recorded (`None`: chosen on the next snapshot).
+    pub net_interface: Option<String>,
+}
+
+impl MetricHistory {
+    /// Appends the values of a new snapshot.
+    pub fn record(&mut self, snapshot: &Snapshot) {
+        self.cpu.push(snapshot.cpu.total_percent as f64);
+        let memory = &snapshot.memory;
+        if memory.total_bytes > 0 {
+            self.memory
+                .push(memory.used_bytes as f64 / memory.total_bytes as f64 * 100.0);
+        }
+        self.gpus.resize_with(snapshot.gpus.len(), History::default);
+        for (history, gpu) in self.gpus.iter_mut().zip(&snapshot.gpus) {
+            history.push(gpu.utilization_percent.unwrap_or(0.0) as f64);
+        }
+        if self.net_interface.is_none() {
+            self.net_interface = default_interface(snapshot);
+        }
+        let (rx, tx) = self
+            .net_interface
+            .as_deref()
+            .and_then(|name| snapshot.networks.iter().find(|n| n.name == name))
+            .map(|n| (n.rx_bytes_per_sec, n.tx_bytes_per_sec))
+            .unwrap_or((0.0, 0.0));
+        self.net_rx.push(rx);
+        self.net_tx.push(tx);
+    }
+
+    /// Switches the recorded network interface, clearing its history.
+    pub fn select_interface(&mut self, name: &str) {
+        if self.net_interface.as_deref() != Some(name) {
+            self.net_interface = Some(name.to_owned());
+            // The old samples belong to another interface.
+            self.net_rx = History::default();
+            self.net_tx = History::default();
+        }
+    }
+
+    /// Switches to the interface after the current one in `snapshot` and
+    /// returns its name.
+    pub fn next_interface(&mut self, snapshot: &Snapshot) -> Option<String> {
+        let names: Vec<&str> = snapshot.networks.iter().map(|n| n.name.as_str()).collect();
+        if names.is_empty() {
+            return None;
+        }
+        let current = self
+            .net_interface
+            .as_deref()
+            .and_then(|name| names.iter().position(|n| *n == name));
+        let next = names[current.map_or(0, |i| (i + 1) % names.len())].to_owned();
+        self.select_interface(&next);
+        Some(next)
+    }
+}
+
 /// How the process table is filtered and sorted.
 #[derive(Debug, Clone, Copy)]
 pub struct ProcessQuery<'q> {
@@ -268,6 +338,40 @@ mod tests {
         let rows = process_rows(&snapshot, &query(SortKey::Pid));
         assert_eq!(rows[1].vram_bytes, Some(1 << 30));
         assert_eq!(rows[1].gpu_percent, Some(70.0));
+    }
+
+    #[test]
+    fn metric_history_records_and_switches_interfaces() {
+        let snapshot = Snapshot {
+            networks: vec![
+                NetworkStats {
+                    name: "enp9s0".to_owned(),
+                    rx_total_bytes: 10,
+                    rx_bytes_per_sec: 100.0,
+                    ..Default::default()
+                },
+                NetworkStats {
+                    name: "wlp7s0".to_owned(),
+                    tx_bytes_per_sec: 5.0,
+                    ..Default::default()
+                },
+            ],
+            gpus: vec![GpuStats {
+                utilization_percent: Some(40.0),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let mut history = MetricHistory::default();
+        history.record(&snapshot);
+        assert_eq!(history.net_interface.as_deref(), Some("enp9s0"));
+        assert_eq!(history.net_rx.last(1), vec![100.0]);
+        assert_eq!(history.gpus[0].last(1), vec![40.0]);
+        assert_eq!(history.next_interface(&snapshot).as_deref(), Some("wlp7s0"));
+        // Switching clears the samples of the previous interface.
+        assert!(history.net_rx.last(10).is_empty());
+        history.record(&snapshot);
+        assert_eq!(history.net_tx.last(1), vec![5.0]);
     }
 
     #[test]

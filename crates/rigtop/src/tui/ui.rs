@@ -373,7 +373,8 @@ fn draw_cpu(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect, layou
     ]);
     let [grid_area, info_area] = if layout.graph {
         let samples = app
-            .cpu_history
+            .history
+            .cpu
             .last(BrailleGraph::capacity(graph_area.width));
         frame.render_widget(BrailleGraph::new(&samples, 100.0), graph_area);
         frame.render_widget(
@@ -621,7 +622,8 @@ fn draw_gpus(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
             continue;
         }
         let samples = app
-            .gpu_history
+            .history
+            .gpus
             .get(i)
             .map(|h| h.last(BrailleGraph::capacity(inner.width)))
             .unwrap_or_default();
@@ -887,10 +889,15 @@ fn smart_spans(smart: &SmartDevice, now_secs: u64) -> Vec<Span<'static>> {
 
 fn draw_network(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
     let selected = app
+        .history
         .net_interface
         .as_deref()
         .and_then(|name| snapshot.networks.iter().find(|n| n.name == name));
-    let name = app.net_interface.clone().unwrap_or_else(|| "-".to_owned());
+    let name = app
+        .history
+        .net_interface
+        .clone()
+        .unwrap_or_else(|| "-".to_owned());
     let mut title = vec![colored(format!(" {name} "), Color::White)];
     if let Some(speed) = selected.and_then(link_label) {
         title.push(dim(format!("{speed} ")));
@@ -918,7 +925,7 @@ fn draw_network(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
         .iter()
         .take(list_rows as usize)
         .map(|n| {
-            let marker = if Some(&n.name) == app.net_interface.as_ref() {
+            let marker = if Some(&n.name) == app.history.net_interface.as_ref() {
                 "▸"
             } else {
                 " "
@@ -960,14 +967,15 @@ fn draw_network_graphs(frame: &mut Frame, app: &App, selected: Option<&NetworkSt
         return;
     }
     let capacity = BrailleGraph::capacity(area.width);
-    let rx = app.net_rx_history.last(capacity);
-    let tx = app.net_tx_history.last(capacity);
+    let rx = app.history.net_rx.last(capacity);
+    let tx = app.history.net_tx.last(capacity);
     // Shared scale so download and upload are comparable; at least 10 KiB/s
     // so that idle noise does not fill the graph.
     let max = app
-        .net_rx_history
+        .history
+        .net_rx
         .max_of_last(capacity)
-        .max(app.net_tx_history.max_of_last(capacity))
+        .max(app.history.net_tx.max_of_last(capacity))
         .max(10.0 * 1024.0);
 
     let [rx_area, tx_area] =
