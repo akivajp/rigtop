@@ -374,7 +374,7 @@ fn setup_style(ctx: &egui::Context) {
 /// btop-like default arrangement:
 ///
 /// ```text
-/// cpu (28%)
+/// cpu (22%)
 /// mem / gpu / storage / net (45%) | proc (55%)
 /// ```
 fn default_tree() -> Tree<Pane> {
@@ -389,7 +389,7 @@ fn default_tree() -> Tree<Pane> {
     let bottom = tiles.insert_horizontal_tile(vec![left, procs]);
     let root = tiles.insert_vertical_tile(vec![cpu, bottom]);
 
-    set_shares(&mut tiles, root, &[(cpu, 28.0), (bottom, 72.0)]);
+    set_shares(&mut tiles, root, &[(cpu, 22.0), (bottom, 78.0)]);
     set_shares(&mut tiles, bottom, &[(left, 45.0), (procs, 55.0)]);
     set_shares(
         &mut tiles,
@@ -651,7 +651,8 @@ mod tests {
     ///
     /// Optional: `RIGTOP_GUI_FILTER` (process filter, e.g. to keep personal
     /// processes out of published images) and `RIGTOP_GUI_SAMPLES` (number of
-    /// samples taken 300 ms apart, to fill the graphs; default 20).
+    /// samples taken 300 ms apart, to fill the graphs; default 20) and
+    /// `RIGTOP_GUI_SIZE` (window size such as `1000x700`; default 1400x900).
     #[test]
     #[ignore]
     fn screenshot_local_machine() {
@@ -671,8 +672,15 @@ mod tests {
         if let Ok(filter) = std::env::var("RIGTOP_GUI_FILTER") {
             app.state.filter = filter;
         }
+        let size = std::env::var("RIGTOP_GUI_SIZE")
+            .ok()
+            .and_then(|s| {
+                let (w, h) = s.split_once('x')?;
+                Some([w.parse::<f32>().ok()?, h.parse::<f32>().ok()?])
+            })
+            .unwrap_or([1400.0, 900.0]);
         let mut harness = Harness::builder()
-            .with_size([1400.0, 900.0])
+            .with_size(size)
             .build_ui_state(|ui, app: &mut RigtopApp| app.show(ui), app);
         harness.run();
         harness

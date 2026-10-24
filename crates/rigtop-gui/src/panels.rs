@@ -18,8 +18,9 @@ use crate::widgets::{self, BAD, DIM, OK, TEXT, WARN, percent_color, temperature_
 
 /// Height of one text row in the custom-painted parts.
 const ROW_HEIGHT: f32 = 16.0;
-/// Narrowest per-core cell in the CPU grid.
-const CORE_CELL_MIN_WIDTH: f32 = 150.0;
+/// Per-core cell styles, richest first: (narrowest cell width, has a meter).
+/// The grid uses the first one whose rows fit in the panel height.
+const CORE_CELL_STYLES: [(f32, bool); 3] = [(150.0, true), (110.0, true), (70.0, false)];
 /// SMART results older than this are flagged as stale.
 const SMART_STALE_SECS: u64 = 3600;
 /// Scrubs older than this are flagged (a monthly scrub is the common advice).
@@ -150,8 +151,6 @@ fn cpu(ui: &mut Ui, state: &GuiState) {
         pos2(graph_rect.right() + 12.0, area.top()),
         pos2(area.right(), area.bottom() - info_height),
     );
-    let info_rect =
-        egui::Rect::from_min_max(pos2(grid_rect.left(), grid_rect.bottom() + 4.0), area.max);
     ui.allocate_rect(area, Sense::hover());
 
     // Total usage graph with the current value and model on top.
@@ -172,29 +171,62 @@ fn cpu(ui: &mut Ui, state: &GuiState) {
         DIM,
     );
 
-    core_grid(ui, grid_rect, &cpu.per_core_percent, &cpu.per_core_mhz);
+    let grid_height = core_grid(ui, grid_rect, &cpu.per_core_percent, &cpu.per_core_mhz);
 
+    // Load and power go right under the grid, so spare height ends up at
+    // the bottom rather than as a gap in the middle.
+    let info_rect = egui::Rect::from_min_max(
+        pos2(grid_rect.left(), grid_rect.top() + grid_height + 6.0),
+        area.max,
+    );
     let mut info = ui.new_child(egui::UiBuilder::new().max_rect(info_rect));
     cpu_info(&mut info, state, snapshot);
 }
 
-/// Per-core meters, column-major like btop, with as few columns as the
-/// height allows so that meters stay long.
-fn core_grid(ui: &Ui, rect: egui::Rect, cores: &[f32], mhz: &[u64]) {
+/// Layout of the per-core grid in a `width` x `height` area.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct CoreGrid {
+    columns: usize,
+    rows: usize,
+    cell_width: f32,
+    meters: bool,
+}
+
+/// Chooses the richest cell style whose rows fit in the height, using as
+/// few columns as the height allows so that meters stay long. When even the
+/// compact style does not fit, it is used anyway (the grid is clipped).
+fn core_grid_layout(cores: usize, width: f32, height: f32) -> CoreGrid {
+    let max_rows = (height / ROW_HEIGHT).floor().max(1.0) as usize;
+    let layout = |(min_width, meters): (f32, bool)| {
+        let max_columns = (width / min_width).floor().max(1.0) as usize;
+        let columns = cores.div_ceil(max_rows).clamp(1, max_columns);
+        let rows = cores.div_ceil(columns);
+        CoreGrid {
+            columns,
+            rows,
+            cell_width: width / columns as f32,
+            meters,
+        }
+    };
+    CORE_CELL_STYLES
+        .into_iter()
+        .map(layout)
+        .find(|grid| grid.rows <= max_rows)
+        .unwrap_or_else(|| layout(CORE_CELL_STYLES[CORE_CELL_STYLES.len() - 1]))
+}
+
+/// Per-core meters, column-major like btop. Returns the height used.
+fn core_grid(ui: &Ui, rect: egui::Rect, cores: &[f32], mhz: &[u64]) -> f32 {
     if cores.is_empty() || rect.width() < 60.0 || rect.height() < ROW_HEIGHT {
-        return;
+        return 0.0;
     }
-    let max_rows = (rect.height() / ROW_HEIGHT).floor().max(1.0) as usize;
-    let max_columns = (rect.width() / CORE_CELL_MIN_WIDTH).floor().max(1.0) as usize;
-    let columns = cores.len().div_ceil(max_rows).clamp(1, max_columns);
-    let rows = cores.len().div_ceil(columns);
-    let cell_width = rect.width() / columns as f32;
+    let grid = core_grid_layout(cores.len(), rect.width(), rect.height());
     let painter = ui.painter_at(rect);
     let font = FontId::monospace(12.0);
-    let show_freq = cell_width > 230.0 && !mhz.is_empty();
+    let show_freq = grid.meters && grid.cell_width > 230.0 && !mhz.is_empty();
     for (index, &usage) in cores.iter().enumerate() {
-        let (col, row) = (index / rows, index % rows);
-        let x = rect.left() + col as f32 * cell_width;
+        let (col, row) = (index / grid.rows, index % grid.rows);
+        let x = rect.left() + col as f32 * grid.cell_width;
         let y = rect.top() + row as f32 * ROW_HEIGHT;
         painter.text(
             pos2(x, y),
@@ -203,16 +235,31 @@ fn core_grid(ui: &Ui, rect: egui::Rect, cores: &[f32], mhz: &[u64]) {
             font.clone(),
             DIM,
         );
+        let percent = format!("{usage:.0}%");
+        if !grid.meters {
+            // Compact cell: "C12  34%".
+            painter.text(
+                pos2(x + grid.cell_width - 8.0, y),
+                egui::Align2::RIGHT_TOP,
+                percent,
+                font.clone(),
+                percent_color(usage),
+            );
+            continue;
+        }
         let value_width = if show_freq { 92.0 } else { 44.0 };
         let meter_rect = egui::Rect::from_min_max(
             pos2(x + 34.0, y + 2.0),
-            pos2(x + cell_width - value_width - 8.0, y + ROW_HEIGHT - 2.0),
+            pos2(
+                x + grid.cell_width - value_width - 8.0,
+                y + ROW_HEIGHT - 2.0,
+            ),
         );
         widgets::paint_meter(ui, meter_rect, usage / 100.0);
         painter.text(
             pos2(meter_rect.right() + 40.0, y),
             egui::Align2::RIGHT_TOP,
-            format!("{usage:.0}%"),
+            percent,
             font.clone(),
             percent_color(usage),
         );
@@ -227,6 +274,7 @@ fn core_grid(ui: &Ui, rect: egui::Rect, cores: &[f32], mhz: &[u64]) {
             );
         }
     }
+    (grid.rows as f32 * ROW_HEIGHT).min(rect.height())
 }
 
 /// Load, temperatures, power and fans under the core grid.
@@ -959,5 +1007,24 @@ pub fn confirm_dialog(ctx: &egui::Context, state: &mut GuiState) {
             state.confirm = None;
         }
         None => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn core_grid_falls_back_to_denser_cells() {
+        // Tall enough: wide cells with meters, as few columns as rows allow.
+        let roomy = core_grid_layout(32, 810.0, 112.0);
+        assert!(roomy.meters && roomy.cell_width >= 150.0);
+        assert_eq!((roomy.columns, roomy.rows), (5, 7));
+        // Narrow and short: 150px cells need 11 rows; 110px cells fit.
+        let narrow = core_grid_layout(32, 600.0, 130.0);
+        assert!(narrow.meters && narrow.rows <= 8, "{narrow:?}");
+        // Very narrow: compact cells without meters.
+        let tiny = core_grid_layout(32, 420.0, 100.0);
+        assert!(!tiny.meters && tiny.rows <= 6, "{tiny:?}");
     }
 }
