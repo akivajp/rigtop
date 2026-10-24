@@ -10,6 +10,7 @@
 
 mod app;
 mod console;
+mod overview;
 mod panels;
 mod widgets;
 
@@ -18,7 +19,6 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::Parser;
-use rigtop_core::remote::{DEFAULT_REMOTE_COMMAND, RemoteTarget};
 use rigtop_core::{Config, MIN_POLL_INTERVAL};
 
 /// Command-line options.
@@ -36,16 +36,17 @@ struct Cli {
     #[arg(long, value_name = "PATH")]
     config: Option<PathBuf>,
 
-    /// Monitor a remote host over SSH instead of this machine. Takes any
-    /// destination `ssh` accepts (a ~/.ssh/config host, user@host, ...);
-    /// key-based authentication is required. The remote host needs rigtop
-    /// installed.
-    #[arg(long, value_name = "DESTINATION")]
-    host: Option<String>,
+    /// Also monitor a remote host over SSH (repeatable; adds to the
+    /// [[hosts]] of the configuration). Takes any destination `ssh` accepts
+    /// (a ~/.ssh/config host, user@host, ...); key-based authentication is
+    /// required, and the remote host needs rigtop installed.
+    #[arg(long = "host", value_name = "DESTINATION")]
+    hosts: Vec<String>,
 
-    /// Command that starts the agent on the remote host (with --host).
-    #[arg(long, value_name = "COMMAND", default_value = DEFAULT_REMOTE_COMMAND, requires = "host")]
-    remote_command: String,
+    /// Command that starts the agent on hosts given with --host
+    /// [default: "rigtop --agent"].
+    #[arg(long, value_name = "COMMAND")]
+    remote_command: Option<String>,
 }
 
 fn main() -> std::process::ExitCode {
@@ -75,17 +76,9 @@ fn run() -> Result<()> {
     }
     .context("failed to load the configuration")?;
 
-    let remote = cli
-        .host
-        .as_deref()
-        .map(|host| RemoteTarget::ssh(host, &cli.remote_command));
-    let title = match &remote {
-        Some(target) => format!("rigtop - {}", target.name),
-        None => "rigtop".to_owned(),
-    };
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title(title)
+            .with_title("rigtop")
             .with_app_id("rigtop")
             .with_inner_size([1400.0, 900.0])
             .with_min_inner_size([640.0, 400.0]),
@@ -94,7 +87,15 @@ fn run() -> Result<()> {
     eframe::run_native(
         "rigtop",
         options,
-        Box::new(move |cc| Ok(Box::new(app::RigtopApp::new(cc, config, interval, remote)))),
+        Box::new(move |cc| {
+            Ok(Box::new(app::RigtopApp::new(
+                cc,
+                config,
+                interval,
+                &cli.hosts,
+                cli.remote_command.as_deref(),
+            )))
+        }),
     )
     .map_err(|err| anyhow!("failed to start the GUI: {err}"))
 }

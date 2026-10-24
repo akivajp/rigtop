@@ -96,27 +96,8 @@ fn view_controls(ui: &mut Ui, state: &mut GuiState) {
     {
         state.view_actions.push(ViewAction::ResetLayout);
     }
-    if ui
-        .add(small("A+"))
-        .on_hover_text("zoom in (Ctrl + + / Ctrl + wheel)")
-        .clicked()
-    {
-        state.view_actions.push(ViewAction::ZoomIn);
-    }
-    let percent = format!("{:.0}%", state.zoom * 100.0);
-    if ui
-        .add(small(&percent))
-        .on_hover_text("reset zoom (Ctrl + 0)")
-        .clicked()
-    {
-        state.view_actions.push(ViewAction::ZoomReset);
-    }
-    if ui
-        .add(small("A-"))
-        .on_hover_text("zoom out (Ctrl + - / Ctrl + wheel)")
-        .clicked()
-    {
-        state.view_actions.push(ViewAction::ZoomOut);
+    if state.show_zoom {
+        crate::overview::zoom_controls(ui, state.zoom, &mut state.view_actions);
     }
 }
 

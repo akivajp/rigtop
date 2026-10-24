@@ -6,13 +6,16 @@ use egui::{
     Color32, CornerRadius, FontId, Id, Margin, RichText, Sense, Stroke, TextStyle, Ui, Visuals,
 };
 use egui_tiles::{Container, SimplificationOptions, Tile, TileId, Tiles, Tree, UiResponse};
-use rigtop_core::remote::{RemoteSource, RemoteTarget};
+use rigtop_core::config::OverviewSection;
+use rigtop_core::hosts::{HostKind, HostSpec, host_specs};
+use rigtop_core::remote::RemoteSource;
 use rigtop_core::view::{
     MetricHistory, ProcessQuery, ProcessRow, SortKey, process_rows, signal_name,
 };
 use rigtop_core::worker::{Command, Event, Worker};
 use rigtop_core::{Config, DataSource, LocalSource, ProcessSignal, Snapshot};
 
+use crate::overview;
 use crate::panels;
 use crate::widgets::{self, BACKGROUND, BORDER, DIM, TEXT};
 
@@ -28,6 +31,7 @@ const ZOOM_STEP: f32 = 0.1;
 /// Keys of the values eframe persists between runs.
 const ZOOM_KEY: &str = "zoom";
 const LAYOUT_KEY: &str = "layout";
+const OVERVIEW_KEY: &str = "overview";
 
 /// One panel of the layout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -111,6 +115,12 @@ pub struct GuiState {
     pub view_actions: Vec<ViewAction>,
     /// Current UI zoom factor, for display in the panels.
     pub zoom: f32,
+    /// Latest collection error, until the next snapshot (connection lost).
+    pub connection_error: Option<String>,
+    /// When the latest snapshot arrived.
+    pub last_update: Option<Instant>,
+    /// Whether the CPU panel title shows zoom buttons (single-host mode).
+    pub show_zoom: bool,
     status: Option<(String, Instant)>,
 }
 
@@ -130,6 +140,9 @@ impl GuiState {
             commands: Vec::new(),
             view_actions: Vec::new(),
             zoom: 1.0,
+            connection_error: None,
+            last_update: None,
+            show_zoom: true,
             status: None,
         }
     }
@@ -140,6 +153,8 @@ impl GuiState {
             Event::Snapshot(snapshot) => {
                 self.history.record(&snapshot);
                 self.snapshot = Some(*snapshot);
+                self.connection_error = None;
+                self.last_update = Some(Instant::now());
             }
             Event::SignalResult {
                 pid,
@@ -149,7 +164,10 @@ impl GuiState {
                 Ok(()) => self.set_status(format!("sent {} to {pid}", signal_name(signal))),
                 Err(err) => self.set_status(format!("failed: {err}")),
             },
-            Event::Error(err) => self.set_status(format!("collection error: {err}")),
+            Event::Error(err) => {
+                self.set_status(format!("collection error: {err}"));
+                self.connection_error = Some(err);
+            }
         }
     }
 
@@ -202,50 +220,114 @@ impl GuiState {
     }
 }
 
-/// The eframe application.
-pub struct RigtopApp {
-    pub state: GuiState,
-    tree: Tree<Pane>,
+/// One monitored host: its collector and the state its panels show.
+pub struct HostEntry {
+    pub spec: HostSpec,
     /// `None` in tests, which feed snapshots directly.
     worker: Option<Worker>,
+    pub state: GuiState,
+    /// Process limit last sent to the worker (`None` = all processes).
+    sent_limit: Option<Option<usize>>,
+}
+
+impl HostEntry {
+    fn drain(&mut self) {
+        if let Some(worker) = &self.worker {
+            while let Some(event) = worker.try_recv() {
+                self.state.apply(event);
+            }
+        }
+    }
+
+    /// Sends queued commands and the wanted process limit to the worker.
+    fn flush(&mut self, limit: Option<usize>) {
+        let Some(worker) = &self.worker else {
+            self.state.commands.clear();
+            return;
+        };
+        for command in self.state.commands.drain(..) {
+            worker.send(command);
+        }
+        if self.sent_limit != Some(limit) {
+            worker.send(Command::SetProcessLimit(limit));
+            self.sent_limit = Some(limit);
+        }
+    }
+
+    /// What to show before the first snapshot arrives.
+    pub fn waiting_message(&self) -> String {
+        if self.spec.is_local() {
+            "collecting…".to_owned()
+        } else {
+            format!("connecting to {}…", self.spec.name)
+        }
+    }
+}
+
+/// What the window shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum View {
+    /// All hosts side by side.
+    Overview,
+    /// The detailed panels of one host (index into the host list).
+    Host(usize),
+}
+
+/// The eframe application.
+pub struct RigtopApp {
+    pub hosts: Vec<HostEntry>,
+    pub view: View,
+    pub overview: OverviewSettings,
+    tree: Tree<Pane>,
+    /// Processes per overview card (hosts not shown in detail send only these).
+    overview_processes: usize,
     /// Whether the theme (and restored zoom) has been applied to the context.
     styled: bool,
     /// Zoom restored from the previous run, applied on the first frame.
     initial_zoom: f32,
-    /// Shown until the first snapshot arrives ("connecting to zefat…").
-    waiting_message: String,
+    /// Current zoom, saved on exit.
+    zoom: f32,
 }
 
 impl RigtopApp {
-    /// Starts collecting on a worker thread that wakes the UI on new data.
+    /// Starts one collector per host (this machine, `[[hosts]]` from the
+    /// configuration and `extra_hosts` from the command line), each waking
+    /// the UI on new data.
     ///
-    /// The zoom factor and panel layout of the previous run are restored from
-    /// eframe's storage when available.
-    ///
-    /// With `remote`, the data comes from `rigtop --agent` on that host
-    /// over SSH instead of from this machine.
+    /// The zoom factor, panel layout and overview settings of the previous
+    /// run are restored from eframe's storage when available.
     pub fn new(
         cc: &eframe::CreationContext<'_>,
         config: Config,
         interval: Duration,
-        remote: Option<RemoteTarget>,
+        extra_hosts: &[String],
+        remote_command: Option<&str>,
     ) -> Self {
-        let source_config = config.clone();
-        let repaint = cc.egui_ctx.clone();
-        let waiting_message = match &remote {
-            Some(target) => format!("connecting to {}…", target.name),
-            None => "collecting…".to_owned(),
-        };
-        let worker = Worker::spawn_with_notify(
-            move || -> Box<dyn DataSource> {
-                match remote {
-                    Some(target) => Box::new(RemoteSource::new(target)),
-                    None => Box::new(LocalSource::with_config(&source_config)),
+        let specs = host_specs(&config, extra_hosts, remote_command);
+        let hosts = specs
+            .into_iter()
+            .map(|spec| {
+                let source_config = config.clone();
+                let repaint = cc.egui_ctx.clone();
+                let kind = spec.kind.clone();
+                let worker = Worker::spawn_with_notify(
+                    move || -> Box<dyn DataSource> {
+                        match kind {
+                            HostKind::Remote(target) => Box::new(RemoteSource::new(target)),
+                            HostKind::Local => Box::new(LocalSource::with_config(&source_config)),
+                        }
+                    },
+                    interval,
+                    move || repaint.request_repaint(),
+                );
+                HostEntry {
+                    spec,
+                    worker: Some(worker),
+                    state: GuiState::new(config.clone()),
+                    sent_limit: None,
                 }
-            },
-            interval,
-            move || repaint.request_repaint(),
-        );
+            })
+            .collect();
         let storage = cc.storage;
         let initial_zoom = storage
             .and_then(|s| eframe::get_value::<f32>(s, ZOOM_KEY))
@@ -254,35 +336,100 @@ impl RigtopApp {
             .and_then(|s| eframe::get_value::<Tree<Pane>>(s, LAYOUT_KEY))
             .filter(is_complete_layout)
             .unwrap_or_else(default_tree);
-        Self {
-            state: GuiState::new(config),
+        let overview = storage
+            .and_then(|s| eframe::get_value::<OverviewSettings>(s, OVERVIEW_KEY))
+            .unwrap_or_else(|| OverviewSettings::from_config(&config));
+        Self::assemble(
+            hosts,
             tree,
-            worker: Some(worker),
+            overview,
+            config.overview.processes,
+            initial_zoom,
+        )
+    }
+
+    fn assemble(
+        hosts: Vec<HostEntry>,
+        tree: Tree<Pane>,
+        overview: OverviewSettings,
+        overview_processes: usize,
+        initial_zoom: f32,
+    ) -> Self {
+        // With a single host there is nothing to overview: show it directly.
+        let view = if hosts.len() > 1 {
+            View::Overview
+        } else {
+            View::Host(0)
+        };
+        Self {
+            hosts,
+            view,
+            overview,
+            tree,
+            overview_processes,
             styled: false,
             initial_zoom,
-            waiting_message,
+            zoom: initial_zoom,
         }
     }
 
-    /// Creates the app without a worker (snapshots come from `state.apply`).
+    /// Creates the app for `names` (the first one local) without workers;
+    /// snapshots come from `state.apply`.
+    #[cfg(test)]
+    pub fn for_test(config: Config, names: &[&str]) -> Self {
+        let hosts = names
+            .iter()
+            .enumerate()
+            .map(|(i, name)| HostEntry {
+                spec: HostSpec {
+                    name: (*name).to_owned(),
+                    kind: if i == 0 {
+                        HostKind::Local
+                    } else {
+                        HostKind::Remote(rigtop_core::remote::RemoteTarget::ssh(
+                            name,
+                            "rigtop --agent",
+                        ))
+                    },
+                    sections: config.overview.sections.clone(),
+                },
+                worker: None,
+                state: GuiState::new(config.clone()),
+                sent_limit: None,
+            })
+            .collect();
+        let overview = OverviewSettings::from_config(&config);
+        Self::assemble(
+            hosts,
+            default_tree(),
+            overview,
+            config.overview.processes,
+            1.0,
+        )
+    }
+
+    /// A single-host app without a worker (tests).
     #[cfg(test)]
     pub fn without_worker(config: Config) -> Self {
-        Self {
-            state: GuiState::new(config),
-            tree: default_tree(),
-            worker: None,
-            styled: false,
-            initial_zoom: 1.0,
-            waiting_message: "collecting…".to_owned(),
-        }
+        Self::for_test(config, &["local"])
     }
 
-    /// Applies everything the worker has sent since the last call.
+    /// State of the first host (the only one in single-host tests).
+    #[cfg(test)]
+    pub fn primary(&self) -> &GuiState {
+        &self.hosts[0].state
+    }
+
+    /// Mutable state of the first host.
+    #[cfg(test)]
+    pub fn primary_mut(&mut self) -> &mut GuiState {
+        &mut self.hosts[0].state
+    }
+
+    /// Applies everything the workers have sent since the last call.
     fn drain_events(&mut self) {
-        if let Some(worker) = &self.worker {
-            while let Some(event) = worker.try_recv() {
-                self.state.apply(event);
-            }
+        for host in &mut self.hosts {
+            host.drain();
         }
     }
 
@@ -291,6 +438,9 @@ impl RigtopApp {
         let ctx = ui.ctx().clone();
         if !self.styled {
             setup_style(&ctx);
+            // Context style changes apply from the next frame; this frame's
+            // Ui needs the theme too (the default font lacks "▼" etc.).
+            ui.set_style(ctx.global_style());
             ctx.set_zoom_factor(self.initial_zoom);
             self.styled = true;
         }
@@ -300,34 +450,56 @@ impl RigtopApp {
         if wheel_zoom != 1.0 {
             set_zoom(&ctx, ctx.zoom_factor() * wheel_zoom);
         }
-        self.state.zoom = ctx.zoom_factor();
+        self.zoom = ctx.zoom_factor();
         self.drain_events();
+        if let View::Host(index) = self.view
+            && index >= self.hosts.len()
+        {
+            self.view = View::Host(0);
+        }
 
+        let mut actions = Vec::new();
         egui::Frame::new()
             .fill(BACKGROUND)
             .inner_margin(Margin::same(4))
             .show(ui, |ui| {
-                if self.state.snapshot.is_none() {
-                    // Connection errors (e.g. "Permission denied (publickey)")
-                    // show under the waiting message.
-                    let status = self.state.status().map(str::to_owned);
-                    ui.vertical_centered(|ui| {
-                        ui.add_space(ui.available_height() / 2.0 - 20.0);
-                        ui.label(RichText::new(&self.waiting_message).color(DIM));
-                        if let Some(status) = status {
-                            ui.label(RichText::new(status).color(widgets::WARN));
+                if self.hosts.len() > 1 {
+                    self.tab_bar(ui, &mut actions);
+                }
+                match self.view {
+                    View::Overview => {
+                        if let Some(open) = overview::show(
+                            ui,
+                            &mut self.hosts,
+                            &mut self.overview,
+                            self.overview_processes,
+                        ) {
+                            self.view = View::Host(open);
                         }
-                    });
-                } else {
-                    let mut behavior = Behavior {
-                        state: &mut self.state,
-                    };
-                    self.tree.ui(&mut behavior, ui);
+                    }
+                    View::Host(index) => {
+                        let single = self.hosts.len() == 1;
+                        let host = &mut self.hosts[index];
+                        host.state.zoom = self.zoom;
+                        // With several hosts the zoom buttons live in the tab bar.
+                        host.state.show_zoom = single;
+                        if host.state.snapshot.is_none() {
+                            waiting_screen(ui, host);
+                        } else {
+                            let mut behavior = Behavior {
+                                state: &mut host.state,
+                            };
+                            self.tree.ui(&mut behavior, ui);
+                        }
+                        actions.append(&mut host.state.view_actions);
+                    }
                 }
             });
-        panels::confirm_dialog(ui.ctx(), &mut self.state);
+        if let View::Host(index) = self.view {
+            panels::confirm_dialog(ui.ctx(), &mut self.hosts[index].state);
+        }
 
-        for action in std::mem::take(&mut self.state.view_actions) {
+        for action in actions {
             match action {
                 ViewAction::ZoomIn => set_zoom(&ctx, ctx.zoom_factor() + ZOOM_STEP),
                 ViewAction::ZoomOut => set_zoom(&ctx, ctx.zoom_factor() - ZOOM_STEP),
@@ -336,23 +508,101 @@ impl RigtopApp {
             }
         }
 
-        if let Some(worker) = &self.worker {
-            for command in self.state.commands.drain(..) {
-                worker.send(command);
-            }
+        // The host shown in detail sends every process; the others only
+        // what an overview card lists.
+        for (index, host) in self.hosts.iter_mut().enumerate() {
+            let limit = if self.view == View::Host(index) {
+                None
+            } else {
+                Some(self.overview_processes)
+            };
+            host.flush(limit);
         }
         // Repaint at the next full second so the clock ticks; new data
-        // triggers repaints through the worker's notification.
+        // triggers repaints through the workers' notifications.
         let subsec = chrono::Local::now().timestamp_subsec_millis() as u64;
         ui.ctx()
             .request_repaint_after(Duration::from_millis(1000 - subsec.min(999)));
+    }
+
+    /// "Overview | local | zefat | ..." with a status dot per host, plus the
+    /// zoom controls on the right.
+    fn tab_bar(&mut self, ui: &mut Ui, actions: &mut Vec<ViewAction>) {
+        ui.horizontal(|ui| {
+            if ui
+                .add(egui::Button::selectable(
+                    self.view == View::Overview,
+                    RichText::new("Overview").strong(),
+                ))
+                .clicked()
+            {
+                self.view = View::Overview;
+            }
+            ui.add_space(6.0);
+            for (index, host) in self.hosts.iter().enumerate() {
+                let (color, status) = overview::host_status(host);
+                let selected = self.view == View::Host(index);
+                let label = overview::dot_label(color, &host.spec.name, selected);
+                let response = ui
+                    .add(egui::Button::selectable(selected, label))
+                    .on_hover_text(status);
+                if response.clicked() {
+                    self.view = View::Host(index);
+                }
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                overview::zoom_controls(ui, self.zoom, actions);
+            });
+        });
+        ui.add_space(2.0);
+    }
+}
+
+/// "connecting to zefat…" with the latest connection error under it.
+fn waiting_screen(ui: &mut Ui, host: &HostEntry) {
+    let error = host.state.connection_error.clone();
+    let message = host.waiting_message();
+    ui.vertical_centered(|ui| {
+        ui.add_space(ui.available_height() / 2.0 - 20.0);
+        ui.label(RichText::new(message).color(DIM));
+        if let Some(error) = error {
+            ui.label(RichText::new(error).color(widgets::WARN));
+        }
+    });
+}
+
+/// Overview choices made in the GUI, persisted between runs.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct OverviewSettings {
+    /// Whether the local machine gets a card.
+    pub include_local: bool,
+    /// Section order chosen in the GUI per host name, overriding the
+    /// configuration.
+    pub sections: std::collections::BTreeMap<String, Vec<OverviewSection>>,
+}
+
+impl OverviewSettings {
+    /// Defaults from the configuration file.
+    pub fn from_config(config: &Config) -> Self {
+        Self {
+            include_local: config.overview.include_local,
+            sections: Default::default(),
+        }
+    }
+
+    /// Sections for a host: the GUI choice, else the configured order.
+    pub fn sections_for(&self, spec: &HostSpec) -> Vec<OverviewSection> {
+        self.sections
+            .get(&spec.name)
+            .cloned()
+            .unwrap_or_else(|| spec.sections.clone())
     }
 }
 
 impl eframe::App for RigtopApp {
     /// Runs before every frame and also while the window is hidden
     /// (minimized, screen locked), when `ui` is not called. Draining here
-    /// keeps the graphs' history going and the event queue short.
+    /// keeps the graphs' history going and the event queues short.
     fn logic(&mut self, _ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.drain_events();
     }
@@ -362,8 +612,9 @@ impl eframe::App for RigtopApp {
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        eframe::set_value(storage, ZOOM_KEY, &self.state.zoom);
+        eframe::set_value(storage, ZOOM_KEY, &self.zoom);
         eframe::set_value(storage, LAYOUT_KEY, &self.tree);
+        eframe::set_value(storage, OVERVIEW_KEY, &self.overview);
     }
 }
 
@@ -606,7 +857,8 @@ mod tests {
     fn harness_with(snapshot: Snapshot) -> Harness<'static, RigtopApp> {
         let mut app = RigtopApp::without_worker(Config::default());
         for _ in 0..30 {
-            app.state.apply(Event::Snapshot(Box::new(snapshot.clone())));
+            app.primary_mut()
+                .apply(Event::Snapshot(Box::new(snapshot.clone())));
         }
         Harness::builder()
             .with_size([1400.0, 900.0])
@@ -644,25 +896,25 @@ mod tests {
         harness.run();
         harness.get_by_label("Pid").click();
         harness.run();
-        assert_eq!(harness.state().state.sort_key, SortKey::Pid);
-        assert!(!harness.state().state.sort_descending);
+        assert_eq!(harness.state().primary().sort_key, SortKey::Pid);
+        assert!(!harness.state().primary().sort_descending);
 
         harness.get_by_label("python").click_secondary();
         harness.run();
         harness.get_by_label("Kill (SIGKILL)").click();
         harness.run();
         // Nothing is sent until the dialog is confirmed.
-        assert!(harness.state().state.commands.is_empty());
+        assert!(harness.state().primary().commands.is_empty());
         let confirm = harness
             .state()
-            .state
+            .primary()
             .confirm
             .clone()
             .expect("confirmation dialog");
         assert_eq!((confirm.pid, confirm.signal), (4242, ProcessSignal::Kill));
         harness.get_by_label("Cancel").click();
         harness.run();
-        assert!(harness.state().state.confirm.is_none());
+        assert!(harness.state().primary().confirm.is_none());
     }
 
     #[test]
@@ -687,13 +939,100 @@ mod tests {
         assert!((harness.ctx.zoom_factor() - 1.0).abs() < 1e-4);
     }
 
+    fn multi_host_harness() -> Harness<'static, RigtopApp> {
+        let mut app = RigtopApp::for_test(Config::default(), &["local", "zefat", "nas"]);
+        for host in &mut app.hosts[..2] {
+            for _ in 0..5 {
+                host.state
+                    .apply(Event::Snapshot(Box::new(sample_snapshot())));
+            }
+        }
+        // "nas" never connects: its card shows the error.
+        app.hosts[2].state.apply(Event::Error(
+            "nas: ssh: Could not resolve hostname nas".to_owned(),
+        ));
+        Harness::builder()
+            .with_size([1400.0, 900.0])
+            .build_ui_state(|ui, app: &mut RigtopApp| app.show(ui), app)
+    }
+
+    #[test]
+    fn overview_is_the_default_with_several_hosts() {
+        let mut harness = multi_host_harness();
+        harness.run();
+        assert_eq!(harness.state().view, View::Overview);
+        for label in [
+            "Overview",
+            "zefat",
+            "nas",
+            "Could not resolve hostname",
+            "CPU",
+            "GPU0",
+            "Mem",
+        ] {
+            assert!(
+                harness.query_all_by_label_contains(label).next().is_some(),
+                "missing {label:?}"
+            );
+        }
+        // Hosts not shown in detail only get the top processes.
+        assert_eq!(
+            harness.state().hosts[1].sent_limit,
+            None,
+            "no worker in tests"
+        );
+    }
+
+    #[test]
+    fn clicking_a_tab_opens_the_detail_view() {
+        let mut harness = multi_host_harness();
+        harness.run();
+        // The tab comes first; the card title has the same text.
+        harness
+            .query_all_by_label_contains("● zefat")
+            .next()
+            .expect("zefat tab")
+            .click();
+        harness.run();
+        assert_eq!(harness.state().view, View::Host(1));
+        // The detail panels of that host are shown.
+        assert!(harness.query_all_by_label_contains("proc").next().is_some());
+        harness.get_by_label("Overview").click();
+        harness.run();
+        assert_eq!(harness.state().view, View::Overview);
+    }
+
+    #[test]
+    fn overview_settings_follow_the_gui() {
+        let mut settings = OverviewSettings::from_config(&Config::default());
+        let spec = HostSpec {
+            name: "nas".to_owned(),
+            kind: HostKind::Local,
+            sections: vec![OverviewSection::Cpu],
+        };
+        assert_eq!(settings.sections_for(&spec), vec![OverviewSection::Cpu]);
+        settings.sections.insert(
+            "nas".to_owned(),
+            vec![OverviewSection::Storage, OverviewSection::Cpu],
+        );
+        assert_eq!(settings.sections_for(&spec)[0], OverviewSection::Storage);
+
+        // Unticking "include this machine" removes the local card.
+        let mut harness = multi_host_harness();
+        harness.run();
+        harness.get_by_label("include this machine").click();
+        harness.run();
+        assert!(!harness.state().overview.include_local);
+    }
+
     /// Renders the real machine to a PNG for visual checks:
     /// `RIGTOP_GUI_SCREENSHOT=/tmp/gui.png cargo test -p rigtop-gui -- --ignored screenshot`
     ///
     /// Optional: `RIGTOP_GUI_FILTER` (process filter, e.g. to keep personal
     /// processes out of published images) and `RIGTOP_GUI_SAMPLES` (number of
-    /// samples taken 300 ms apart, to fill the graphs; default 20) and
-    /// `RIGTOP_GUI_SIZE` (window size such as `1000x700`; default 1400x900).
+    /// samples taken 300 ms apart, to fill the graphs; default 20),
+    /// `RIGTOP_GUI_SIZE` (window size such as `1000x700`; default 1400x900)
+    /// and `RIGTOP_GUI_HOSTS` (comma-separated names for an overview).
     #[test]
     #[ignore]
     fn screenshot_local_machine() {
@@ -703,15 +1042,22 @@ mod tests {
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(20);
+        // RIGTOP_GUI_HOSTS=local,zefat,nas renders the overview with this
+        // machine's data under every name.
+        let names_env = std::env::var("RIGTOP_GUI_HOSTS").unwrap_or_else(|_| "local".to_owned());
+        let names: Vec<&str> = names_env.split(',').collect();
         let mut source = LocalSource::new();
-        let mut app = RigtopApp::without_worker(Config::load_default().unwrap_or_default());
+        let mut app = RigtopApp::for_test(Config::load_default().unwrap_or_default(), &names);
         for _ in 0..samples {
             std::thread::sleep(Duration::from_millis(300));
-            app.state
-                .apply(Event::Snapshot(Box::new(source.poll().unwrap())));
+            let snapshot = source.poll().unwrap();
+            for host in &mut app.hosts {
+                host.state
+                    .apply(Event::Snapshot(Box::new(snapshot.clone())));
+            }
         }
         if let Ok(filter) = std::env::var("RIGTOP_GUI_FILTER") {
-            app.state.filter = filter;
+            app.primary_mut().filter = filter;
         }
         let size = std::env::var("RIGTOP_GUI_SIZE")
             .ok()
