@@ -1,0 +1,113 @@
+#!/bin/sh
+# Collect data that only root can read, into world-readable files for rigtop:
+#
+#   <BASE_DIR>/smart/<device>.json         `smartctl -j -a` output per drive
+#   <BASE_DIR>/btrfs/scrub.status.<fsid>   copies of btrfs-progs scrub results
+#
+# Meant to run as root from rigtop-collect.service (see the README).
+set -u
+
+usage() {
+    cat <<USAGE
+Usage: rigtop-collect [BASE_DIR]
+
+Write SMART data of all drives found by 'smartctl --scan-open' to
+BASE_DIR/smart/<device>.json, and copy btrfs scrub status files from
+/var/lib/btrfs to BASE_DIR/btrfs/, all world-readable.
+
+BASE_DIR defaults to /var/lib/rigtop. Requires root. SMART collection
+needs smartmontools and is skipped (with a warning) without it.
+USAGE
+}
+
+case "${1:-}" in
+    -h | --help)
+        usage
+        exit 0
+        ;;
+esac
+
+base_dir="${1:-/var/lib/rigtop}"
+smart_dir="$base_dir/smart"
+btrfs_dir="$base_dir/btrfs"
+# Result files are world-readable so that rigtop can read them as a normal user.
+umask 022
+mkdir -p "$smart_dir" "$btrfs_dir" || exit 1
+
+# Removes files in directory $1 matching glob $2 whose names are not in the
+# space-separated list $3.
+remove_stale() {
+    for file in "$1"/$2; do
+        [ -e "$file" ] || continue
+        case "$3" in
+            *" $(basename "$file") "*) ;;
+            *) rm -f "$file" ;;
+        esac
+    done
+}
+
+collect_smart() {
+    if ! command -v smartctl >/dev/null 2>&1; then
+        echo "rigtop-collect: smartctl not found, skipping SMART (install smartmontools)" >&2
+        return
+    fi
+    # One line per device, e.g. "/dev/nvme0 -d nvme # /dev/nvme0, NVMe device".
+    # Devices that could not be opened are printed as comments ("# /dev/...").
+    scan=$(smartctl --scan-open) || return
+
+    written=" "
+    while read -r dev opt type _rest; do
+        case "$dev" in
+            "" | "#"*) continue ;;
+        esac
+        [ "$opt" = "-d" ] || type=auto
+
+        name=$(basename "$dev")
+        # RAID controller pass-through ("-d megaraid,0") shares one device node
+        # between several drives; keep them apart.
+        case "$type" in
+            *,*) name="${name}_$(printf '%s' "$type" | tr ',' '_')" ;;
+        esac
+
+        tmp="$smart_dir/.$name.json.tmp"
+        # '-n standby,3': do not spin up sleeping disks; exit with 3 in that case.
+        smartctl -j -a -n standby,3 -d "$type" "$dev" >"$tmp"
+        status=$?
+        if [ "$status" -eq 3 ]; then
+            # The disk is asleep: keep the previous result instead of replacing it.
+            rm -f "$tmp"
+        else
+            # Other non-zero statuses are bit flags (failing disk, error log
+            # entries, ...) that rigtop interprets itself, so keep the output.
+            mv -f "$tmp" "$smart_dir/$name.json"
+        fi
+        written="$written$name.json "
+    done <<SCAN
+$scan
+SCAN
+
+    # Remove results of drives that are no longer present.
+    remove_stale "$smart_dir" "*.json" "$written"
+}
+
+collect_btrfs_scrub() {
+    # btrfs-progs keeps scrub results in /var/lib/btrfs/scrub.status.<fsid>
+    # with mode 0600; copy them so rigtop can show when data was last verified.
+    src_dir=/var/lib/btrfs
+    copied=" "
+    for src in "$src_dir"/scrub.status.*; do
+        [ -f "$src" ] || continue
+        name=$(basename "$src")
+        case "$name" in
+            # Temporary files written while a scrub updates its status.
+            *_tmp | *.tmp) continue ;;
+        esac
+        tmp="$btrfs_dir/.$name.tmp"
+        cp "$src" "$tmp" && chmod 644 "$tmp" && mv -f "$tmp" "$btrfs_dir/$name"
+        copied="$copied$name "
+    done
+    remove_stale "$btrfs_dir" "scrub.status.*" "$copied"
+}
+
+collect_smart
+collect_btrfs_scrub

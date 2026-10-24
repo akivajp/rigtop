@@ -1,5 +1,5 @@
 [Unit]
-Description=Collect SMART data for rigtop periodically
+Description=Collect SMART and btrfs scrub data for rigtop periodically
 Documentation=https://github.com/akivajp/rigtop
 
 [Timer]

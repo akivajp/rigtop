@@ -16,7 +16,9 @@ use crate::snapshot::{PowerStats, Snapshot};
 use crate::system::SystemCollector;
 
 #[cfg(target_os = "linux")]
-use crate::linux::{self, SysRoots, diskstats::DiskStatsMeter, rapl::RaplMeter};
+use crate::linux::{
+    self, SysRoots, diskstats::DiskStatsMeter, net::NetLinkReader, rapl::RaplMeter,
+};
 
 /// Shortest sensible interval between two polls. CPU usage is computed from
 /// the difference between polls and is inaccurate below this.
@@ -76,6 +78,11 @@ pub struct LocalSource {
     rapl: RaplMeter,
     #[cfg(target_os = "linux")]
     diskstats: DiskStatsMeter,
+    #[cfg(target_os = "linux")]
+    net_links: NetLinkReader,
+    /// Directories searched for btrfs scrub status files, in order.
+    #[cfg(target_os = "linux")]
+    scrub_dirs: Vec<std::path::PathBuf>,
 }
 
 impl LocalSource {
@@ -102,6 +109,15 @@ impl LocalSource {
             rapl: RaplMeter::new(),
             #[cfg(target_os = "linux")]
             diskstats: DiskStatsMeter::new(),
+            #[cfg(target_os = "linux")]
+            net_links: NetLinkReader::new(),
+            // The copy made by the root collector first, then btrfs-progs'
+            // own file in case rigtop runs as root.
+            #[cfg(target_os = "linux")]
+            scrub_dirs: vec![
+                config.btrfs.scrub_dir.clone(),
+                linux::btrfs::BTRFS_PROGS_STATUS_DIR.into(),
+            ],
         };
         // The warm-up result itself is meaningless (no previous sample).
         let _ = source.collect();
@@ -183,6 +199,11 @@ impl LocalSource {
 
         let mounts = linux::mounts::read_mounts(&self.roots);
         snapshot.raid.btrfs = linux::btrfs::read_filesystems(&self.roots, &mounts);
+        for fs in &mut snapshot.raid.btrfs {
+            fs.scrub = linux::btrfs::read_scrub(&self.scrub_dirs, &fs.fsid);
+        }
+        self.net_links
+            .annotate(&self.roots, &mut snapshot.networks, now);
         snapshot.raid.md = linux::mdstat::read_arrays(&self.roots);
 
         snapshot.sensors = chips.into_iter().map(|c| c.chip).collect();

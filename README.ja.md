@@ -42,19 +42,22 @@ cargo run --release -p rigtop -- --help  # オプション（--interval-ms、--c
 | `+` / `-` | 更新間隔を長く / 短くする |
 | `q` | 終了 |
 
-## SMART の健康状態（任意）
+## SMART と btrfs の scrub 結果（任意）
 
-SMART の読み取りには root が必要です。rigtop 自身は root で動かさず、デバイスの権限も緩めません。代わりに root の systemd タイマーが、全ドライブの `smartctl -j -a` の結果を `/var/lib/rigtop/smart/` に書き出し、rigtop はそのファイルを読みます。スリープ中のディスクは起こしません。
+SMART と btrfs の scrub 結果は root しか読めません。rigtop 自身は root で動かさず、デバイスの権限も緩めません。代わりに root の systemd タイマーが10分ごとに集めて `/var/lib/rigtop/` の下に誰でも読めるファイルとして置き、rigtop はそれを読みます。
+
+- `smart/<デバイス名>.json`: 全ドライブの `smartctl -j -a` の結果（スリープ中のディスクは起こさない）
+- `btrfs/scrub.status.<fsid>`: btrfs-progs の scrub 状態ファイルの写し。全データを最後に検査した時刻として表示する
 
 ```sh
 sudo apt install smartmontools   # ディストリビューションに合わせて
-sudo install -m 755 contrib/smart/rigtop-smart-collect /usr/local/libexec/
-sudo install -m 644 contrib/smart/rigtop-smart.service contrib/smart/rigtop-smart.timer /etc/systemd/system/
+sudo install -m 755 contrib/collect/rigtop-collect /usr/local/libexec/
+sudo install -m 644 contrib/collect/rigtop-collect.service contrib/collect/rigtop-collect.timer /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now rigtop-smart.timer
+sudo systemctl enable --now rigtop-collect.timer
 ```
 
-結果のファイルは誰でも読める権限で、ドライブのシリアル番号を含みます。
+SMART のファイルにはドライブのシリアル番号が含まれます。
 
 ## 設定
 
@@ -69,6 +72,9 @@ hidden = ["nct6686:nct6683.2592/temp4"]
 
 [smart]
 dir = "/var/lib/rigtop/smart"
+
+[btrfs]
+scrub_dir = "/var/lib/rigtop/btrfs"
 ```
 
 ## ライセンス

@@ -14,6 +14,10 @@
 //! [smart]
 //! # Directory with smartctl JSON files written by the root timer.
 //! dir = "/var/lib/rigtop/smart"
+//!
+//! [btrfs]
+//! # Directory with btrfs scrub status files copied by the root timer.
+//! scrub_dir = "/var/lib/rigtop/btrfs"
 //! ```
 //!
 //! Labels are applied by front-ends rather than by data sources, so that a
@@ -30,6 +34,8 @@ use crate::snapshot::{Fan, Temperature};
 
 /// Default location of the SMART result files.
 pub const DEFAULT_SMART_DIR: &str = "/var/lib/rigtop/smart";
+/// Default location of the copied btrfs scrub status files.
+pub const DEFAULT_SCRUB_DIR: &str = "/var/lib/rigtop/btrfs";
 
 /// Errors while loading or saving the configuration.
 #[derive(Debug, thiserror::Error)]
@@ -63,6 +69,8 @@ pub struct Config {
     pub sensors: SensorConfig,
     /// SMART result files.
     pub smart: SmartConfig,
+    /// btrfs scrub status files.
+    pub btrfs: BtrfsConfig,
 }
 
 /// Sensor naming and visibility.
@@ -88,6 +96,22 @@ impl Default for SmartConfig {
     fn default() -> Self {
         Self {
             dir: PathBuf::from(DEFAULT_SMART_DIR),
+        }
+    }
+}
+
+/// Where to find btrfs scrub results.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct BtrfsConfig {
+    /// Directory with world-readable copies of `scrub.status.<fsid>`.
+    pub scrub_dir: PathBuf,
+}
+
+impl Default for BtrfsConfig {
+    fn default() -> Self {
+        Self {
+            scrub_dir: PathBuf::from(DEFAULT_SCRUB_DIR),
         }
     }
 }

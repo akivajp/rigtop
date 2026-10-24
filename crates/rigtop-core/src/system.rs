@@ -131,6 +131,8 @@ impl SystemCollector {
                 tx_bytes_per_sec: rate(data.transmitted(), elapsed_secs),
                 rx_total_bytes: data.total_received(),
                 tx_total_bytes: data.total_transmitted(),
+                // Link state is platform-specific and filled in by the caller.
+                ..Default::default()
             })
             .collect();
         networks.sort_by(|a, b| a.name.cmp(&b.name));

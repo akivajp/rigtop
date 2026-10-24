@@ -42,19 +42,22 @@ cargo run --release -p rigtop -- --help  # options (--interval-ms, --config, --d
 | `+` / `-` | slower / faster updates |
 | `q` | quit |
 
-## SMART health (optional)
+## SMART and btrfs scrub results (optional)
 
-Reading SMART data requires root, and rigtop never runs as root or loosens device permissions. Instead, a root systemd timer dumps `smartctl -j -a` for every drive into `/var/lib/rigtop/smart/`, and rigtop reads those files. Sleeping disks are not woken up.
+SMART data and btrfs scrub results are readable only by root, and rigtop never runs as root or loosens device permissions. Instead, a root systemd timer collects them every 10 minutes into world-readable files under `/var/lib/rigtop/`, and rigtop reads those:
+
+- `smart/<device>.json`: `smartctl -j -a` for every drive (sleeping disks are not woken up)
+- `btrfs/scrub.status.<fsid>`: copies of btrfs-progs' scrub status, shown as when data was last verified
 
 ```sh
 sudo apt install smartmontools   # or your distribution's package
-sudo install -m 755 contrib/smart/rigtop-smart-collect /usr/local/libexec/
-sudo install -m 644 contrib/smart/rigtop-smart.service contrib/smart/rigtop-smart.timer /etc/systemd/system/
+sudo install -m 755 contrib/collect/rigtop-collect /usr/local/libexec/
+sudo install -m 644 contrib/collect/rigtop-collect.service contrib/collect/rigtop-collect.timer /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now rigtop-smart.timer
+sudo systemctl enable --now rigtop-collect.timer
 ```
 
-The result files are world-readable and include drive serial numbers.
+The SMART files include drive serial numbers.
 
 ## Configuration
 
@@ -69,6 +72,9 @@ hidden = ["nct6686:nct6683.2592/temp4"]
 
 [smart]
 dir = "/var/lib/rigtop/smart"
+
+[btrfs]
+scrub_dir = "/var/lib/rigtop/btrfs"
 ```
 
 ## License

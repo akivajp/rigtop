@@ -11,11 +11,15 @@
 //! - Percentages are in the range `0.0..=100.0` (per-core values are not summed).
 //! - Values that a platform or device cannot provide are `None` (or an empty
 //!   list) rather than zero, so that front-ends can hide them.
+//! - Every struct is `#[serde(default)]`: fields missing from the input take
+//!   their default, so a client can read snapshots from an older or newer
+//!   `rigtop --agent` as long as fields are only added.
 
 use serde::{Deserialize, Serialize};
 
 /// One full measurement of a host.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Snapshot {
     /// Wall-clock time of the measurement, in milliseconds since the Unix epoch.
     pub timestamp_ms: u64,
@@ -67,6 +71,7 @@ impl Snapshot {
 
 /// Host identification and uptime.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct HostInfo {
     /// Host name as reported by the OS.
     pub hostname: String,
@@ -80,6 +85,7 @@ pub struct HostInfo {
 
 /// CPU-wide and per-core statistics.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct CpuStats {
     /// Brand string of the first CPU (e.g. "AMD Ryzen 9 9950X3D 16-Core Processor").
     pub model: String,
@@ -98,6 +104,7 @@ pub struct CpuStats {
 
 /// Physical memory and swap usage.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct MemoryStats {
     /// Installed (visible) memory.
     pub total_bytes: u64,
@@ -117,6 +124,7 @@ pub struct MemoryStats {
 
 /// A single GPU.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct GpuStats {
     /// Index within its vendor API (NVML index for NVIDIA).
     pub index: u32,
@@ -148,6 +156,7 @@ pub struct GpuStats {
 
 /// GPU usage attributed to one process.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct GpuProcess {
     /// OS process id.
     pub pid: u32,
@@ -159,6 +168,7 @@ pub struct GpuProcess {
 
 /// A hardware monitoring chip (a Linux hwmon device) and its readings.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SensorChip {
     /// Stable identifier, `"<driver name>:<device name>"`
     /// (e.g. `"nct6686:nct6683.2592"`, `"nvme:nvme0"`).
@@ -176,6 +186,7 @@ pub struct SensorChip {
 
 /// One temperature channel.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Temperature {
     /// Stable key `"<chip key>/temp<N>"` used to look up user-defined names.
     /// Empty for readings that do not come from a hwmon chip.
@@ -192,6 +203,7 @@ pub struct Temperature {
 
 /// One fan channel.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Fan {
     /// Stable key `"<chip key>/fan<N>"` used to look up user-defined names.
     pub key: String,
@@ -207,6 +219,7 @@ pub struct Fan {
 /// hardware, so the total is the sum of the CPU package and discrete GPUs,
 /// which dominate consumption on typical workstations.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct PowerStats {
     /// CPU package power (RAPL on Linux). `None` before the second sample or
     /// when RAPL is unavailable.
@@ -222,6 +235,7 @@ pub struct PowerStats {
 
 /// I/O activity of a block device.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct DiskIo {
     /// Kernel device name (e.g. `"nvme0n1"`, `"sda"`).
     pub name: String,
@@ -240,6 +254,7 @@ pub struct DiskIo {
 /// Filesystems mounted at several places (e.g. btrfs subvolumes) appear once,
 /// with all mount points listed.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct FilesystemUsage {
     /// Source device (e.g. `"/dev/nvme1n1p1"`).
     pub device: String,
@@ -272,6 +287,7 @@ pub fn device_matches_disk(device: &str, disk: &str) -> bool {
 /// Fields a drive or protocol does not report are `None` (NVMe drives have
 /// no sector reallocation counters, ATA drives no "percentage used").
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SmartDevice {
     /// Kernel device name (`"nvme0"`, `"sda"`). See [`device_matches_disk`].
     pub device: String,
@@ -335,6 +351,7 @@ impl SmartDevice {
 
 /// Software RAID state.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct RaidStats {
     /// Mounted btrfs filesystems.
     pub btrfs: Vec<BtrfsFilesystem>,
@@ -344,6 +361,7 @@ pub struct RaidStats {
 
 /// A btrfs filesystem as seen in `/sys/fs/btrfs/<fsid>`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct BtrfsFilesystem {
     /// Filesystem UUID.
     pub fsid: String,
@@ -360,6 +378,30 @@ pub struct BtrfsFilesystem {
     pub device_stats: Vec<BtrfsDeviceStats>,
     /// Allocation per block group type (data, metadata, system).
     pub allocations: Vec<BtrfsAllocation>,
+    /// Result of the most recent scrub, if it is known. Error counters in
+    /// `device_stats` only grow when data is read, so the scrub time tells
+    /// when all data was last verified.
+    pub scrub: Option<BtrfsScrub>,
+}
+
+/// Outcome of the last btrfs scrub (summed over devices).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BtrfsScrub {
+    /// Start time, in milliseconds since the Unix epoch.
+    pub started_at_ms: u64,
+    /// Run time in seconds.
+    pub duration_secs: u64,
+    /// `"finished"`, `"canceled"` or `"unfinished"` (running or interrupted).
+    pub state: String,
+    /// Bytes verified.
+    pub bytes_scrubbed: u64,
+    /// Read, checksum, verify and superblock errors found.
+    pub errors: u64,
+    /// Errors that were repaired from a good copy.
+    pub corrected: u64,
+    /// Errors that could not be repaired.
+    pub uncorrectable: u64,
 }
 
 impl BtrfsFilesystem {
@@ -373,6 +415,7 @@ impl BtrfsFilesystem {
 
 /// Error counters of one btrfs member device.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct BtrfsDeviceStats {
     /// btrfs device id (1-based).
     pub devid: u64,
@@ -403,6 +446,7 @@ impl BtrfsDeviceStats {
 
 /// Space allocation of one btrfs block group type and RAID profile.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct BtrfsAllocation {
     /// Block group type: `"data"`, `"metadata"` or `"system"`.
     pub kind: String,
@@ -416,6 +460,7 @@ pub struct BtrfsAllocation {
 
 /// One Linux md array parsed from `/proc/mdstat`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct MdArray {
     /// Array name (e.g. `"md0"`).
     pub name: String,
@@ -448,6 +493,7 @@ impl MdArray {
 
 /// A member device of an md array.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct MdMember {
     /// Device name (e.g. `"sda1"`).
     pub name: String,
@@ -461,6 +507,7 @@ pub struct MdMember {
 
 /// Progress of an md background operation.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct MdSync {
     /// Operation name: `"resync"`, `"recovery"`, `"reshape"` or `"check"`.
     pub action: String,
@@ -474,6 +521,7 @@ pub struct MdSync {
 
 /// Traffic of one network interface.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct NetworkStats {
     /// Interface name (e.g. `"enp9s0"`).
     pub name: String,
@@ -485,10 +533,29 @@ pub struct NetworkStats {
     pub rx_total_bytes: u64,
     /// Bytes transmitted since the interface came up.
     pub tx_total_bytes: u64,
+    /// Negotiated link speed in Mbit/s (wired links), if known.
+    pub link_speed_mbps: Option<u32>,
+    /// Whether the link is up, if the OS reports it.
+    pub link_up: Option<bool>,
+    /// Wi-Fi link details, for wireless interfaces.
+    pub wireless: Option<WirelessLink>,
+}
+
+/// State of a Wi-Fi link.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WirelessLink {
+    /// Current receive bit rate in Mbit/s.
+    pub rx_bitrate_mbps: Option<f32>,
+    /// Current transmit bit rate in Mbit/s.
+    pub tx_bitrate_mbps: Option<f32>,
+    /// Signal strength in dBm.
+    pub signal_dbm: Option<i32>,
 }
 
 /// One process.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ProcessInfo {
     /// Process id.
     pub pid: u32,

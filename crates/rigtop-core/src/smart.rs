@@ -1,7 +1,7 @@
 //! SMART health from smartctl JSON files.
 //!
 //! Reading SMART data needs root, and rigtop never runs as root nor loosens
-//! device permissions. Instead a root systemd timer (see `contrib/smart/`)
+//! device permissions. Instead a root systemd timer (see `contrib/collect/`)
 //! runs `smartctl -j -a` for every drive and writes one JSON file per device
 //! into a directory (default `/var/lib/rigtop/smart`). This module only parses
 //! those files.

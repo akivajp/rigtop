@@ -1,12 +1,13 @@
 [Unit]
-Description=Collect SMART data for rigtop
+Description=Collect SMART and btrfs scrub data for rigtop
 Documentation=https://github.com/akivajp/rigtop
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/libexec/rigtop-smart-collect
-# Creates /var/lib/rigtop/smart and passes it as $STATE_DIRECTORY.
-StateDirectory=rigtop/smart
+ExecStart=/usr/local/libexec/rigtop-collect
+# Creates /var/lib/rigtop/{smart,btrfs}; with ProtectSystem=strict these are
+# the only writable places.
+StateDirectory=rigtop/smart rigtop/btrfs
 StateDirectoryMode=0755
 # smartctl needs raw device access, so no PrivateDevices=; restrict the rest.
 ProtectSystem=strict
