@@ -3966,6 +3966,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "toml",
+ "unicode-width",
  "windows-sys 0.61.2",
 ]
 
@@ -3983,6 +3984,7 @@ dependencies = [
  "egui_tiles",
  "rigtop-core",
  "serde",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

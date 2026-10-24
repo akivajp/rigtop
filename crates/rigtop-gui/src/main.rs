@@ -3,7 +3,13 @@
 //! Panels can be resized by dragging their borders and rearranged by
 //! dragging their titles.
 
+// Release builds on Windows are GUI applications, so starting them from
+// Explorer does not open a console window. See `console` for how `--help`
+// and errors still reach a terminal.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod app;
+mod console;
 mod panels;
 mod widgets;
 
@@ -30,7 +36,19 @@ struct Cli {
     config: Option<PathBuf>,
 }
 
-fn main() -> Result<()> {
+fn main() -> std::process::ExitCode {
+    // Must happen before clap may print `--help` or a usage error.
+    console::attach_parent();
+    match run() {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(err) => {
+            console::report_error(&format!("{err:#}"));
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+fn run() -> Result<()> {
     let cli = Cli::parse();
     let interval = Duration::from_millis(cli.interval_ms);
     if interval < MIN_POLL_INTERVAL {

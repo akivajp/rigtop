@@ -850,9 +850,15 @@ fn processes(ui: &mut Ui, state: &mut GuiState) {
     });
 
     let has_gpus = state.snapshot.as_ref().is_some_and(|s| !s.gpus.is_empty());
+    // Thread counts are not available everywhere (e.g. Windows).
+    let has_threads = state
+        .snapshot
+        .as_ref()
+        .is_some_and(|s| s.processes.iter().any(|p| p.threads.is_some()));
     let columns: Vec<_> = PROC_COLUMNS
         .iter()
         .filter(|(_, key, _)| has_gpus || !matches!(key, Some(SortKey::Gpu | SortKey::Vram)))
+        .filter(|(_, key, _)| has_threads || *key != Some(SortKey::Threads))
         .copied()
         .collect();
 

@@ -1,5 +1,7 @@
 //! Compact human-readable formatting for narrow terminal cells.
 
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+
 /// Formats a byte count with a binary unit, e.g. `"1.5G"`, `"512K"`, `"0B"`.
 ///
 /// Uses at most 5 characters so that columns stay aligned.
@@ -65,21 +67,44 @@ pub fn link_speed(mbps: f64) -> String {
 }
 
 /// Truncates `text` to at most `width` characters, marking the cut with `…`.
+///
+/// Widths are terminal columns: CJK characters such as "イーサネット" count
+/// as two.
 pub fn truncate(text: &str, width: usize) -> String {
-    if text.chars().count() <= width {
+    if text.width() <= width {
         return text.to_owned();
     }
     if width == 0 {
         return String::new();
     }
-    let mut out: String = text.chars().take(width - 1).collect();
+    // Keep characters while they fit, leaving one column for the ellipsis.
+    let mut out = String::new();
+    let mut used = 0;
+    for ch in text.chars() {
+        let w = ch.width().unwrap_or(0);
+        if used + w > width - 1 {
+            break;
+        }
+        out.push(ch);
+        used += w;
+    }
     out.push('…');
+    out
+}
+
+/// Truncates `text` to `width` terminal columns and pads it with spaces to
+/// exactly that width (`format!("{:<N}")` counts characters, not columns).
+pub fn pad(text: &str, width: usize) -> String {
+    let mut out = truncate(text, width);
+    let used = out.width();
+    out.extend(std::iter::repeat_n(' ', width.saturating_sub(used)));
     out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use unicode_width::UnicodeWidthStr;
 
     #[test]
     fn bytes_uses_binary_units_and_short_output() {
@@ -118,6 +143,16 @@ mod tests {
         assert_eq!(link_speed(2_500.0), "2.5G");
         assert_eq!(link_speed(1_000.0), "1G");
         assert_eq!(link_speed(576.4), "576M");
+    }
+
+    #[test]
+    fn wide_characters_count_as_two_columns() {
+        // "イーサネット 3" is 7 characters but 14 columns.
+        assert_eq!(truncate("イーサネット 3", 14), "イーサネット 3");
+        assert_eq!(truncate("イーサネット 3", 8), "イーサ…");
+        assert_eq!(pad("イーサネット 3", 16), "イーサネット 3  ");
+        assert_eq!(pad("enp9s0", 8), "enp9s0  ");
+        assert_eq!(pad("イーサネット", 5).width(), 5);
     }
 
     #[test]

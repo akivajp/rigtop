@@ -669,7 +669,7 @@ fn storage_lines(snapshot: &Snapshot, width: u16) -> Vec<Line<'static>> {
         };
         let used = fs.total_bytes.saturating_sub(fs.available_bytes);
         let ratio = used as f64 / fs.total_bytes.max(1) as f64;
-        let mut spans = vec![Span::raw(format!("{:<13} ", format::truncate(&name, 13)))];
+        let mut spans = vec![Span::raw(format!("{} ", format::pad(&name, 13)))];
         spans.extend(meter(meter_width, ratio));
         spans.push(colored(
             format!(" {:>3.0}%", ratio * 100.0),
@@ -686,7 +686,7 @@ fn storage_lines(snapshot: &Snapshot, width: u16) -> Vec<Line<'static>> {
     // Block devices with I/O, temperature and SMART.
     for disk in &snapshot.disks {
         let mut spans = vec![
-            Span::raw(format!("{:<8}", disk.name)),
+            Span::raw(format::pad(&disk.name, 8)),
             dim(" R "),
             Span::raw(format!("{:>7}", format::rate(disk.read_bytes_per_sec))),
             dim(" W "),
@@ -717,7 +717,7 @@ fn storage_lines(snapshot: &Snapshot, width: u16) -> Vec<Line<'static>> {
             .iter()
             .any(|d| device_matches_disk(&s.device, &d.name))
     }) {
-        let mut spans = vec![Span::raw(format!("{:<8}", smart.device))];
+        let mut spans = vec![Span::raw(format::pad(&smart.device, 8))];
         spans.extend(smart_spans(smart, now_secs));
         lines.push(Line::from(spans));
     }
@@ -936,8 +936,8 @@ fn draw_network(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
             };
             Line::from(vec![
                 colored(marker, NET_TITLE),
-                Span::raw(format!("{:<12}", format::truncate(&n.name, 12))),
-                dim(format!("{:<22}", link_label(n).unwrap_or_default())),
+                Span::raw(format::pad(&n.name, 12)),
+                dim(format::pad(&link_label(n).unwrap_or_default(), 22)),
                 Span::raw(format!(
                     "▼{:>8} ▲{:>8}",
                     format::rate(n.rx_bytes_per_sec),
@@ -1066,7 +1066,9 @@ fn draw_processes(
         _ => Cell::from(text.to_owned()),
     };
     let has_gpus = !snapshot.gpus.is_empty();
-    let columns = process_columns(area.width.saturating_sub(2), has_gpus);
+    // Thread counts are not available everywhere (e.g. Windows).
+    let has_threads = snapshot.processes.iter().any(|p| p.threads.is_some());
+    let columns = process_columns(area.width.saturating_sub(2), has_gpus, has_threads);
     let header = Row::new(
         columns
             .iter()
@@ -1234,8 +1236,9 @@ impl ProcColumn {
 
 /// Columns that fit in `width`: Pid, Program, Mem and Cpu% always, then
 /// User, Thr, Gpu%, VRAM and Command as space allows (GPU columns only on
-/// hosts with GPUs). Returned in display order.
-fn process_columns(width: u16, has_gpus: bool) -> Vec<ProcColumn> {
+/// hosts with GPUs, Thr only where thread counts exist). Returned in
+/// display order.
+fn process_columns(width: u16, has_gpus: bool, has_threads: bool) -> Vec<ProcColumn> {
     let mut chosen = vec![
         ProcColumn::Pid,
         ProcColumn::Program,
@@ -1253,6 +1256,9 @@ fn process_columns(width: u16, has_gpus: bool) -> Vec<ProcColumn> {
     let used = |cols: &[ProcColumn]| cols.iter().map(|c| c.width() + 1).sum::<u16>();
     for column in optional {
         if !has_gpus && matches!(column, ProcColumn::Gpu | ProcColumn::Vram) {
+            continue;
+        }
+        if !has_threads && column == ProcColumn::Threads {
             continue;
         }
         let mut candidate = chosen.clone();
@@ -1480,7 +1486,7 @@ mod tests {
 
     #[test]
     fn process_columns_keep_essentials_when_narrow() {
-        let narrow = process_columns(36, true);
+        let narrow = process_columns(36, true, true);
         assert_eq!(
             narrow,
             vec![
@@ -1490,10 +1496,12 @@ mod tests {
                 ProcColumn::Cpu
             ]
         );
-        let wide = process_columns(120, true);
+        let wide = process_columns(120, true, true);
         assert_eq!(wide, ProcColumn::ORDER.to_vec());
         // No GPU columns on hosts without GPUs.
-        assert!(!process_columns(120, false).contains(&ProcColumn::Vram));
+        assert!(!process_columns(120, false, true).contains(&ProcColumn::Vram));
+        // No Thr column where thread counts are unknown (Windows).
+        assert!(!process_columns(120, true, false).contains(&ProcColumn::Threads));
     }
 
     #[test]
