@@ -243,13 +243,21 @@ impl RemoteSource {
                 }
             };
             // Agents start with their own default; send our settings.
-            connection.send(&ClientMessage::SetInterval {
-                ms: self.interval.as_millis() as u64,
-            })?;
-            connection.send(&ClientMessage::SetProcessLimit {
-                limit: self.process_limit,
-            })?;
+            let sent = connection
+                .send(&ClientMessage::SetInterval {
+                    ms: self.interval.as_millis() as u64,
+                })
+                .and_then(|()| {
+                    connection.send(&ClientMessage::SetProcessLimit {
+                        limit: self.process_limit,
+                    })
+                });
             self.connection = Some(connection);
+            if sent.is_err() {
+                // ssh already exited (bad host, auth failure): its stderr
+                // says why, which beats "broken pipe".
+                return Err(self.disconnect(None));
+            }
         }
         Ok(self.connection.as_mut().expect("connected above"))
     }
@@ -338,8 +346,13 @@ impl DataSource for RemoteSource {
     }
 
     fn signal_process(&mut self, pid: u32, signal: ProcessSignal) -> Result<(), SourceError> {
-        self.connection()?
-            .send(&ClientMessage::Signal { pid, signal })?;
+        if self
+            .connection()?
+            .send(&ClientMessage::Signal { pid, signal })
+            .is_err()
+        {
+            return Err(self.disconnect(None));
+        }
         let deadline = Instant::now() + SIGNAL_TIMEOUT;
         loop {
             let remaining = deadline.saturating_duration_since(Instant::now());
