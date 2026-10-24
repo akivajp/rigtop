@@ -4,11 +4,15 @@
 //! UI thread so that input stays responsive. The UI sends [`Command`]s and
 //! receives [`Event`]s over channels.
 
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender, TrySendError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use crate::{DataSource, MIN_POLL_INTERVAL, ProcessSignal, Snapshot};
+
+/// Events kept for the UI before new ones are dropped (a few seconds of
+/// snapshots at the default interval).
+const EVENT_QUEUE: usize = 8;
 
 /// Requests from the UI to the worker.
 #[derive(Debug)]
@@ -65,7 +69,9 @@ impl Worker {
         N: Fn() + Send + 'static,
     {
         let (command_tx, command_rx) = mpsc::channel();
-        let (event_tx, event_rx) = mpsc::channel();
+        // Bounded: a UI that stops draining (e.g. a hidden window) must not
+        // make the queue grow without limit; events beyond it are dropped.
+        let (event_tx, event_rx) = mpsc::sync_channel(EVENT_QUEUE);
         let handle = thread::Builder::new()
             .name("rigtop-collector".to_owned())
             .spawn(move || {
@@ -109,16 +115,23 @@ impl Drop for Worker {
 /// Worker loop: poll on schedule, execute commands in between.
 /// Event sender that calls a notification hook after each send.
 struct Notifying<N: Fn()> {
-    sender: Sender<Event>,
+    sender: SyncSender<Event>,
     notify: N,
 }
 
 impl<N: Fn()> Notifying<N> {
-    /// Sends an event; fails when the UI has gone away.
-    fn send(&self, event: Event) -> Result<(), mpsc::SendError<Event>> {
-        self.sender.send(event)?;
-        (self.notify)();
-        Ok(())
+    /// Queues an event without blocking, so that polling (and draining a
+    /// remote connection) continues even if the UI stops reading. When the
+    /// queue is full the event is dropped. Fails only when the UI is gone.
+    fn send(&self, event: Event) -> Result<(), TrySendError<Event>> {
+        match self.sender.try_send(event) {
+            Ok(()) | Err(TrySendError::Full(_)) => {
+                // Wake the UI either way: a full queue needs draining.
+                (self.notify)();
+                Ok(())
+            }
+            Err(err @ TrySendError::Disconnected(_)) => Err(err),
+        }
     }
 }
 
@@ -241,6 +254,31 @@ mod tests {
             assert!(Instant::now() < deadline, "notify was not called");
             thread::sleep(Duration::from_millis(5));
         }
+    }
+
+    #[test]
+    fn undrained_events_stay_bounded() {
+        let (signal_tx, _signal_rx) = mpsc::channel();
+        let worker = Worker::spawn(
+            move || FakeSource {
+                polls: 0,
+                signals: signal_tx,
+            },
+            MIN_POLL_INTERVAL,
+        );
+        // About 15 polls happen while nobody reads.
+        thread::sleep(MIN_POLL_INTERVAL * 15);
+        let mut queued = 0;
+        while worker.try_recv().is_some() {
+            queued += 1;
+        }
+        assert!(
+            (1..=EVENT_QUEUE).contains(&queued),
+            "{queued} events queued"
+        );
+        // The worker kept polling: the next snapshot is a recent one.
+        let next = recv(&worker);
+        assert!(matches!(next, Event::Snapshot(s) if s.timestamp_ms > EVENT_QUEUE as u64));
     }
 
     #[test]

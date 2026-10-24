@@ -277,6 +277,15 @@ impl RigtopApp {
         }
     }
 
+    /// Applies everything the worker has sent since the last call.
+    fn drain_events(&mut self) {
+        if let Some(worker) = &self.worker {
+            while let Some(event) = worker.try_recv() {
+                self.state.apply(event);
+            }
+        }
+    }
+
     /// Draws one frame.
     pub fn show(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
@@ -292,11 +301,7 @@ impl RigtopApp {
             set_zoom(&ctx, ctx.zoom_factor() * wheel_zoom);
         }
         self.state.zoom = ctx.zoom_factor();
-        if let Some(worker) = &self.worker {
-            while let Some(event) = worker.try_recv() {
-                self.state.apply(event);
-            }
-        }
+        self.drain_events();
 
         egui::Frame::new()
             .fill(BACKGROUND)
@@ -345,6 +350,13 @@ impl RigtopApp {
 }
 
 impl eframe::App for RigtopApp {
+    /// Runs before every frame and also while the window is hidden
+    /// (minimized, screen locked), when `ui` is not called. Draining here
+    /// keeps the graphs' history going and the event queue short.
+    fn logic(&mut self, _ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.drain_events();
+    }
+
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         self.show(ui);
     }

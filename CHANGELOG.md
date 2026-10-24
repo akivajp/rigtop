@@ -18,6 +18,12 @@ include breaking changes).
 - `rigtop --agent`: streams snapshots as JSON lines on stdout and takes
   commands on stdin (protocol version 1)
 
+### Fixed
+
+- `rigtop-gui` no longer grows its memory while the window is hidden
+  (minimized or screen locked): data is now taken in even when nothing is
+  drawn, and the queue between the collector and the UI is bounded
+
 ## [0.1.0] - 2026-10-25
 
 First release.
