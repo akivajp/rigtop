@@ -14,6 +14,8 @@ include breaking changes).
   keyboards are left out
 - AMD APUs (Linux): without readable RAPL, the APU's SoC power (amdgpu
   `PPT`) is shown as `SoC` and counted in the total
+- README: a Linux section with the packages per distribution (Debian /
+  Ubuntu and Arch) and a udev rule that lets the admin group read RAPL
 
 ### Changed
 

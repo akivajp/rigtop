@@ -109,6 +109,29 @@ rigtop starts `rigtop --agent` on each remote host through your system's `ssh` (
 - Non-interactive SSH sessions often lack `~/.cargo/bin` on their `PATH` (zsh reads only `~/.zshenv` for them, bash usually nothing). When `rigtop` is not found there, rigtop tries `~/.cargo/bin/rigtop --agent` by itself. For other locations, set `command` for the host (or `--remote-command` for `--host`).
 - Killing processes on a remote host uses the SSH user's permissions.
 
+## Linux
+
+Most readings need neither extra software nor privileges: CPU, memory, processes, temperatures and fans (hwmon), network, disks, btrfs and md RAID, and laptop batteries. A few need a package or a permission:
+
+| Reading | Needs | Debian / Ubuntu | Arch / CachyOS |
+|---|---|---|---|
+| NVIDIA GPUs | the driver's NVML library | comes with the NVIDIA driver | `nvidia-utils` |
+| Wi-Fi signal and rate | `iw` | `sudo apt install iw` | `sudo pacman -S iw` |
+| SMART | `smartmontools` and a timer ([below](#smart-and-btrfs-scrub-results-optional)) | `sudo apt install smartmontools` | `sudo pacman -S smartmontools` |
+| CPU power | read access to RAPL (below) | | |
+
+### CPU power (RAPL)
+
+Since Linux 5.10 the CPU energy counters (`/sys/class/powercap/intel-rapl:*/energy_uj`, named so on AMD too) are readable only by root, because fine-grained power readings can leak secrets ([PLATYPUS](https://platypusattack.com/), CVE-2020-8694). A udev rule can let your admin group read them; replace `ADMIN_GROUP` with `sudo` on Debian/Ubuntu or `wheel` on Arch:
+
+```sh
+echo 'SUBSYSTEM=="powercap", KERNEL=="intel-rapl:*", RUN+="/usr/bin/chgrp ADMIN_GROUP /sys%p/energy_uj", RUN+="/usr/bin/chmod g+r /sys%p/energy_uj"' \
+  | sudo tee /etc/udev/rules.d/90-rigtop-rapl.rules
+sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=powercap
+```
+
+Without it, AMD laptops show the APU's SoC power (`SoC`) instead, and other machines show `--`.
+
 ## Windows
 
 Both `rigtop` and `rigtop-gui` run on Windows (see [Installation](#installation)). Builds of the latest `main` are also attached to the [CI runs](https://github.com/akivajp/rigtop/actions/workflows/ci.yml) (artifact `rigtop-windows-x86_64`).
@@ -143,7 +166,7 @@ SMART data and btrfs scrub results are readable only by root, and rigtop never r
 - `btrfs/scrub.status.<fsid>`: copies of btrfs-progs' scrub status, shown as when data was last verified
 
 ```sh
-sudo apt install smartmontools   # or your distribution's package
+sudo apt install smartmontools   # Arch: sudo pacman -S smartmontools
 sudo install -m 755 contrib/collect/rigtop-collect /usr/local/libexec/
 sudo install -m 644 contrib/collect/rigtop-collect.service contrib/collect/rigtop-collect.timer /etc/systemd/system/
 sudo systemctl daemon-reload

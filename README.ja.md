@@ -109,6 +109,29 @@ rigtop は OS の `ssh`（Windows では標準の OpenSSH クライアント）�
 - 非対話の SSH セッション（`ssh ホスト コマンド`）では `~/.cargo/bin` に `PATH` が通っていないことがよくあります（zsh は `~/.zshenv` しか読まず、bash は多くの場合何も読みません）。そこで `rigtop` が見つからなければ、rigtop が自動で `~/.cargo/bin/rigtop --agent` を試します。それ以外の場所に置いた場合は、ホストの `command`（`--host` なら `--remote-command`）でコマンドを指定してください。
 - 遠隔のプロセスの終了は、SSH でログインしたユーザーの権限で行われます。
 
+## Linux
+
+ほとんどの項目は、追加のソフトも特別な権限も無しで表示できます（CPU、メモリ、プロセス、温度とファン（hwmon）、ネットワーク、ディスク、btrfs と md の RAID、ノート PC のバッテリー）。次の項目だけ、パッケージか権限が必要です。
+
+| 項目 | 必要なもの | Debian / Ubuntu | Arch / CachyOS |
+|---|---|---|---|
+| NVIDIA の GPU | ドライバの NVML ライブラリ | NVIDIA のドライバに含まれる | `nvidia-utils` |
+| Wi-Fi の信号強度と速度 | `iw` | `sudo apt install iw` | `sudo pacman -S iw` |
+| SMART | `smartmontools` とタイマー（[下記](#smart-と-btrfs-の-scrub-結果任意)） | `sudo apt install smartmontools` | `sudo pacman -S smartmontools` |
+| CPU の消費電力 | RAPL の読み取り権限（下記） | | |
+
+### CPU の消費電力（RAPL）
+
+Linux 5.10 以降、CPU のエネルギー計（`/sys/class/powercap/intel-rapl:*/energy_uj`。AMD でもこの名前）は root しか読めません。細かい消費電力の変化から秘密の情報を推測される恐れがあるためです（[PLATYPUS](https://platypusattack.com/)、CVE-2020-8694）。udev のルールで管理者グループに読み取りを許可できます。`ADMIN_GROUP` は Debian/Ubuntu なら `sudo`、Arch なら `wheel` に置き換えてください。
+
+```sh
+echo 'SUBSYSTEM=="powercap", KERNEL=="intel-rapl:*", RUN+="/usr/bin/chgrp ADMIN_GROUP /sys%p/energy_uj", RUN+="/usr/bin/chmod g+r /sys%p/energy_uj"' \
+  | sudo tee /etc/udev/rules.d/90-rigtop-rapl.rules
+sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=powercap
+```
+
+設定しない場合、AMD のノート PC では代わりに APU の SoC 全体の消費電力（`SoC`）を表示し、それ以外の機械では `--` になります。
+
 ## Windows
 
 `rigtop` と `rigtop-gui` は Windows でも動きます（[インストール](#インストール)を参照）。最新の `main` をビルドしたものも [CI の実行結果](https://github.com/akivajp/rigtop/actions/workflows/ci.yml) に添付しています（成果物 `rigtop-windows-x86_64`）。
@@ -143,7 +166,7 @@ SMART と btrfs の scrub 結果は root しか読めません。rigtop 自身�
 - `btrfs/scrub.status.<fsid>`: btrfs-progs の scrub 状態ファイルの写し。全データを最後に検査した時刻として表示する
 
 ```sh
-sudo apt install smartmontools   # ディストリビューションに合わせて
+sudo apt install smartmontools   # Arch 系: sudo pacman -S smartmontools
 sudo install -m 755 contrib/collect/rigtop-collect /usr/local/libexec/
 sudo install -m 644 contrib/collect/rigtop-collect.service contrib/collect/rigtop-collect.timer /etc/systemd/system/
 sudo systemctl daemon-reload
