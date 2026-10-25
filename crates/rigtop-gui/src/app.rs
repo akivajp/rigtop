@@ -1165,17 +1165,25 @@ mod tests {
         harness.get_by_label("set up…").click();
         harness.run();
         assert!(harness.query_by_label_contains("127.0.0.1:8085").is_some());
-        harness.get_by_label("Set up").click();
-        // The steps run in a thread; outside Windows they fail at once.
-        for _ in 0..50 {
-            harness.run();
-            if harness.query_by_label_contains("for Windows").is_some() {
-                break;
+        // The steps run in a thread; outside Windows they fail at once. (On
+        // Windows they would really install and start LibreHardwareMonitor.)
+        #[cfg(not(windows))]
+        {
+            harness.get_by_label("Set up").click();
+            for _ in 0..50 {
+                // step, not run: the spinner keeps repainting.
+                harness.step();
+                if harness.query_by_label_contains("for Windows").is_some() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
             }
-            std::thread::sleep(Duration::from_millis(20));
+            harness.run();
+            assert!(harness.query_by_label_contains("for Windows").is_some());
+            harness.get_by_label("Close").click();
         }
-        assert!(harness.query_by_label_contains("for Windows").is_some());
-        harness.get_by_label("Close").click();
+        #[cfg(windows)]
+        harness.get_by_label("Cancel").click();
         harness.run();
         assert!(harness.query_by_label("Set up").is_none());
 
