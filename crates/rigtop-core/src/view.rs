@@ -352,6 +352,20 @@ pub fn process_rows<'a>(snapshot: &'a Snapshot, query: &ProcessQuery<'_>) -> Vec
     rows
 }
 
+/// Shown where the CPU temperatures go when LibreHardwareMonitor cannot be
+/// read (Windows; see [`Snapshot::lhm_error`]).
+pub const LHM_HINT: &str = "temperatures need LibreHardwareMonitor";
+
+/// Explanation behind [`LHM_HINT`], given the reason it could not be read.
+pub fn lhm_help(error: &str) -> String {
+    format!(
+        "Windows needs LibreHardwareMonitor for temperatures, fans and CPU power.\n\
+         Start it and turn on Options → Remote Web Server → Run.\n\
+         ([lhm] url = \"\" in the configuration hides this note.)\n\n\
+         {error}"
+    )
+}
+
 /// Name of a signal as shown to the user.
 pub fn signal_name(signal: ProcessSignal) -> &'static str {
     match signal {

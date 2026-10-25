@@ -122,9 +122,14 @@ What differs from Linux:
 
 ### Temperatures, fans and CPU power with LibreHardwareMonitor
 
-1. Download LibreHardwareMonitor from its [releases](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases) and run it (it asks for administrator rights and may offer to install its PawnIO driver, which it needs for CPU sensors).
-2. Turn on **Options → Remote Web Server → Run** (port 8085). rigtop reads `http://127.0.0.1:8085/data.json` and picks the values up within 10 seconds.
-3. Optionally enable **Options → Run On Windows Startup** and **Start Minimized**.
+1. Install it, together with the PawnIO driver it needs for CPU sensors (Windows asks for administrator approval for the driver):
+   ```powershell
+   winget install LibreHardwareMonitor.LibreHardwareMonitor
+   ```
+   (Or download `LibreHardwareMonitor.zip` from its [releases](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases), unblock it in the file's Properties, and extract it.)
+2. Run `LibreHardwareMonitor` from a new terminal (or the extracted `LibreHardwareMonitor.exe`) and allow it to run as administrator.
+3. Turn on **Options → Remote Web Server → Run** (port 8085). rigtop reads `http://127.0.0.1:8085/data.json` and picks the values up within 10 seconds; until then, the CPU panel shows a note.
+4. Optionally enable **Options → Run On Windows Startup** and **Start Minimized**.
 
 The web server must not require authentication. Its port can be reached from other machines unless Windows Firewall blocks it. For another address or port, set `[lhm] url` in the [configuration](#configuration); `url = ""` turns this off. NVIDIA GPUs keep coming from the driver, not LibreHardwareMonitor.
 

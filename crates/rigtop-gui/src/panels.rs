@@ -10,7 +10,7 @@ use rigtop_core::format;
 use rigtop_core::snapshot::{
     BtrfsFilesystem, NetworkStats, SmartDevice, Snapshot, device_matches_disk,
 };
-use rigtop_core::view::{SortKey, is_virtual_interface, signal_name};
+use rigtop_core::view::{LHM_HINT, SortKey, is_virtual_interface, lhm_help, signal_name};
 use rigtop_core::worker::Command;
 
 use crate::app::{GuiState, Pane, ViewAction};
@@ -288,6 +288,10 @@ fn cpu_info(ui: &mut Ui, state: &GuiState, snapshot: &Snapshot) {
                 format!("{:.0}°C", temp.celsius),
                 temperature_color(temp.celsius),
             ));
+        }
+        if let Some(error) = &snapshot.lhm_error {
+            ui.label(colored(LHM_HINT, WARN))
+                .on_hover_text(lhm_help(error));
         }
     });
     ui.horizontal_wrapped(|ui| {

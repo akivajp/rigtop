@@ -46,6 +46,8 @@ pub struct LhmReadings {
 pub struct LhmReader {
     url: String,
     retry_at: Option<Instant>,
+    /// Why the last attempt failed, kept while waiting to retry.
+    problem: Option<String>,
 }
 
 impl LhmReader {
@@ -54,7 +56,13 @@ impl LhmReader {
         Self {
             url: url.trim().to_owned(),
             retry_at: None,
+            problem: None,
         }
+    }
+
+    /// Why LHM could not be read, until it can.
+    pub fn problem(&self) -> Option<&str> {
+        self.problem.as_deref()
     }
 
     /// Current readings, or `None` if disabled or LHM is not reachable.
@@ -65,12 +73,14 @@ impl LhmReader {
         match http_get(&self.url, TIMEOUT).and_then(|body| parse(&body)) {
             Ok(readings) => {
                 self.retry_at = None;
+                self.problem = None;
                 Some(readings)
             }
-            Err(_) => {
+            Err(err) => {
                 // Usually LHM is not running or its web server is off; do
                 // not slow every sample down with a failing request.
                 self.retry_at = Some(now + RETRY_AFTER);
+                self.problem = Some(err);
                 None
             }
         }
@@ -481,6 +491,10 @@ mod tests {
         assert!(reader.read(now).is_none());
         assert!(reader.retry_at.is_some_and(|at| at > now));
         assert!(reader.read(now + Duration::from_secs(1)).is_none());
+        assert!(
+            reader.problem().unwrap().contains("401"),
+            "kept while waiting"
+        );
 
         assert!(LhmReader::new("").read(now).is_none(), "disabled");
         assert!(http_get("https://localhost/data.json", TIMEOUT).is_err());

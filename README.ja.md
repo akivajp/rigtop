@@ -122,9 +122,14 @@ Linux との違い:
 
 ### LibreHardwareMonitor で温度・ファン・CPU の消費電力を表示する
 
-1. LibreHardwareMonitor を [リリース](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases) から入手して起動します（管理者権限を求められます。CPU のセンサーに要る PawnIO ドライバの導入を促されることがあります）。
-2. **Options → Remote Web Server → Run** を有効にします（ポート 8085）。rigtop は `http://127.0.0.1:8085/data.json` を読み、10秒以内に値を表示し始めます。
-3. 必要なら **Options → Run On Windows Startup** と **Start Minimized** も有効にします。
+1. CPU のセンサーに要る PawnIO ドライバと一緒に導入します（ドライバの導入で管理者の承認を求められます）。
+   ```powershell
+   winget install LibreHardwareMonitor.LibreHardwareMonitor
+   ```
+   （または [リリース](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases) から `LibreHardwareMonitor.zip` を入手し、ファイルのプロパティでブロックを解除してから展開します。）
+2. 新しく開いた端末で `LibreHardwareMonitor` を実行し（展開した場合は `LibreHardwareMonitor.exe`）、管理者としての実行を許可します。
+3. **Options → Remote Web Server → Run** を有効にします（ポート 8085）。rigtop は `http://127.0.0.1:8085/data.json` を読み、10秒以内に値を表示し始めます。それまでは CPU パネルに案内が出ます。
+4. 必要なら **Options → Run On Windows Startup** と **Start Minimized** も有効にします。
 
 Web サーバーは認証無しにしてください。Windows ファイアウォールで塞がない限り、このポートには他の機械からも接続できます。アドレスやポートを変えた場合は[設定](#設定)の `[lhm] url` で指定し、`url = ""` で読み取りを止められます。NVIDIA の GPU は LibreHardwareMonitor ではなく、従来どおりドライバから読みます。
 

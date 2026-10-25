@@ -11,7 +11,8 @@ include breaking changes).
 
 - Windows: temperatures, fans and CPU package power from
   LibreHardwareMonitor's web server (`data.json`, default
-  `http://127.0.0.1:8085`; `[lhm] url` in the configuration)
+  `http://127.0.0.1:8085`; `[lhm] url` in the configuration), with a
+  note in the CPU panel while it cannot be read
 
 ## [0.3.0] - 2026-10-25
 

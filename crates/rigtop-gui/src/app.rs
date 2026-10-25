@@ -1132,6 +1132,20 @@ mod tests {
     }
 
     #[test]
+    fn hints_at_librehardwaremonitor_when_unreachable() {
+        let mut snapshot = sample_snapshot();
+        snapshot.lhm_error = Some("127.0.0.1:8085: connection refused".to_owned());
+        let mut harness = harness_with(snapshot);
+        harness.run();
+        assert!(
+            harness
+                .query_all_by_label_contains(rigtop_core::view::LHM_HINT)
+                .next()
+                .is_some()
+        );
+    }
+
+    #[test]
     fn hosts_window_adds_and_removes_hosts() {
         use egui::accesskit::Role;
 

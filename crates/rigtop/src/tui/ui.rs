@@ -26,7 +26,7 @@ use rigtop_core::snapshot::{
 use super::app::{App, ProcTableHit};
 use super::graph::{self, BrailleGraph};
 use rigtop_core::format;
-use rigtop_core::view::{SortKey, is_virtual_interface, signal_name};
+use rigtop_core::view::{LHM_HINT, SortKey, is_virtual_interface, signal_name};
 
 /// Box border color.
 pub(super) const BORDER: Color = Color::Rgb(85, 85, 100);
@@ -494,6 +494,10 @@ fn cpu_info_lines(app: &App, snapshot: &Snapshot) -> Vec<Line<'static>> {
             format!("{:.0}°C", temp.celsius),
             temperature_color(temp.celsius),
         ));
+    }
+    if snapshot.lhm_error.is_some() {
+        let gap = if first.is_empty() { "" } else { "  " };
+        first.push(colored(format!("{gap}{LHM_HINT}"), Color::Yellow));
     }
 
     let power = &snapshot.power;
@@ -1422,6 +1426,16 @@ mod tests {
         assert!(screen.contains("DEGRADED"), "{screen}");
         // All 32 cores fit in the grid.
         assert!(screen.contains("C31"), "{screen}");
+    }
+
+    #[test]
+    fn hints_at_librehardwaremonitor_when_unreachable() {
+        let mut app = App::new(Config::default(), Duration::from_secs(1));
+        let mut snapshot = sample_snapshot();
+        snapshot.lhm_error = Some("127.0.0.1:8085: connection refused".to_owned());
+        app.apply(Event::Snapshot(Box::new(snapshot)));
+        let screen = render(&mut app, 160, 50);
+        assert!(screen.contains(LHM_HINT), "{screen}");
     }
 
     #[test]

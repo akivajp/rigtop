@@ -221,14 +221,17 @@ impl LocalSource {
             crate::windows::annotate_links(&mut snapshot.networks);
             // LibreHardwareMonitor, when running, knows far more than the
             // ACPI thermal zones sysinfo can see.
-            if let Some(lhm) = self.lhm.read(Instant::now()) {
-                if !lhm.chips.is_empty() {
-                    snapshot.sensors = lhm.chips;
+            match self.lhm.read(Instant::now()) {
+                Some(lhm) => {
+                    if !lhm.chips.is_empty() {
+                        snapshot.sensors = lhm.chips;
+                    }
+                    if !lhm.cpu_temperatures.is_empty() {
+                        snapshot.cpu.temperatures = lhm.cpu_temperatures;
+                    }
+                    snapshot.power.cpu_package_w = lhm.cpu_package_w;
                 }
-                if !lhm.cpu_temperatures.is_empty() {
-                    snapshot.cpu.temperatures = lhm.cpu_temperatures;
-                }
-                snapshot.power.cpu_package_w = lhm.cpu_package_w;
+                None => snapshot.lhm_error = self.lhm.problem().map(str::to_owned),
             }
         }
     }

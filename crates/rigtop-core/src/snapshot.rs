@@ -49,6 +49,10 @@ pub struct Snapshot {
     pub processes: Vec<ProcessInfo>,
     /// Total number of processes on the host, even if `processes` was truncated.
     pub process_count: usize,
+    /// Windows: why LibreHardwareMonitor, the source of temperatures, fans
+    /// and CPU power, could not be read. `None` when it was read, when it is
+    /// disabled in the configuration, and on other platforms.
+    pub lhm_error: Option<String>,
 }
 
 impl Snapshot {
