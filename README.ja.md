@@ -25,7 +25,7 @@ btop に倣ったシステムモニターです。収集部分を共通にして
 
 1. ~~収集部分と TUI（Linux）~~（v0.1）
 2. ~~ネイティブ GUI（Linux）~~（v0.1）
-3. ~~Windows 対応~~（v0.1。温度・ファン・CPU 電力は v0.4 で LibreHardwareMonitor 経由。macOS はビルドのみ、実機検証なし）
+3. ~~Windows 対応~~（v0.1。温度・ファン・CPU 電力は v0.4 から LibreHardwareMonitor 経由。macOS はビルドのみ、実機検証なし）
 4. ~~SSH による遠隔監視~~: ホスト1台（v0.2）、複数ホストのオーバービュー（v0.3）
 
 ## インストール

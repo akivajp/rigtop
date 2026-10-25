@@ -25,7 +25,7 @@ A btop-inspired system monitor with two front-ends that share one data-collectio
 
 1. ~~Collection core and the TUI on Linux~~ (v0.1)
 2. ~~Native GUI on Linux~~ (v0.1)
-3. ~~Windows support~~ (v0.1; temperatures, fans and CPU power through LibreHardwareMonitor in v0.4; macOS builds without hardware testing)
+3. ~~Windows support~~ (v0.1; temperatures, fans and CPU power through LibreHardwareMonitor since v0.4; macOS builds without hardware testing)
 4. ~~Remote monitoring over SSH~~: one host (v0.2), several hosts with an overview (v0.3)
 
 ## Installation
