@@ -47,7 +47,7 @@ It reads files Claude Code writes, some of which are internal and may change bet
 
 | Rows | Source | Notes |
 |---|---|---|
-| Usage limits | `rate_limits` in the JSON Claude Code passes to the status line (documented) | Pro and Max plans; refreshed only while a session talks to the API, so the widget marks old data with "as of". Whether the VS Code extension runs the status line is not documented. |
+| Usage limits | `rate_limits` in the JSON Claude Code passes to the status line (documented) | Pro and Max plans signed in with Claude Code (not API billing); refreshed only while a session talks to the API, so the widget marks old data with "as of". The terminal UI runs the status line; the VS Code extension did not (Claude Code 2.1.310), so sessions used only from VS Code leave the limits empty. |
 | Sessions | `claude agents --json` (documented); `~/.claude/sessions/` when `claude` is not on the PATH | `busy` (green), `waiting` (yellow), `idle` (grey) |
 | Subagents | `~/.claude/projects/<project>/<session>/subagents/` | Shown while their transcript changed within the last 2 minutes (`RIGTOP_CLAUDE_ACTIVE_SECS`); a subagent waiting on a long command may drop out early. |
 
