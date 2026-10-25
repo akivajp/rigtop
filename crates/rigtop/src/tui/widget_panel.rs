@@ -8,9 +8,9 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use rigtop_core::format;
-use rigtop_core::widget::{Level, Widget, WidgetRow, WidgetSource};
+use rigtop_core::widget::{GaugeStyle, Level, Widget, WidgetRow, WidgetSource};
 
-use super::ui::{BAD, DIM, OK, WARN, colored, dim, meter, panel};
+use super::ui::{BAD, DIM, METER_EMPTY, OK, WARN, colored, dim, meter, panel};
 
 /// Width of the column.
 pub const WIDTH: u16 = 42;
@@ -85,7 +85,14 @@ fn row_line(row: &WidgetRow, width: usize) -> Line<'static> {
         used += LABEL_WIDTH + 1;
     }
     if let Some(gauge) = row.gauge {
-        spans.extend(meter(GAUGE_WIDTH, gauge as f64));
+        match row.gauge_style {
+            GaugeStyle::Heat => spans.extend(meter(GAUGE_WIDTH, gauge as f64)),
+            GaugeStyle::Level => spans.extend(solid_meter(
+                GAUGE_WIDTH,
+                gauge as f64,
+                level_color(row.level).unwrap_or(Color::White),
+            )),
+        }
         spans.push(Span::raw(" "));
         used += GAUGE_WIDTH + 1;
     }
@@ -95,6 +102,15 @@ fn row_line(row: &WidgetRow, width: usize) -> Line<'static> {
         None => Span::raw(value),
     });
     Line::from(spans)
+}
+
+/// A meter in one color (for amounts left, where full is good).
+fn solid_meter(width: usize, ratio: f64, color: Color) -> Vec<Span<'static>> {
+    let filled = ((ratio.clamp(0.0, 1.0) * width as f64).round() as usize).min(width);
+    vec![
+        colored("■".repeat(filled), color),
+        colored("■".repeat(width - filled), METER_EMPTY),
+    ]
 }
 
 fn level_color(level: Level) -> Option<Color> {
@@ -178,7 +194,7 @@ mod tests {
             value: "42% · resets 14:30".to_owned(),
             gauge: Some(0.42),
             level: Level::Ok,
-            heading: false,
+            ..Default::default()
         };
         let text: String = row_line(&row, 40)
             .spans
@@ -197,5 +213,16 @@ mod tests {
             .map(|s| s.content.chars().count())
             .sum();
         assert!(width <= 40);
+
+        // A level-colored gauge fills from the left in one color.
+        let left = WidgetRow {
+            gauge: Some(0.8),
+            gauge_style: GaugeStyle::Level,
+            level: Level::Ok,
+            ..Default::default()
+        };
+        let spans = row_line(&left, 40).spans;
+        assert_eq!(spans[0].content, "■■■■■■■■");
+        assert_eq!(spans[0].style.fg, Some(OK));
     }
 }

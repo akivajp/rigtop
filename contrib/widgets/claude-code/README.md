@@ -4,15 +4,19 @@ A rigtop [widget](../../../README.md#widgets) showing the subscription usage lim
 
 ```
 ╭ Claude Code ───────────────────────────╮
-│5h       ■■■■■■■■■■ 42% · resets 05:51  │
-│week     ■■■■■■■■■■ 72% · resets Thu 15…│
-│my-obsidian-vault                       │
-│idle     my-obsidian-vault-d8           │
+│5h       ■■■■■■■■■■ 99% left · 09:40    │
+│week     ■■■■■■■■■■ 95% left · Sun 15:00│
 │rigtop                                  │
-│busy     rigtop-06                      │
-│  agent  claude-code-guide: Claude Code…│
+│busy     7a · 1 agent                   │
+│  agent  Explore: find the config loader│
+│idle     06 · waiting on 1 task · 3m    │
+│my-obsidian-vault                       │
+│idle     d8 · your turn · 12m           │
 ╰────────────────────────────────────────╯
 ```
+
+- Usage windows show what is **left** (100% when unused) and when they reset; `RIGTOP_CLAUDE_QUOTA=used` shows usage instead.
+- Sessions are grouped by project, named without the project prefix. An idle session tells whether its turn ended with work still running in the background (`waiting on 1 task, 2 agents`, green) or it waits for you (`your turn`, greyed after an hour), and for how long.
 
 It reads files Claude Code writes, some of which are internal and may change between versions; it then shows fewer rows rather than failing. Requires Python 3 (standard library only).
 
@@ -48,7 +52,8 @@ It reads files Claude Code writes, some of which are internal and may change bet
 | Rows | Source | Notes |
 |---|---|---|
 | Usage limits | claude-spillway's status endpoint, which reads them from Anthropic's response headers; else `rate_limits` in the JSON Claude Code passes to the status line (documented) | Pro and Max plans signed in with Claude Code (not API billing); refreshed only while a session talks to the API, so the widget marks old data with "as of". The terminal UI runs the status line; the VS Code extension did not (Claude Code 2.1.310), so sessions used only from VS Code leave the limits empty. |
-| Sessions | `claude agents --json` (documented); `~/.claude/sessions/` when `claude` is not on the PATH | `busy` (green), `waiting` (yellow), `idle` (grey) |
+| Sessions | `claude agents --json` (documented); `~/.claude/sessions/` when `claude` is not on the PATH | `busy`, `waiting` (needs you, e.g. a permission prompt), `idle`. How long a session is idle comes from `statusUpdatedAt` in `~/.claude/sessions/<pid>.json` (undocumented). |
+| Background tasks | Shells the session's Bash tool started (descendant processes running through `~/.claude/shell-snapshots/`, Linux) | Counted for idle sessions, as `waiting on N tasks`. |
 | Subagents | `~/.claude/projects/<project>/<session>/subagents/` | Shown while their transcript changed within the last 2 minutes (`RIGTOP_CLAUDE_ACTIVE_SECS`); a subagent waiting on a long command may drop out early. |
 
 The widget does not use undocumented usage endpoints or Claude Code's credentials.

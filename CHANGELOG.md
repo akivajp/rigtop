@@ -7,6 +7,15 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Added
+
+- Widgets: `"gauge_style": "level"` draws a row's gauge in its level color,
+  for amounts left (where a full bar is good)
+- `contrib/widgets/claude-code/`: usage windows shown as what is left
+  (`RIGTOP_CLAUDE_QUOTA=used` for usage); idle sessions show for how long
+  and whether they wait for you or for background tasks and subagents;
+  session names without the project prefix
+
 ## [0.8.0] - 2026-10-26
 
 ### Added

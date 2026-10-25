@@ -153,6 +153,20 @@ fn vertex(pos: Pos2, color: Color32) -> Vertex {
 /// Paints a horizontal meter: a rounded track with a smooth fill whose
 /// color follows btop's gradient along the full length (green at the left,
 /// red at the right end), so a fuller meter also reads "hotter".
+/// A meter filled in one color (for amounts left, where full is good).
+pub fn paint_solid_meter(ui: &Ui, rect: Rect, ratio: f32, color: Color32) {
+    let painter = ui.painter_at(rect);
+    let bar_height = (rect.height() * 0.6).clamp(3.0, 10.0);
+    let bar = Rect::from_center_size(rect.center(), vec2(rect.width(), bar_height));
+    let radius = bar_height / 2.0;
+    painter.rect_filled(bar, radius, EMPTY);
+    let fill_width = bar.width() * ratio.clamp(0.0, 1.0);
+    if fill_width >= 0.5 {
+        let fill = Rect::from_min_size(bar.min, vec2(fill_width.max(bar_height), bar_height));
+        painter.rect_filled(fill, radius, color);
+    }
+}
+
 pub fn paint_meter(ui: &Ui, rect: Rect, ratio: f32) {
     let painter = ui.painter_at(rect);
     let bar_height = (rect.height() * 0.6).clamp(3.0, 10.0);

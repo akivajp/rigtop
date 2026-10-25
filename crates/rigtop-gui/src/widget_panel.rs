@@ -4,7 +4,7 @@
 
 use egui::{Color32, CornerRadius, FontId, Margin, RichText, Sense, Stroke, Ui, vec2};
 use rigtop_core::format;
-use rigtop_core::widget::{Level, Widget, WidgetRow, WidgetSource, WidgetState};
+use rigtop_core::widget::{GaugeStyle, Level, Widget, WidgetRow, WidgetSource, WidgetState};
 
 use crate::widgets::{self, BAD, BORDER, DIM, OK, TEXT, WARN};
 
@@ -111,7 +111,12 @@ fn row_ui(ui: &mut Ui, row: &WidgetRow) {
         if let Some(gauge) = row.gauge {
             let width = (ui.available_width() * 0.4).clamp(40.0, 140.0);
             let (rect, _) = ui.allocate_exact_size(vec2(width, ROW_HEIGHT), Sense::hover());
-            widgets::paint_meter(ui, rect, gauge.clamp(0.0, 1.0));
+            match row.gauge_style {
+                GaugeStyle::Heat => widgets::paint_meter(ui, rect, gauge.clamp(0.0, 1.0)),
+                GaugeStyle::Level => {
+                    widgets::paint_solid_meter(ui, rect, gauge, level_color(row.level))
+                }
+            }
         }
         ui.add(
             egui::Label::new(RichText::new(&row.value).color(level_color(row.level))).truncate(),

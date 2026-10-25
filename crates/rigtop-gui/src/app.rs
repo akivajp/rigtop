@@ -1273,12 +1273,13 @@ mod tests {
     fn sample_widgets() -> Vec<rigtop_core::widget::Widget> {
         use rigtop_core::widget::{Widget, WidgetSource, parse_output};
         let rows = r#"{"rows":[
-            {"label":"5h","value":"42% · resets 14:30","gauge":0.42,"level":"ok"},
-            {"label":"week","value":"71% · resets Fri 09:00","gauge":0.71,"level":"warn"},
+            {"label":"5h","value":"58% left · 14:30","gauge":0.58,"gauge_style":"level","level":"ok"},
+            {"label":"week","value":"22% left · Fri 09:00","gauge":0.22,"gauge_style":"level","level":"warn"},
             {"value":"rigtop","heading":true},
-            {"label":"busy","value":"main + 2 subagents","level":"warn"},
+            {"label":"busy","value":"7a · 2 agents","level":"ok"},
+            {"label":"idle","value":"06 · waiting on 1 task · 3m","level":"ok"},
             {"value":"my-obsidian-vault","heading":true},
-            {"label":"idle","value":"main","level":"dim"}
+            {"label":"idle","value":"d8 · your turn · 12m","level":"normal"}
         ]}"#;
         vec![
             Widget {
@@ -1303,9 +1304,9 @@ mod tests {
         for label in [
             "Clock",
             "Claude Code",
-            "42% · resets 14:30",
+            "58% left · 14:30",
             "rigtop",
-            "main + 2 subagents",
+            "your turn",
         ] {
             assert!(
                 harness.query_all_by_label_contains(label).next().is_some(),

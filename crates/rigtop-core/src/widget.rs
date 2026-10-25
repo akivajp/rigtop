@@ -15,7 +15,9 @@
 //!
 //! Every field is optional; `text` is accepted for `value`. `level` is one
 //! of `normal`, `dim`, `ok`, `warn`, `bad`; `gauge` is a fraction (0-1)
-//! drawn as a bar. Commands run on the machine that displays them, through
+//! drawn as a bar, colored from green to red along its length, or in the
+//! row's `level` color with `"gauge_style": "level"` (for amounts left,
+//! where a full bar is good). Commands run on the machine that displays them, through
 //! the shell (`sh -c`, or `cmd /C` on Windows).
 
 use std::io::{BufRead, BufReader, Read};
@@ -52,10 +54,23 @@ pub struct WidgetRow {
     pub value: String,
     /// A bar for a fraction (0-1), e.g. a quota used.
     pub gauge: Option<f32>,
+    /// How the bar is colored.
+    pub gauge_style: GaugeStyle,
     /// Color of the value.
     pub level: Level,
     /// A section title (e.g. a project name) rather than a reading.
     pub heading: bool,
+}
+
+/// How a gauge is colored.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GaugeStyle {
+    /// Green to red along the bar, like the monitor's meters (for usage).
+    #[default]
+    Heat,
+    /// One color, the row's level (for amounts left).
+    Level,
 }
 
 /// How a row is colored.
@@ -315,6 +330,9 @@ mod tests {
         assert_eq!(output.rows.len(), 3);
         assert_eq!(output.rows[0].gauge, Some(0.42));
         assert_eq!(output.rows[0].level, Level::Ok);
+        assert_eq!(output.rows[0].gauge_style, GaugeStyle::Heat, "default");
+        let left = parse_output(r#"{"rows":[{"gauge":0.8,"gauge_style":"level"}]}"#);
+        assert_eq!(left.rows[0].gauge_style, GaugeStyle::Level);
         assert_eq!(output.rows[1].value, "rigtop", "`text` is `value`");
         assert!(output.rows[1].heading);
 
