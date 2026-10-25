@@ -83,6 +83,8 @@ cargo run --release -p rigtop-gui            # オプションは TUI と同じ�
 
 文字の大きさは Ctrl + マウスホイール、Ctrl + `+` / `-` / `0`、または CPU パネルの見出しにある `A-` / `A+` ボタンで変えられます。拡大率とパネルの配置は次回起動時に復元されます。「reset layout」で初期配置に戻せます。
 
+いずれかのホストに新しい警告（ドライブのエラー、RAID のデバイスの欠落、SMART の異常、残り容量の少ないファイルシステム）が出ると、GUI はデスクトップ通知を出します（最小化中も）。起動時から出ている警告は通知しません。[設定](#設定)の `[notifications] level` で、`"critical"`（既定）、`"warning"`（RAID の再同期・容量の逼迫・GPU の高温も含む）、`"off"` を選べます。
+
 マウス操作が有効なため、多くの端末では Shift+ドラッグで文字を選択できます。
 
 ## SSH による遠隔監視
@@ -209,6 +211,10 @@ dir = "/var/lib/rigtop/smart"
 
 [btrfs]
 scrub_dir = "/var/lib/rigtop/btrfs"
+
+[notifications]
+# rigtop-gui: 新しい警告のデスクトップ通知（"critical"・"warning"・"off"）
+level = "critical"
 
 [lhm]
 # Windows: LibreHardwareMonitor の Web サーバー（"" で無効）

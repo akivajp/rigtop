@@ -12,6 +12,7 @@ mod app;
 mod console;
 mod hosts_dialog;
 mod lhm_setup;
+mod notify;
 mod overview;
 mod panels;
 mod widgets;

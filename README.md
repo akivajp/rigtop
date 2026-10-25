@@ -83,6 +83,8 @@ Drag panel borders to resize and panel titles to rearrange. Click a column heade
 
 Zoom with Ctrl + mouse wheel, Ctrl + `+` / `-` / `0`, or the `A-` / `A+` buttons in the CPU panel title. The zoom level and panel layout are restored on the next start; "reset layout" brings back the default arrangement.
 
+When a new alert appears on any host (drive errors, a missing RAID device, failing SMART, a nearly full filesystem), the GUI shows a desktop notification, also while it is minimized. Alerts present at startup are not announced. `[notifications] level` in the [configuration](#configuration) picks `"critical"` (default), `"warning"` (also resyncs, filling filesystems, hot GPUs) or `"off"`.
+
 With mouse support on, most terminals select text with Shift+drag.
 
 ## Remote monitoring over SSH
@@ -209,6 +211,10 @@ dir = "/var/lib/rigtop/smart"
 
 [btrfs]
 scrub_dir = "/var/lib/rigtop/btrfs"
+
+[notifications]
+# rigtop-gui: desktop notifications for new alerts ("critical", "warning" or "off").
+level = "critical"
 
 [lhm]
 # Windows: LibreHardwareMonitor's web server ("" to disable).

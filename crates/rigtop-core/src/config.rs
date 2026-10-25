@@ -19,6 +19,10 @@
 //! # Directory with btrfs scrub status files copied by the root timer.
 //! scrub_dir = "/var/lib/rigtop/btrfs"
 //!
+//! [notifications]
+//! # rigtop-gui: desktop notifications for new alerts ("critical", "warning" or "off").
+//! level = "critical"
+//!
 //! [lhm]
 //! # Windows: LibreHardwareMonitor's web server ("" to disable).
 //! url = "http://127.0.0.1:8085/data.json"
@@ -105,6 +109,8 @@ pub struct Config {
     pub lhm: LhmConfig,
     /// The multi-host overview.
     pub overview: OverviewConfig,
+    /// Desktop notifications for new alerts (GUI).
+    pub notifications: NotificationsConfig,
     /// Remote hosts monitored over SSH (`[[hosts]]` tables).
     pub hosts: Vec<HostConfig>,
 }
@@ -231,6 +237,26 @@ impl Default for SmartConfig {
             dir: PathBuf::from(DEFAULT_SMART_DIR),
         }
     }
+}
+
+/// Which new alerts the GUI announces with a desktop notification.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NotifyLevel {
+    /// No notifications.
+    Off,
+    /// Warnings and critical alerts.
+    Warning,
+    /// Critical alerts only (data at risk).
+    #[default]
+    Critical,
+}
+
+/// Desktop notification settings.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct NotificationsConfig {
+    pub level: NotifyLevel,
 }
 
 /// Where to read Windows sensors from.
@@ -440,6 +466,9 @@ dir = "/tmp/smart"
 
 [lhm]
 url = ""
+
+[notifications]
+level = "warning"
 "#,
         )
         .unwrap();
@@ -460,6 +489,8 @@ url = ""
         assert!(config.is_hidden("nct6686:nct6683.2592/temp4"));
         assert_eq!(config.smart.dir, PathBuf::from("/tmp/smart"));
         assert_eq!(config.lhm.url, "");
+        assert_eq!(config.notifications.level, NotifyLevel::Warning);
+        assert_eq!(Config::default().notifications.level, NotifyLevel::Critical);
         assert_eq!(Config::default().lhm.url, DEFAULT_LHM_URL);
     }
 

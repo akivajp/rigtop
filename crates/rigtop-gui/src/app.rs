@@ -19,6 +19,7 @@ use rigtop_core::{Config, DataSource, LocalSource, ProcessSignal, Snapshot};
 
 use crate::hosts_dialog::{self, HostsDialog};
 use crate::lhm_setup::{self, LhmSetup};
+use crate::notify::{self, Notifier};
 use crate::overview;
 use crate::panels;
 use crate::widgets::{self, BACKGROUND, BORDER, DIM, TEXT};
@@ -244,12 +245,16 @@ pub struct HostEntry {
 }
 
 impl HostEntry {
-    fn drain(&mut self) {
+    /// Applies queued events; returns true if a snapshot was among them.
+    fn drain(&mut self) -> bool {
+        let mut snapshot = false;
         if let Some(worker) = &self.worker {
             while let Some(event) = worker.try_recv() {
+                snapshot |= matches!(event, Event::Snapshot(_));
                 self.state.apply(event);
             }
         }
+        snapshot
     }
 
     /// Sends queued commands and the wanted process limit to the worker.
@@ -303,6 +308,8 @@ pub struct RigtopApp {
     /// hosts get no worker.
     repaint: Option<egui::Context>,
     pub hosts_dialog: HostsDialog,
+    /// Desktop notifications for new alerts.
+    notifier: Notifier,
     tree: Tree<Pane>,
     /// Processes per overview card (hosts not shown in detail send only these).
     overview_processes: usize,
@@ -357,6 +364,7 @@ impl RigtopApp {
         overview: OverviewSettings,
         initial_zoom: f32,
     ) -> Self {
+        let notifier = Notifier::new(config.notifications.level);
         Self {
             hosts: Vec::new(),
             view: View::Host(0),
@@ -369,6 +377,7 @@ impl RigtopApp {
             interval: Duration::from_secs(1),
             repaint: None,
             hosts_dialog: HostsDialog::default(),
+            notifier,
             tree,
             styled: false,
             initial_zoom,
@@ -529,10 +538,29 @@ impl RigtopApp {
         &mut self.hosts[0].state
     }
 
-    /// Applies everything the workers have sent since the last call.
+    /// Applies everything the workers have sent since the last call, and
+    /// announces alerts that are new in the fresh snapshots.
     fn drain_events(&mut self) {
         for host in &mut self.hosts {
-            host.drain();
+            if !host.drain() {
+                continue;
+            }
+            let Some(snapshot) = &host.state.snapshot else {
+                continue;
+            };
+            let alerts = rigtop_core::view::alerts(snapshot);
+            for alert in self.notifier.new_alerts(&host.spec.name, &alerts) {
+                // Tests run without workers (and without notifications).
+                if self.repaint.is_some() {
+                    // "local" says little in a notification; use the host name.
+                    let name = if host.spec.is_local() {
+                        &snapshot.host.hostname
+                    } else {
+                        &host.spec.name
+                    };
+                    notify::send(name, &alert);
+                }
+            }
         }
     }
 

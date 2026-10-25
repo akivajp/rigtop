@@ -17,6 +17,7 @@ anyhow = "1.0.104"
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 clap = { version = "4.6.7", features = ["derive"] }
 eframe = { version = "0.37.0", features = ["persistence"] }
+notify-rust = "4.18.2"
 egui = "0.37"
 egui_extras = "0.37.0"
 egui_tiles = { version = "0.18.0", features = ["serde"] }
