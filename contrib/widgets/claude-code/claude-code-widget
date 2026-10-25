@@ -10,8 +10,10 @@ standard library. Sources, from most to least stable:
 - subagents: ~/.claude/projects/<project>/<session>/subagents/ (the path is
   documented, the file contents are not); a subagent counts as active while
   its transcript changed in the last ACTIVE_SECS seconds
-- usage limits: the `rate_limits` Claude Code passes to the status line,
-  saved by the companion `statusline-save-limits` (see README.md)
+- usage limits: the status endpoint of claude-spillway when it runs (a
+  proxy that already reads them from Anthropic's responses), else the
+  `rate_limits` Claude Code passes to the status line, saved by the
+  companion `statusline-save-limits` (see README.md)
 
 Claude Code's files are internal and may change between versions; this
 script degrades to fewer rows instead of failing.
@@ -25,12 +27,17 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.request
 from datetime import datetime
 
 HOME = os.path.expanduser("~")
 CLAUDE_DIR = os.environ.get("CLAUDE_CONFIG_DIR", os.path.join(HOME, ".claude"))
 CACHE_DIR = os.environ.get("XDG_CACHE_HOME", os.path.join(HOME, ".cache"))
 LIMITS_FILE = os.path.join(CACHE_DIR, "rigtop", "claude-rate-limits.json")
+# claude-spillway's status endpoint; "" to skip it.
+SPILLWAY_URL = os.environ.get(
+    "RIGTOP_CLAUDE_SPILLWAY_URL", "http://127.0.0.1:8787/_spillway/status"
+)
 # A subagent whose transcript changed this recently is shown as active.
 ACTIVE_SECS = int(os.environ.get("RIGTOP_CLAUDE_ACTIVE_SECS", "120"))
 # Usage data older than this is marked as such (it updates only while a
@@ -117,7 +124,57 @@ def reset_text(epoch, now):
     return when.strftime("%a %H:%M")
 
 
+def window_row(label, used, resets, now):
+    """A usage window: `used` in percent, `resets` in epoch seconds."""
+    if resets is not None and resets <= now:
+        # The window has rolled over since the data was read.
+        return row("reset (no newer data)", label=label, level="dim")
+    level = "bad" if used >= 90 else "warn" if used >= 70 else "ok"
+    when = f" · resets {reset_text(resets, now)}" if resets else ""
+    return row(f"{used:.0f}%{when}", label=label, gauge=max(0.0, min(1.0, used / 100)), level=level)
+
+
+def spillway_rows(now):
+    """Usage from claude-spillway, or None when it is not running."""
+    if not SPILLWAY_URL:
+        return None
+    try:
+        with urllib.request.urlopen(SPILLWAY_URL, timeout=1) as response:
+            status = json.load(response)
+        anthropic = status["anthropic"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    rows = []
+    for key, label in (("5h", "5h"), ("7d", "week")):
+        used = anthropic.get(f"utilization_{key}")
+        if isinstance(used, (int, float)):
+            rows.append(window_row(label, used * 100, anthropic.get(f"reset_{key}"), now))
+    if not rows:
+        return None
+    observed = anthropic.get("observed_at") or now
+    if now - observed > STALE_LIMITS_SECS:
+        rows.append(row(f"as of {reset_text(observed, now)}", level="dim"))
+    # Spilled over to Ollama: say so, with Ollama's own usage.
+    mode = status.get("mode")
+    if mode and mode != "anthropic":
+        rows.append(row(f"{mode}: {status.get('reason') or 'spilled over'}", label="route", level="warn"))
+    ollama = status.get("ollama") or {}
+    windows = [
+        ("session", ollama.get("session_utilization"), ollama.get("session_reset")),
+        ("week", ollama.get("weekly_utilization"), ollama.get("weekly_reset")),
+    ]
+    if any(isinstance(used, (int, float)) for _, used, _ in windows):
+        rows.append(row("Ollama", heading=True))
+        for label, used, resets in windows:
+            if isinstance(used, (int, float)):
+                rows.append(window_row(label, used * 100, resets, now))
+    return rows
+
+
 def limit_rows(now):
+    from_spillway = spillway_rows(now)
+    if from_spillway is not None:
+        return from_spillway
     try:
         with open(LIMITS_FILE, encoding="utf-8") as f:
             saved = json.load(f)
@@ -135,19 +192,7 @@ def limit_rows(now):
             resets = float(window["resets_at"])
         except (KeyError, TypeError, ValueError):
             continue
-        if resets <= now:
-            # The window has rolled over since the data was saved.
-            rows.append(row("reset (no newer data)", label=label, level="dim"))
-            continue
-        level = "bad" if used >= 90 else "warn" if used >= 70 else "ok"
-        rows.append(
-            row(
-                f"{used:.0f}% · resets {reset_text(resets, now)}",
-                label=label,
-                gauge=max(0.0, min(1.0, used / 100)),
-                level=level,
-            )
-        )
+        rows.append(window_row(label, used, resets, now))
     if rows and now - saved_at > STALE_LIMITS_SECS:
         rows.append(row(f"as of {reset_text(saved_at, now)}", label="", level="dim"))
     return rows or [row("usage: no data yet", label="limits", level="dim")]
@@ -158,9 +203,13 @@ def session_rows(now):
     if not found:
         return [row("no running sessions", level="dim")]
     rows = []
+    previous = None
     for session in sorted(found, key=lambda s: (s.get("cwd", ""), s.get("startedAt", 0))):
-        project = os.path.basename(session.get("cwd", "").rstrip("/\\")) or "?"
-        rows.append(row(project, heading=True))
+        # One heading per project, its sessions under it.
+        cwd = session.get("cwd", "")
+        if cwd != previous:
+            rows.append(row(os.path.basename(cwd.rstrip("/\\")) or "?", heading=True))
+            previous = cwd
         status = session.get("status", "?")
         detail = session.get("name") or "main"
         if session.get("waitingFor"):
