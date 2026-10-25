@@ -288,6 +288,11 @@ fn add_storage_sensor(
     let whole = value.max(0.0).round();
     match sensor {
         "Temperature" => drive.temperature_c = Some(value as f32),
+        // Some NVMe drives only have numbered sensors ("Temperature #1");
+        // take the first unless the main reading comes.
+        name if name.starts_with("Temperature #") => {
+            drive.temperature_c.get_or_insert(value as f32);
+        }
         "Power On Hours" => drive.power_on_hours = Some(whole as u64),
         // "Life" is the remaining share; NVMe's own "Percentage Used" (listed
         // after it) replaces this estimate.
@@ -532,6 +537,13 @@ mod tests {
             ("disk1", "ATA")
         );
         assert_eq!(sata.percentage_used, Some(12), "100 - life");
+        // Without a plain "Temperature", the first numbered sensor; never the
+        // warning or critical thresholds.
+        let mut out = LhmReadings::default();
+        add_storage_sensor(&mut out, "SSD", "nvme", "3", "Warning Temperature", 80.0);
+        add_storage_sensor(&mut out, "SSD", "nvme", "3", "Temperature #1", 38.0);
+        add_storage_sensor(&mut out, "SSD", "nvme", "3", "Temperature #2", 45.0);
+        assert_eq!(out.smart[0].temperature_c, Some(38.0));
         // The drive temperature still shows as a sensor chip too.
         assert!(readings.chips.iter().any(|c| c.key == "lhm:/nvme/0"));
     }
