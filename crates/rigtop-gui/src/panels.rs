@@ -20,7 +20,13 @@ use crate::widgets::{self, BAD, DIM, OK, TEXT, WARN, percent_color, temperature_
 const ROW_HEIGHT: f32 = 16.0;
 /// Per-core cell styles, richest first: (narrowest cell width, has a meter).
 /// The grid uses the first one whose rows fit in the panel height.
-const CORE_CELL_STYLES: [(f32, bool); 3] = [(150.0, true), (110.0, true), (70.0, false)];
+const CORE_CELL_STYLES: [(f32, bool); 4] = [
+    (150.0, true),
+    (110.0, true),
+    (70.0, false),
+    // The tightest "C12 34%" cell, for many cores in a short, narrow panel.
+    (56.0, false),
+];
 /// SMART results older than this are flagged as stale.
 const SMART_STALE_SECS: u64 = 3600;
 /// Scrubs older than this are flagged (a monthly scrub is the common advice).
@@ -49,24 +55,33 @@ pub fn title_extras(ui: &mut Ui, pane: Pane, state: &mut GuiState) {
     match pane {
         Pane::Cpu => {
             let host = &snapshot.host;
-            // Clock in the middle of the title bar, like btop.
-            let clock = chrono::Local::now().format("%H:%M:%S").to_string();
-            let rect = ui.max_rect();
-            ui.painter().text(
-                pos2(rect.center().x, rect.center().y),
-                egui::Align2::CENTER_CENTER,
-                clock,
-                FontId::monospace(14.0),
-                TEXT,
-            );
             let uptime = format!("up {}", format::duration(host.uptime_secs));
             let hostname = host.hostname.clone();
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.label(dim(uptime));
-                ui.label(colored(hostname, TEXT));
-                ui.add_space(12.0);
-                view_controls(ui, state);
-            });
+            let title_end = ui.cursor().left();
+            let controls_start = ui
+                .with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    ui.label(dim(uptime));
+                    ui.label(colored(hostname, TEXT));
+                    ui.add_space(12.0);
+                    view_controls(ui, state);
+                    ui.min_rect().left()
+                })
+                .inner;
+            // Clock in the middle of the title bar, like btop, when the
+            // title and the controls leave room for it.
+            let font = FontId::monospace(14.0);
+            let half = ui.fonts_mut(|f| f.glyph_width(&font, '0')) * 4.0 + 6.0;
+            let rect = ui.max_rect();
+            if rect.center().x - half > title_end && rect.center().x + half < controls_start {
+                let clock = chrono::Local::now().format("%H:%M:%S").to_string();
+                ui.painter().text(
+                    rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    clock,
+                    font,
+                    TEXT,
+                );
+            }
         }
         Pane::Memory => {
             let total = snapshot.memory.total_bytes;
@@ -100,6 +115,9 @@ fn view_controls(ui: &mut Ui, state: &mut GuiState) {
         crate::overview::zoom_controls(ui, state.zoom, &mut state.view_actions);
         // Without a tab bar (a single host), the hosts window opens here.
         crate::overview::hosts_button(ui, &mut state.view_actions);
+        if let Some(visible) = state.widgets_visible {
+            crate::overview::widgets_button(ui, visible, &mut state.view_actions);
+        }
     }
 }
 
@@ -130,10 +148,25 @@ fn cpu(ui: &mut Ui, state: &GuiState) -> bool {
         return false;
     };
     let cpu = &snapshot.cpu;
-    // Two wrapped label rows; labels are a little taller than ROW_HEIGHT.
-    let info_height = 2.0 * (ROW_HEIGHT + 3.0) + 4.0;
     let area = ui.available_rect_before_wrap();
     let graph_width = (area.width() * 0.38).max(120.0);
+    // Two label rows (load and temperatures, power and fans) that wrap on a
+    // narrow panel: reserve as many lines as they need, estimated from
+    // their length, so the last one is not cut off.
+    let info_width = (area.width() - graph_width - 12.0).max(1.0);
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let glyph = ui.fonts_mut(|f| f.glyph_width(&font, '0')).max(1.0);
+    let lines = |chars: usize| (chars as f32 * glyph / info_width).ceil().max(1.0);
+    let fans = snapshot.sensors.iter().map(|c| c.fans.len()).sum::<usize>();
+    let first = 20 + cpu.temperatures.len() * 11;
+    let second = 32
+        + fans * 15
+        + if snapshot.power.battery.is_some() {
+            16
+        } else {
+            0
+        };
+    let info_height = (lines(first) + lines(second)) * (ROW_HEIGHT + 3.0) + 4.0;
     let graph_rect = egui::Rect::from_min_size(area.min, vec2(graph_width, area.height()));
     let grid_rect = egui::Rect::from_min_max(
         pos2(graph_rect.right() + 12.0, area.top()),
@@ -151,11 +184,16 @@ fn cpu(ui: &mut Ui, state: &GuiState) -> bool {
         FontId::monospace(13.0),
         percent_color(cpu.total_percent),
     );
+    // The model gets the rest of the graph's width, cut to fit, so it never
+    // runs into the core grid of a narrow panel.
+    let model_font = FontId::monospace(12.0);
+    let glyph = ui.fonts_mut(|f| f.glyph_width(&model_font, 'M')).max(1.0);
+    let model_chars = ((graph_width - 52.0) / glyph).floor().max(0.0) as usize;
     ui.painter().text(
         graph_rect.left_top() + vec2(48.0, 0.0),
         egui::Align2::LEFT_TOP,
-        &cpu.model,
-        FontId::monospace(12.0),
+        format::truncate(&cpu.model, model_chars),
+        model_font,
         DIM,
     );
 
@@ -381,7 +419,10 @@ fn memory(ui: &mut Ui, state: &GuiState) {
 fn labeled_meter(ui: &mut Ui, label: &str, ratio: f32, value: &str) {
     ui.horizontal(|ui| {
         ui.add_sized([56.0, ROW_HEIGHT], egui::Label::new(dim(label)));
-        let value_width = 110.0;
+        // Room for the whole value text; the meter takes what is left.
+        let font = egui::TextStyle::Body.resolve(ui.style());
+        let glyph = ui.fonts_mut(|f| f.glyph_width(&font, '0'));
+        let value_width = (value.chars().count() as f32 * glyph + 12.0).max(110.0);
         let width = (ui.available_width() - value_width).max(20.0);
         let (rect, _) = ui.allocate_exact_size(vec2(width, ROW_HEIGHT), Sense::hover());
         widgets::paint_meter(ui, rect, ratio);
@@ -443,7 +484,8 @@ fn gpus(ui: &mut Ui, state: &GuiState) {
     let per_gpu = (ui.available_height() / snapshot.gpus.len() as f32).max(ROW_HEIGHT * 2.0);
     for (i, gpu) in snapshot.gpus.iter().enumerate() {
         let top = ui.cursor().top();
-        ui.horizontal(|ui| {
+        // Wraps on narrow panels instead of cutting off power and clocks.
+        ui.horizontal_wrapped(|ui| {
             ui.label(colored(gpu.index.to_string(), widgets::GPU_TITLE));
             ui.label(gpu.name.trim_start_matches("NVIDIA "));
             if let Some(t) = gpu.temperature_c {
@@ -555,7 +597,9 @@ fn storage(ui: &mut Ui, state: &GuiState) {
                 });
             }
             for disk in &snapshot.disks {
-                ui.horizontal(|ui| {
+                // Wraps on narrow panels so SMART details move to a second
+                // line instead of being cut off.
+                ui.horizontal_wrapped(|ui| {
                     ui.add_sized([70.0, ROW_HEIGHT], egui::Label::new(&disk.name));
                     ui.label(dim("R"));
                     ui.label(format!("{:>8}", format::rate(disk.read_bytes_per_sec)));
@@ -670,7 +714,7 @@ fn btrfs_rows(ui: &mut Ui, fs: &BtrfsFilesystem, now: u64) {
         .first()
         .cloned()
         .unwrap_or_else(|| fs.fsid.chars().take(8).collect());
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label(colored("btrfs", widgets::STORAGE_TITLE));
         ui.label(mount)
             .on_hover_text(format!("{}\n{}", fs.fsid, fs.devices.join(", ")));
@@ -860,19 +904,26 @@ fn network(ui: &mut Ui, state: &mut GuiState) {
     for net in listed {
         let is_current = Some(&net.name) == state.history.net_interface.as_ref();
         ui.horizontal(|ui| {
-            if ui
-                .add_sized(
-                    [110.0, ROW_HEIGHT],
-                    egui::Button::selectable(is_current, &net.name),
-                )
-                .clicked()
-            {
+            let link = link_label(net).unwrap_or_default();
+            // The link column shrinks first; without room it moves to the
+            // name's tooltip, keeping the rates visible.
+            let link_width = (ui.available_width() - 110.0 - 210.0).min(170.0);
+            let mut name = ui.add_sized(
+                [110.0, ROW_HEIGHT],
+                egui::Button::selectable(is_current, &net.name),
+            );
+            if link_width < 60.0 && !link.is_empty() {
+                name = name.on_hover_text(&link);
+            }
+            if name.clicked() {
                 chosen = Some(net.name.clone());
             }
-            ui.add_sized(
-                [170.0, ROW_HEIGHT],
-                egui::Label::new(dim(link_label(net).unwrap_or_default())),
-            );
+            if link_width >= 60.0 {
+                ui.add_sized(
+                    [link_width, ROW_HEIGHT],
+                    egui::Label::new(dim(link)).truncate(),
+                );
+            }
             ui.label(format!(
                 "▼{:>9} ▲{:>9}",
                 format::rate(net.rx_bytes_per_sec),
@@ -900,20 +951,49 @@ const PROC_COLUMNS: [(&str, Option<SortKey>, Option<f32>); 9] = [
     ("VRAM", Some(SortKey::Vram), Some(64.0)),
 ];
 
+/// The command column is only worth showing with at least this much room.
+const COMMAND_MIN_WIDTH: f32 = 120.0;
+/// Columns given up first when the table is too narrow; Pid, Program, Mem
+/// and Cpu% always stay.
+const DROP_ORDER: [&str; 5] = ["Command", "Thr", "User", "VRAM", "Gpu%"];
+
+/// Removes columns in [`DROP_ORDER`] until the rest fit in `width`.
+fn fit_columns(
+    columns: &mut Vec<(&'static str, Option<SortKey>, Option<f32>)>,
+    width: f32,
+    spacing: f32,
+) {
+    let needed = |columns: &[(&str, Option<SortKey>, Option<f32>)]| -> f32 {
+        columns
+            .iter()
+            .map(|(_, _, w)| w.unwrap_or(COMMAND_MIN_WIDTH) + spacing)
+            .sum()
+    };
+    for name in DROP_ORDER {
+        if needed(columns) <= width {
+            break;
+        }
+        columns.retain(|(n, _, _)| *n != name);
+    }
+}
+
 fn processes(ui: &mut Ui, state: &mut GuiState) {
+    // Measured before anything is drawn: content wider than the panel (the
+    // filter row on a narrow one) would widen the layout and hide columns.
+    let panel_width = ui.available_width();
     ui.horizontal(|ui| {
         ui.label(dim("filter"));
         ui.add(
             egui::TextEdit::singleline(&mut state.filter)
                 .hint_text("name, command, user or pid")
-                .desired_width(220.0),
+                .desired_width((panel_width * 0.35).clamp(80.0, 220.0)),
         );
         ui.checkbox(&mut state.show_kernel_threads, "kernel threads");
-        if let Some(status) = state.status() {
-            ui.label(colored(status, WARN));
-        } else {
-            ui.label(dim("right-click a process for actions"));
-        }
+        let note = match state.status() {
+            Some(status) => colored(status, WARN),
+            None => dim("right-click a process for actions"),
+        };
+        ui.add(egui::Label::new(note).truncate());
     });
 
     let has_gpus = state.snapshot.as_ref().is_some_and(|s| !s.gpus.is_empty());
@@ -922,12 +1002,18 @@ fn processes(ui: &mut Ui, state: &mut GuiState) {
         .snapshot
         .as_ref()
         .is_some_and(|s| s.processes.iter().any(|p| p.threads.is_some()));
-    let columns: Vec<_> = PROC_COLUMNS
+    let mut columns: Vec<_> = PROC_COLUMNS
         .iter()
         .filter(|(_, key, _)| has_gpus || !matches!(key, Some(SortKey::Gpu | SortKey::Vram)))
         .filter(|(_, key, _)| has_threads || *key != Some(SortKey::Threads))
         .copied()
         .collect();
+    fit_columns(&mut columns, panel_width, ui.spacing().item_spacing.x);
+    // Without the command column, the last one takes the spare width.
+    let remainder = columns
+        .iter()
+        .position(|(_, _, w)| w.is_none())
+        .unwrap_or(columns.len() - 1);
 
     let mut table = TableBuilder::new(ui)
         .striped(true)
@@ -935,10 +1021,12 @@ fn processes(ui: &mut Ui, state: &mut GuiState) {
         .sense(Sense::click())
         .auto_shrink(false)
         .cell_layout(Layout::left_to_right(Align::Center));
-    for (_, _, width) in &columns {
+    for (index, (_, _, width)) in columns.iter().enumerate() {
         table = table.column(match width {
-            Some(w) => Column::initial(*w).at_least(30.0).clip(true),
-            None => Column::remainder().at_least(60.0).clip(true),
+            Some(w) if index != remainder => Column::initial(*w).at_least(30.0).clip(true),
+            _ => Column::remainder()
+                .at_least(COMMAND_MIN_WIDTH.min(60.0))
+                .clip(true),
         });
     }
 
@@ -1097,5 +1185,11 @@ mod tests {
         // Very narrow: compact cells without meters.
         let tiny = core_grid_layout(32, 420.0, 100.0);
         assert!(!tiny.meters && tiny.rows <= 6, "{tiny:?}");
+        // Short as well: the tightest cells still fit all cores.
+        let squeezed = core_grid_layout(32, 455.0, 70.0);
+        assert!(
+            squeezed.rows <= 4 && squeezed.cell_width >= 56.0,
+            "{squeezed:?}"
+        );
     }
 }

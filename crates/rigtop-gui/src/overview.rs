@@ -19,6 +19,11 @@ const ROW: f32 = 17.0;
 const CARD_MIN_WIDTH: f32 = 430.0;
 /// Shortest card before the overview scrolls instead of shrinking cards.
 const CARD_MIN_HEIGHT: f32 = 230.0;
+/// Cards shorter than this drop their lower sections (network, storage);
+/// then narrower cards side by side are the better trade.
+const CARD_GOOD_HEIGHT: f32 = 380.0;
+/// The narrowest a card may get for that.
+const CARD_TIGHT_WIDTH: f32 = 340.0;
 /// Data older than this marks a host as stale.
 const STALE_AFTER: Duration = Duration::from_secs(10);
 /// Alerts listed on a card (the rest are summarized as "+N more").
@@ -109,6 +114,47 @@ pub fn hosts_button(ui: &mut Ui, actions: &mut Vec<ViewAction>) {
     }
 }
 
+/// "widgets": shows or hides the widget column, for room on small screens.
+pub fn widgets_button(ui: &mut Ui, visible: bool, actions: &mut Vec<ViewAction>) {
+    let hint = if visible {
+        "hide the widget column"
+    } else {
+        "show the widget column"
+    };
+    if ui
+        .add(egui::Button::selectable(visible, dim("widgets")))
+        .on_hover_text(hint)
+        .clicked()
+    {
+        actions.push(ViewAction::ToggleWidgets);
+    }
+}
+
+/// Cards side by side: as many as fit at [`CARD_MIN_WIDTH`], one more when
+/// that leaves the cards too short for their sections and they can still be
+/// [`CARD_TIGHT_WIDTH`] wide (e.g. next to the widget column).
+fn card_columns(cards: usize, width: f32, height: f32, gap: f32) -> usize {
+    let size = |columns: usize| {
+        let rows = cards.div_ceil(columns);
+        (
+            (width - gap * (columns - 1) as f32) / columns as f32,
+            (height - gap * (rows - 1) as f32) / rows as f32,
+        )
+    };
+    let columns = ((width / CARD_MIN_WIDTH).floor() as usize).clamp(1, cards.max(1));
+    if columns < cards {
+        let (_, card_height) = size(columns);
+        let (wider_width, wider_height) = size(columns + 1);
+        if card_height < CARD_GOOD_HEIGHT
+            && wider_width >= CARD_TIGHT_WIDTH
+            && wider_height > card_height
+        {
+            return columns + 1;
+        }
+    }
+    columns
+}
+
 /// Draws the overview. Returns the index of a host whose card title was
 /// clicked (to open its detail tab).
 pub fn show(
@@ -136,9 +182,9 @@ pub fn show(
     }
 
     let width = ui.available_width();
-    let columns = ((width / CARD_MIN_WIDTH).floor() as usize).clamp(1, visible.len());
-    let rows = visible.len().div_ceil(columns);
     let gap = 6.0;
+    let columns = card_columns(visible.len(), width, ui.available_height(), gap);
+    let rows = visible.len().div_ceil(columns);
     let card_width = (width - gap * (columns - 1) as f32) / columns as f32;
     let fit_height = (ui.available_height() - gap * (rows - 1) as f32) / rows as f32;
     let card_height = fit_height.max(CARD_MIN_HEIGHT);
@@ -675,4 +721,21 @@ fn storage_section(ui: &mut Ui, snapshot: &Snapshot) {
             });
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn card_columns_trade_width_for_height_when_cramped() {
+        // Wide window: as many 430px cards as fit.
+        assert_eq!(card_columns(3, 1600.0, 880.0, 6.0), 3);
+        // Next to the widget column: one column would leave 3 short cards.
+        assert_eq!(card_columns(3, 770.0, 880.0, 6.0), 2);
+        // Tall enough for one column: keep it.
+        assert_eq!(card_columns(2, 770.0, 1000.0, 6.0), 1);
+        // Too narrow for two cards.
+        assert_eq!(card_columns(3, 600.0, 880.0, 6.0), 1);
+    }
 }

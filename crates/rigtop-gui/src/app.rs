@@ -38,6 +38,7 @@ const ZOOM_STEP: f32 = 0.1;
 const ZOOM_KEY: &str = "zoom";
 const LAYOUT_KEY: &str = "layout";
 const OVERVIEW_KEY: &str = "overview";
+const WIDGETS_KEY: &str = "widgets_visible";
 
 /// One panel of the layout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -103,6 +104,8 @@ pub enum ViewAction {
     ResetLayout,
     /// Open the window for adding and editing hosts.
     EditHosts,
+    /// Show or hide the widget column.
+    ToggleWidgets,
 }
 
 /// Everything the panels read and modify.
@@ -129,6 +132,9 @@ pub struct GuiState {
     pub last_update: Option<Instant>,
     /// Whether the CPU panel title shows zoom buttons (single-host mode).
     pub show_zoom: bool,
+    /// Whether the widget column is shown, or `None` without widgets (for
+    /// the toggle in the CPU panel title in single-host mode).
+    pub widgets_visible: Option<bool>,
     /// Whether this is the machine rigtop runs on (setup offers apply only
     /// to it).
     pub is_local: bool,
@@ -156,6 +162,7 @@ impl GuiState {
             connection_error: None,
             last_update: None,
             show_zoom: true,
+            widgets_visible: None,
             is_local: false,
             lhm_setup: LhmSetup::default(),
             status: None,
@@ -313,6 +320,8 @@ pub struct RigtopApp {
     notifier: Notifier,
     /// The widget column (`[[widgets]]`), empty without any.
     pub(crate) widgets: Vec<rigtop_core::widget::Widget>,
+    /// Whether the widget column is shown (it can be hidden for room).
+    show_widgets: bool,
     tree: Tree<Pane>,
     /// Processes per overview card (hosts not shown in detail send only these).
     overview_processes: usize,
@@ -356,6 +365,9 @@ impl RigtopApp {
         app.remote_command = remote_command.map(str::to_owned);
         app.interval = interval;
         app.repaint = Some(cc.egui_ctx.clone());
+        app.show_widgets = storage
+            .and_then(|s| eframe::get_value::<bool>(s, WIDGETS_KEY))
+            .unwrap_or(true);
         let repaint = cc.egui_ctx.clone();
         app.widgets = rigtop_core::widget::start_widgets(&app.config.widgets, move || {
             repaint.request_repaint()
@@ -386,6 +398,7 @@ impl RigtopApp {
             hosts_dialog: HostsDialog::default(),
             notifier,
             widgets: Vec::new(),
+            show_widgets: true,
             tree,
             styled: false,
             initial_zoom,
@@ -603,7 +616,7 @@ impl RigtopApp {
             .inner_margin(Margin::same(4))
             .show(ui, |ui| {
                 // Widgets get a column on the right in every view.
-                if !self.widgets.is_empty() {
+                if !self.widgets.is_empty() && self.show_widgets {
                     egui::Panel::right("widget_panel")
                         .resizable(true)
                         .default_size(widget_panel::DEFAULT_WIDTH)
@@ -634,6 +647,8 @@ impl RigtopApp {
                         host.state.zoom = self.zoom;
                         // With several hosts the zoom buttons live in the tab bar.
                         host.state.show_zoom = single;
+                        host.state.widgets_visible =
+                            (!self.widgets.is_empty()).then_some(self.show_widgets);
                         if host.state.snapshot.is_none() {
                             waiting_screen(ui, host);
                         } else {
@@ -658,6 +673,7 @@ impl RigtopApp {
                 ViewAction::ZoomReset => set_zoom(&ctx, 1.0),
                 ViewAction::ResetLayout => self.tree = default_tree(),
                 ViewAction::EditHosts => self.hosts_dialog.open(),
+                ViewAction::ToggleWidgets => self.show_widgets = !self.show_widgets,
             }
         }
         let fixed = self.fixed_host_names();
@@ -717,6 +733,9 @@ impl RigtopApp {
                 overview::zoom_controls(ui, self.zoom, actions);
                 ui.add_space(8.0);
                 overview::hosts_button(ui, actions);
+                if !self.widgets.is_empty() {
+                    overview::widgets_button(ui, self.show_widgets, actions);
+                }
             });
         });
         ui.add_space(2.0);
@@ -780,6 +799,7 @@ impl eframe::App for RigtopApp {
         eframe::set_value(storage, ZOOM_KEY, &self.zoom);
         eframe::set_value(storage, LAYOUT_KEY, &self.tree);
         eframe::set_value(storage, OVERVIEW_KEY, &self.overview);
+        eframe::set_value(storage, WIDGETS_KEY, &self.show_widgets);
     }
 }
 

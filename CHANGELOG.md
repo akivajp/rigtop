@@ -7,6 +7,22 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Added
+
+- GUI: a "widgets" button (next to "hosts…") hides and shows the widget
+  column, remembered between runs
+
+### Fixed
+
+- GUI on narrow windows (e.g. with the widget column): the process table
+  drops Command, Thr, User, VRAM and Gpu% in that order instead of hiding
+  Cpu% and Mem off the edge; the CPU model no longer runs into the core
+  grid, which also gets a denser cell for short panels; the CPU info rows,
+  GPU names, drive rows and btrfs rows wrap instead of being cut off; link
+  speeds move to a tooltip so network rates stay visible; the title clock
+  hides when the controls need its place; the overview puts cards side by
+  side when one column would leave them too short for all their sections
+
 ## [0.8.1] - 2026-10-26
 
 ### Added
