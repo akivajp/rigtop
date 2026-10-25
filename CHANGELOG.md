@@ -9,8 +9,8 @@ include breaking changes).
 
 ### Added
 
-- GUI: desktop notifications when a new alert appears on any host, also
-  while minimized (`[notifications] level`: `critical` by default,
+- GUI (Linux, macOS): desktop notifications when a new alert appears on
+  any host, also while minimized (`[notifications] level`: `critical` by default,
   `warning` or `off`); alerts present at startup are not announced;
   `rigtop-gui --test-notification` shows a sample one
 - Windows: drive health from LibreHardwareMonitor (wear, spare capacity,

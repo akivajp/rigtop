@@ -83,7 +83,7 @@ Drag panel borders to resize and panel titles to rearrange. Click a column heade
 
 Zoom with Ctrl + mouse wheel, Ctrl + `+` / `-` / `0`, or the `A-` / `A+` buttons in the CPU panel title. The zoom level and panel layout are restored on the next start; "reset layout" brings back the default arrangement.
 
-When a new alert appears on any host (drive errors, a missing RAID device, failing SMART, a nearly full filesystem), the GUI shows a desktop notification, also while it is minimized. Alerts present at startup are not announced. `[notifications] level` in the [configuration](#configuration) picks `"critical"` (default), `"warning"` (also resyncs, filling filesystems, hot GPUs) or `"off"`; `rigtop-gui --test-notification` shows a sample notification.
+When a new alert appears on any host (drive errors, a missing RAID device, failing SMART, a nearly full filesystem), the GUI shows a desktop notification, also while it is minimized (Linux and macOS; not on Windows yet). Alerts present at startup are not announced. `[notifications] level` in the [configuration](#configuration) picks `"critical"` (default), `"warning"` (also resyncs, filling filesystems, hot GPUs) or `"off"`; `rigtop-gui --test-notification` shows a sample notification.
 
 With mouse support on, most terminals select text with Shift+drag.
 

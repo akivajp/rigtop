@@ -17,7 +17,6 @@ anyhow = "1.0.104"
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 clap = { version = "4.6.7", features = ["derive"] }
 eframe = { version = "0.37.0", features = ["persistence"] }
-notify-rust = "4.18.2"
 egui = "0.37"
 egui_extras = "0.37.0"
 egui_tiles = { version = "0.18.0", features = ["serde"] }
@@ -27,6 +26,11 @@ serde = { version = "1.0.229", features = ["derive"] }
 [dev-dependencies]
 egui_kittest = { version = "0.37.0", features = ["wgpu", "snapshot"] }
 tempfile = "3.27.0"
+
+# Not on Windows: there notify-rust shows toasts under PowerShell's app id,
+# which got the unsigned executable quarantined by Microsoft Defender.
+[target."cfg(not(windows))".dependencies]
+notify-rust = "4.18.2"
 
 [target."cfg(windows)".dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Com", "Win32_System_Console", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }

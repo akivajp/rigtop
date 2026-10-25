@@ -1,8 +1,12 @@
 //! Desktop notifications when a new alert appears on a host (a drive
 //! failing, a RAID device missing, a filesystem almost full...), so problems
 //! surface even while the window is in the background.
+//!
+//! Not on Windows yet: notify-rust shows Windows toasts under PowerShell's
+//! app id, and that got the unsigned executable flagged by Defender.
 
 use std::collections::{HashMap, HashSet};
+#[cfg(not(windows))]
 use std::thread;
 
 use rigtop_core::config::NotifyLevel;
@@ -78,8 +82,12 @@ pub fn send_test() {
     );
 }
 
-/// Shows a notification without blocking the UI (D-Bus or the Windows
-/// notification service may be slow or missing; errors are ignored).
+/// Whether this build can show desktop notifications.
+pub const SUPPORTED: bool = cfg!(not(windows));
+
+/// Shows a notification without blocking the UI (the notification service
+/// may be slow or missing; errors are ignored). Does nothing on Windows.
+#[cfg(not(windows))]
 pub fn send(host: &str, alert: &Alert) {
     let summary = match alert.severity {
         Severity::Critical => format!("rigtop: {host} needs attention"),
@@ -94,6 +102,9 @@ pub fn send(host: &str, alert: &Alert) {
             .show();
     });
 }
+
+#[cfg(windows)]
+pub fn send(_host: &str, _alert: &Alert) {}
 
 #[cfg(test)]
 mod tests {

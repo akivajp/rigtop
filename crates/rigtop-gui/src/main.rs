@@ -87,6 +87,9 @@ fn run() -> Result<()> {
     .context("failed to load the configuration")?;
 
     if cli.test_notification {
+        if !notify::SUPPORTED {
+            bail!("desktop notifications are not available on Windows yet");
+        }
         notify::send_test();
     }
 
