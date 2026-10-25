@@ -50,6 +50,11 @@ struct Cli {
     /// [default: "rigtop --agent"].
     #[arg(long, value_name = "COMMAND")]
     remote_command: Option<String>,
+
+    /// Show a sample desktop notification at startup, to check that alert
+    /// notifications reach the desktop.
+    #[arg(long)]
+    test_notification: bool,
 }
 
 fn main() -> std::process::ExitCode {
@@ -80,6 +85,10 @@ fn run() -> Result<()> {
         None => Ok(Config::default()),
     }
     .context("failed to load the configuration")?;
+
+    if cli.test_notification {
+        notify::send_test();
+    }
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()

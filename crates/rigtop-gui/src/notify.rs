@@ -67,6 +67,17 @@ fn key(alert: &Alert) -> String {
     key
 }
 
+/// The notification `--test-notification` shows.
+pub fn send_test() {
+    send(
+        "rigtop",
+        &Alert {
+            severity: Severity::Warning,
+            text: "Test notification: alerts will appear like this.".to_owned(),
+        },
+    );
+}
+
 /// Shows a notification without blocking the UI (D-Bus or the Windows
 /// notification service may be slow or missing; errors are ignored).
 pub fn send(host: &str, alert: &Alert) {

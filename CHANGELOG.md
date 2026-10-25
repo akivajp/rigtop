@@ -11,7 +11,8 @@ include breaking changes).
 
 - GUI: desktop notifications when a new alert appears on any host, also
   while minimized (`[notifications] level`: `critical` by default,
-  `warning` or `off`); alerts present at startup are not announced
+  `warning` or `off`); alerts present at startup are not announced;
+  `rigtop-gui --test-notification` shows a sample one
 - Windows: drive health from LibreHardwareMonitor (wear, spare capacity,
   temperature, power-on hours) in the SMART rows, as `disk0`, `disk1`...
   like Disk Management; drives without a disk row also show their
