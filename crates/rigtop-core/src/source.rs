@@ -305,6 +305,12 @@ impl DataSource for LocalSource {
     fn signal_process(&mut self, pid: u32, signal: ProcessSignal) -> Result<(), SourceError> {
         send_signal(pid, signal).map_err(|source| SourceError::Signal { pid, source })
     }
+
+    /// With a limit, only the top processes are shown (overview), which do
+    /// not include per-process GPU utilization: skip that NVML query.
+    fn set_process_limit(&mut self, limit: Option<usize>) {
+        self.nvml.set_process_utilization(limit.is_none());
+    }
 }
 
 /// Sends a signal to a local process.

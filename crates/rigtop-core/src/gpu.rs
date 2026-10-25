@@ -21,6 +21,9 @@ pub struct NvmlCollector {
     /// Newest per-process utilization sample timestamp seen, per GPU index.
     /// Passing it back to NVML returns only samples newer than the last poll.
     last_sample_ts: HashMap<u32, u64>,
+    /// Whether to query per-process utilization, the costliest NVML call
+    /// (about 2 ms per GPU). Only the full process table shows it.
+    process_utilization: bool,
 }
 
 impl NvmlCollector {
@@ -32,13 +35,21 @@ impl NvmlCollector {
                 nvml: Some(nvml),
                 init_error: None,
                 last_sample_ts: HashMap::new(),
+                process_utilization: true,
             },
             Err(err) => Self {
                 nvml: None,
                 init_error: Some(err.to_string()),
                 last_sample_ts: HashMap::new(),
+                process_utilization: true,
             },
         }
+    }
+
+    /// Turns the per-process utilization query on or off (off while only
+    /// the top processes are wanted, as for an overview).
+    pub fn set_process_utilization(&mut self, enabled: bool) {
+        self.process_utilization = enabled;
     }
 
     /// The NVML initialization error, if any.
@@ -59,7 +70,8 @@ impl NvmlCollector {
                 continue;
             };
             let last_ts = self.last_sample_ts.get(&index).copied();
-            let (stats, newest_ts) = collect_device(index, &device, last_ts);
+            let (stats, newest_ts) =
+                collect_device(index, &device, last_ts, self.process_utilization);
             if let Some(ts) = newest_ts {
                 self.last_sample_ts.insert(index, ts);
             }
@@ -80,10 +92,11 @@ fn collect_device(
     index: u32,
     device: &Device<'_>,
     last_ts: Option<u64>,
+    process_utilization: bool,
 ) -> (GpuStats, Option<u64>) {
     let utilization = device.utilization_rates().ok();
     let memory = device.memory_info().ok();
-    let (processes, newest_ts) = collect_processes(device, last_ts);
+    let (processes, newest_ts) = collect_processes(device, last_ts, process_utilization);
     let stats = GpuStats {
         index,
         vendor: "NVIDIA".to_owned(),
@@ -111,8 +124,13 @@ fn collect_device(
     (stats, newest_ts)
 }
 
-/// Merges compute and graphics process lists with per-process utilization.
-fn collect_processes(device: &Device<'_>, last_ts: Option<u64>) -> (Vec<GpuProcess>, Option<u64>) {
+/// Merges compute and graphics process lists with per-process utilization
+/// (when `with_utilization`).
+fn collect_processes(
+    device: &Device<'_>,
+    last_ts: Option<u64>,
+    with_utilization: bool,
+) -> (Vec<GpuProcess>, Option<u64>) {
     // A process can appear in both lists (e.g. CUDA + OpenGL); keep one entry
     // per pid with the larger memory figure.
     let mut by_pid: HashMap<u32, GpuProcess> = HashMap::new();
@@ -129,8 +147,14 @@ fn collect_processes(device: &Device<'_>, last_ts: Option<u64>) -> (Vec<GpuProce
         entry.memory_bytes = entry.memory_bytes.max(memory);
     }
 
-    // Utilization samples: keep the newest sample of each pid.
+    // Utilization samples: keep the newest sample of each pid. Skipped when
+    // not wanted or when no process uses the GPU (often a second GPU).
     let mut newest_ts = last_ts;
+    if !with_utilization || by_pid.is_empty() {
+        let mut processes: Vec<GpuProcess> = by_pid.into_values().collect();
+        processes.sort_unstable_by_key(|p| std::cmp::Reverse(p.memory_bytes));
+        return (processes, newest_ts);
+    }
     // NotFound means "no samples since last_ts", which is normal for idle
     // GPUs; NotSupported is common on older devices. Both just mean no data.
     let samples = device

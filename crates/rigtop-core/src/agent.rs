@@ -143,6 +143,8 @@ where
             }
             Ok(Input::Command(ClientMessage::SetProcessLimit { limit })) => {
                 process_limit = limit;
+                // The source can skip work only the full list needs.
+                source.set_process_limit(limit);
                 None
             }
             Ok(Input::Command(ClientMessage::Signal { pid, signal })) => {

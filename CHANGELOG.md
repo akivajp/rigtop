@@ -7,6 +7,12 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Changed
+
+- NVIDIA: per-process GPU utilization, the costliest NVML query (about
+  2 ms per GPU), is skipped for GPUs no process uses and while only the
+  overview's top processes are wanted
+
 ## [0.6.0] - 2026-10-26
 
 ### Added
