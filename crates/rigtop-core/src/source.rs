@@ -114,6 +114,9 @@ pub struct LocalSource {
     /// Directories searched for btrfs scrub status files, in order.
     #[cfg(target_os = "linux")]
     scrub_dirs: Vec<std::path::PathBuf>,
+    /// AMD and Intel GPUs (NVIDIA ones come from NVML).
+    #[cfg(target_os = "linux")]
+    drm_gpus: linux::drm::DrmGpuReader,
     /// Temperatures, fans and CPU power from LibreHardwareMonitor.
     #[cfg(windows)]
     lhm: crate::lhm::LhmReader,
@@ -145,6 +148,8 @@ impl LocalSource {
             diskstats: DiskStatsMeter::new(),
             #[cfg(target_os = "linux")]
             net_links: NetLinkReader::new(),
+            #[cfg(target_os = "linux")]
+            drm_gpus: linux::drm::DrmGpuReader::new(),
             // The copy made by the root collector first, then btrfs-progs'
             // own file in case rigtop runs as root.
             #[cfg(windows)]
@@ -257,6 +262,11 @@ impl LocalSource {
                 .flat_map(|c| c.power_w.iter().map(|(_, w)| Some(*w))),
         );
         snapshot.power.battery = linux::battery::read_battery(&self.roots);
+
+        // AMD and Intel GPUs after NVIDIA's; discrete ones add to GPU power.
+        let first = snapshot.gpus.len() as u32;
+        snapshot.gpus.extend(self.drm_gpus.read(&self.roots, first));
+        snapshot.power.gpus_w = sum_present(snapshot.gpus.iter().map(|g| g.power_w));
 
         let mut disks = self.diskstats.sample(&self.roots, now);
         for disk in &mut disks {

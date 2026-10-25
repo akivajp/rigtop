@@ -88,6 +88,8 @@ fn collect_device(
         index,
         vendor: "NVIDIA".to_owned(),
         name: device.name().unwrap_or_else(|_| format!("GPU {index}")),
+        // NVML covers discrete NVIDIA GPUs only.
+        integrated: false,
         utilization_percent: utilization.as_ref().map(|u| u.gpu as f32),
         memory_utilization_percent: utilization.as_ref().map(|u| u.memory as f32),
         memory_used_bytes: memory.as_ref().map(|m| m.used),

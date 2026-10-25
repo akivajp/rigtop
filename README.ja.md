@@ -118,6 +118,7 @@ rigtop は OS の `ssh`（Windows では標準の OpenSSH クライアント）�
 | 項目 | 必要なもの | Debian / Ubuntu | Arch / CachyOS |
 |---|---|---|---|
 | NVIDIA の GPU | ドライバの NVML ライブラリ | NVIDIA のドライバに含まれる | `nvidia-utils` |
+| AMD / Intel の GPU | 不要（sysfs から読む）。Intel の使用率は特権が無いと取れない | | |
 | Wi-Fi の信号強度と速度 | `iw` | `sudo apt install iw` | `sudo pacman -S iw` |
 | SMART | `smartmontools` とタイマー（[下記](#smart-と-btrfs-の-scrub-結果任意)） | `sudo apt install smartmontools` | `sudo pacman -S smartmontools` |
 | CPU の消費電力 | RAPL の読み取り権限（下記） | | |

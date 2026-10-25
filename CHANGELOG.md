@@ -9,6 +9,10 @@ include breaking changes).
 
 ### Added
 
+- Linux: AMD and Intel GPUs in the GPU panel and on overview cards (usage,
+  VRAM, temperature, clock, and power of discrete cards) from sysfs, named
+  from the driver or the PCI ID database; unknown values show as `--`; the
+  GUI's GPU panel switches to shorter rows when several GPUs do not fit
 - `sudo rigtop --install-collector` sets up the root timer that collects
   SMART data and btrfs scrub results (the files of `contrib/collect/` are
   built in, so `cargo install` is enough); `--uninstall-collector` removes it

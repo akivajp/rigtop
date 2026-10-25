@@ -135,13 +135,17 @@ pub struct MemoryStats {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct GpuStats {
-    /// Index within its vendor API (NVML index for NVIDIA).
+    /// Position in the GPU list: NVIDIA GPUs first (their NVML index),
+    /// then AMD and Intel ones.
     pub index: u32,
     /// Vendor name ("NVIDIA", "AMD", ...).
     pub vendor: String,
     /// Marketing name of the device.
     pub name: String,
-    /// Core utilization.
+    /// Integrated graphics (an APU or Intel iGPU), whose power is part of
+    /// the CPU package and not reported here.
+    pub integrated: bool,
+    /// Core utilization (unknown for Intel without privileges).
     pub utilization_percent: Option<f32>,
     /// Memory controller utilization.
     pub memory_utilization_percent: Option<f32>,

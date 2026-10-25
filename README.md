@@ -118,6 +118,7 @@ Most readings need neither extra software nor privileges: CPU, memory, processes
 | Reading | Needs | Debian / Ubuntu | Arch / CachyOS |
 |---|---|---|---|
 | NVIDIA GPUs | the driver's NVML library | comes with the NVIDIA driver | `nvidia-utils` |
+| AMD / Intel GPUs | nothing (sysfs); Intel's utilization is not available without privileges | | |
 | Wi-Fi signal and rate | `iw` | `sudo apt install iw` | `sudo pacman -S iw` |
 | SMART | `smartmontools` and a timer ([below](#smart-and-btrfs-scrub-results-optional)) | `sudo apt install smartmontools` | `sudo pacman -S smartmontools` |
 | CPU power | read access to RAPL (below) | | |

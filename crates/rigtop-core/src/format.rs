@@ -101,9 +101,22 @@ pub fn pad(text: &str, width: usize) -> String {
     out
 }
 
+/// A percentage right-aligned in 4 columns (`" 12%"`), or `" --%"` when it
+/// is unknown (e.g. Intel GPU utilization).
+pub fn percent(value: Option<f32>) -> String {
+    value.map_or_else(|| " --%".to_owned(), |v| format!("{v:>3.0}%"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn percent_or_unknown() {
+        assert_eq!(percent(Some(7.4)), "  7%");
+        assert_eq!(percent(Some(100.0)), "100%");
+        assert_eq!(percent(None), " --%");
+    }
     use unicode_width::UnicodeWidthStr;
 
     #[test]

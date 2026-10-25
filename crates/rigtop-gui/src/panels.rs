@@ -8,7 +8,7 @@ use egui_extras::{Column, TableBuilder};
 use rigtop_core::ProcessSignal;
 use rigtop_core::format;
 use rigtop_core::snapshot::{
-    BtrfsFilesystem, NetworkStats, SmartDevice, Snapshot, device_matches_disk,
+    BtrfsFilesystem, GpuStats, NetworkStats, SmartDevice, Snapshot, device_matches_disk,
 };
 use rigtop_core::view::{LHM_HINT, SortKey, is_virtual_interface, lhm_help, signal_name};
 use rigtop_core::worker::Command;
@@ -391,12 +391,53 @@ fn labeled_meter(ui: &mut Ui, label: &str, ratio: f32, value: &str) {
 
 // ---------------------------------------------------------------- GPU
 
+/// "GPU2 ■■■■ 12% 1.5G/2.0G 46°C" on one line; the name on hover.
+fn compact_gpu_row(ui: &mut Ui, gpu: &GpuStats) {
+    let mut value = format::percent(gpu.utilization_percent);
+    if let (Some(used), Some(total)) = (gpu.memory_used_bytes, gpu.memory_total_bytes) {
+        value.push_str(&format!(
+            " {}/{}",
+            format::bytes(used),
+            format::bytes(total)
+        ));
+    }
+    if let Some(t) = gpu.temperature_c {
+        value.push_str(&format!(" {t:.0}°C"));
+    }
+    let util = gpu.utilization_percent.unwrap_or(0.0);
+    ui.horizontal(|ui| {
+        ui.add_sized(
+            [56.0, ROW_HEIGHT],
+            egui::Label::new(colored(format!("GPU{}", gpu.index), widgets::GPU_TITLE)),
+        )
+        .on_hover_text(&gpu.name);
+        let value_width = 190.0;
+        let width = (ui.available_width() - value_width).max(20.0);
+        let (rect, _) = ui.allocate_exact_size(vec2(width, ROW_HEIGHT), Sense::hover());
+        widgets::paint_meter(ui, rect, util / 100.0);
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| ui.label(value));
+    });
+}
+
 fn gpus(ui: &mut Ui, state: &GuiState) {
     let Some(snapshot) = &state.snapshot else {
         return;
     };
     if snapshot.gpus.is_empty() {
         ui.label(dim("no GPU found"));
+        return;
+    }
+    // A name row, utilization and VRAM per GPU; with less room VRAM joins
+    // the utilization row, and with even less (three GPUs in a short panel)
+    // each GPU gets one line, as on overview cards.
+    let rows_fit = |rows: f32| {
+        ui.available_height() >= snapshot.gpus.len() as f32 * (rows * (ROW_HEIGHT + 3.0) + 4.0)
+    };
+    let vram_row = rows_fit(3.0);
+    if !vram_row && !rows_fit(2.0) {
+        for gpu in &snapshot.gpus {
+            compact_gpu_row(ui, gpu);
+        }
         return;
     }
     let per_gpu = (ui.available_height() / snapshot.gpus.len() as f32).max(ROW_HEIGHT * 2.0);
@@ -422,8 +463,22 @@ fn gpus(ui: &mut Ui, state: &GuiState) {
             }
         });
         let util = gpu.utilization_percent.unwrap_or(0.0);
-        labeled_meter(ui, "util", util / 100.0, &format!("{util:>4.0}%"));
-        if let (Some(used), Some(total)) = (gpu.memory_used_bytes, gpu.memory_total_bytes) {
+        let vram = gpu
+            .memory_used_bytes
+            .zip(gpu.memory_total_bytes)
+            .filter(|_| !vram_row)
+            .map_or(String::new(), |(used, total)| {
+                format!(" {}/{}", format::bytes(used), format::bytes(total))
+            });
+        labeled_meter(
+            ui,
+            "util",
+            util / 100.0,
+            &format!(" {}{vram}", format::percent(gpu.utilization_percent)),
+        );
+        if let (Some(used), Some(total), true) =
+            (gpu.memory_used_bytes, gpu.memory_total_bytes, vram_row)
+        {
             let ratio = used as f32 / total.max(1) as f32;
             labeled_meter(
                 ui,

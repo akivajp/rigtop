@@ -9,6 +9,7 @@
 pub mod battery;
 pub mod btrfs;
 pub mod diskstats;
+pub mod drm;
 pub mod hwmon;
 pub mod mdstat;
 pub mod meminfo;

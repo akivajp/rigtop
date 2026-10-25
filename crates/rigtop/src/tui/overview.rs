@@ -309,7 +309,7 @@ fn gpu_lines(snapshot: &Snapshot, width: usize) -> Vec<Line<'static>> {
         .iter()
         .map(|gpu| {
             let util = gpu.utilization_percent.unwrap_or(0.0) as f64;
-            let mut value = format!("{util:>3.0}%");
+            let mut value = format::percent(gpu.utilization_percent);
             if let (Some(used), Some(total)) = (gpu.memory_used_bytes, gpu.memory_total_bytes) {
                 value.push_str(&format!(
                     " {}/{}",

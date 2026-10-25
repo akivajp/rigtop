@@ -627,7 +627,10 @@ fn draw_gpus(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
         }
 
         let mut line2 = vec![dim("util ")];
-        line2.push(colored(format!("{util:>3.0}% "), percent_color(util)));
+        line2.push(colored(
+            format!("{} ", format::percent(gpu.utilization_percent)),
+            percent_color(util),
+        ));
         if let (Some(used), Some(total)) = (gpu.memory_used_bytes, gpu.memory_total_bytes) {
             let ratio = used as f64 / total.max(1) as f64;
             line2.push(dim(" vram "));
