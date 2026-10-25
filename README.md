@@ -45,6 +45,13 @@ Download an archive for your platform from the [Releases](https://github.com/aki
 cargo install rigtop rigtop-gui
 ```
 
+On Arch Linux and derivatives, [`packaging/aur/rigtop/PKGBUILD`](packaging/aur/rigtop/PKGBUILD) builds a package (it will be on the AUR once account registration there reopens):
+
+```sh
+git clone https://github.com/akivajp/rigtop.git
+cd rigtop/packaging/aur/rigtop && makepkg -si
+```
+
 ## Usage
 
 ```sh

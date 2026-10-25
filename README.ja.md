@@ -45,6 +45,13 @@ btop に倣ったシステムモニターです。収集部分を共通にして
 cargo install rigtop rigtop-gui
 ```
 
+Arch Linux とその派生では、[`packaging/aur/rigtop/PKGBUILD`](packaging/aur/rigtop/PKGBUILD) でパッケージを作れます（AUR のアカウント登録が再開したら、AUR にも登録する予定です）。
+
+```sh
+git clone https://github.com/akivajp/rigtop.git
+cd rigtop/packaging/aur/rigtop && makepkg -si
+```
+
 ## 使い方
 
 ```sh
