@@ -45,6 +45,18 @@ btop に倣ったシステムモニターです。収集部分を共通にして
 cargo install rigtop rigtop-gui
 ```
 
+Debian と Ubuntu（22.04 以降）向けには、Releases のページに `.deb` パッケージもあります（`amd64` は GUI とメニュー項目付き、`arm64` は端末 UI のみ）。
+
+```sh
+sudo apt install ./rigtop_*_amd64.deb
+```
+
+Windows では [Scoop](https://scoop.sh) でも入れられます（スタートメニューに rigtop-gui が登録され、`scoop update rigtop` で更新できます）。
+
+```powershell
+scoop install https://raw.githubusercontent.com/akivajp/rigtop/main/packaging/scoop/rigtop.json
+```
+
 Arch Linux とその派生では、[`packaging/aur/rigtop/PKGBUILD`](packaging/aur/rigtop/PKGBUILD) でパッケージを作れます（AUR のアカウント登録が再開したら、AUR にも登録する予定です）。
 
 ```sh

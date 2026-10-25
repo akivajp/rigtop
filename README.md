@@ -45,6 +45,18 @@ Download an archive for your platform from the [Releases](https://github.com/aki
 cargo install rigtop rigtop-gui
 ```
 
+On Debian and Ubuntu (22.04 or newer), the Releases page also has `.deb` packages (`amd64` with the GUI and a menu entry, `arm64` with the terminal UI):
+
+```sh
+sudo apt install ./rigtop_*_amd64.deb
+```
+
+On Windows with [Scoop](https://scoop.sh), which also adds rigtop-gui to the Start menu (`scoop update rigtop` updates it):
+
+```powershell
+scoop install https://raw.githubusercontent.com/akivajp/rigtop/main/packaging/scoop/rigtop.json
+```
+
 On Arch Linux and derivatives, [`packaging/aur/rigtop/PKGBUILD`](packaging/aur/rigtop/PKGBUILD) builds a package (it will be on the AUR once account registration there reopens):
 
 ```sh

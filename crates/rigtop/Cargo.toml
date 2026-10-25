@@ -22,3 +22,40 @@ serde_json = "1.0.154"
 
 [dev-dependencies]
 tempfile = "3.27.0"
+
+# Debian package (`cargo deb -p rigtop --no-build` after building both
+# binaries; see .github/workflows/release.yml). The `tui` variant is for
+# targets without the GUI.
+[package.metadata.deb]
+name = "rigtop"
+maintainer = "Akiva Miura <akiva.miura@gmail.com>"
+copyright = "2026, Akiva Miura"
+extended-description = """\
+A btop-inspired system monitor with a terminal UI (rigtop) and a native GUI \
+(rigtop-gui): CPU, every GPU with per-process usage, memory, storage health \
+(SMART, btrfs RAID, mdadm), network and power draw, also of remote hosts \
+over SSH."""
+section = "admin"
+priority = "optional"
+depends = "$auto"
+# The GUI loads its windowing and graphics libraries at run time.
+recommends = "libvulkan1, libxkbcommon0, libwayland-client0 | libx11-6, libxcursor1, libxi6, libxrandr2"
+suggests = "smartmontools, iw, openssh-client"
+assets = [
+    ["target/release/rigtop", "usr/bin/", "755"],
+    ["target/release/rigtop-gui", "usr/bin/", "755"],
+    ["../../packaging/linux/rigtop-gui.desktop", "usr/share/applications/", "644"],
+    ["../../README.md", "usr/share/doc/rigtop/", "644"],
+    ["../../README.ja.md", "usr/share/doc/rigtop/", "644"],
+    ["../../CHANGELOG.md", "usr/share/doc/rigtop/", "644"],
+]
+
+[package.metadata.deb.variants.tui]
+name = "rigtop"
+recommends = ""
+assets = [
+    ["target/release/rigtop", "usr/bin/", "755"],
+    ["../../README.md", "usr/share/doc/rigtop/", "644"],
+    ["../../README.ja.md", "usr/share/doc/rigtop/", "644"],
+    ["../../CHANGELOG.md", "usr/share/doc/rigtop/", "644"],
+]

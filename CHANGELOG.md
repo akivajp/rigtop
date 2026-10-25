@@ -22,6 +22,9 @@ include breaking changes).
   click on a sensor's name) lists every temperature and fan channel with its
   reading, to name it or hide it; saved to `[sensors]` in the configuration
   file with the rest of the file left as it was.
+- Debian packages in the releases (`amd64` with the GUI and a desktop entry,
+  `arm64` with the terminal UI), and a Scoop manifest for Windows
+  (`packaging/scoop/rigtop.json`, adds a Start menu shortcut).
 
 ### Fixed
 - TUI: the CPU model no longer runs into the core grid next to the graph

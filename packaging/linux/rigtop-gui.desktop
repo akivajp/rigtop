@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=rigtop
+GenericName=System Monitor
+Comment=CPU, GPU, memory, storage health and network, also of remote hosts over SSH
+Exec=rigtop-gui
+Icon=utilities-system-monitor
+Terminal=false
+Categories=System;Monitor;
+Keywords=monitor;btop;gpu;smart;raid;

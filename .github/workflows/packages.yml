@@ -1,0 +1,88 @@
+name: Package checks
+
+# Installs the published packages the way users do and runs them, and
+# renders the GUI on Windows. Run by hand, e.g. after a release (the Scoop
+# manifest and the .deb files point at published release assets).
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release whose .deb files to install (default: the latest)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  scoop:
+    name: Scoop (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Scoop
+        shell: pwsh
+        run: |
+          iex "& {$(irm get.scoop.sh)} -RunAsAdmin"
+          Join-Path (Resolve-Path ~).Path "scoop\shims" >> $env:GITHUB_PATH
+      - name: Install rigtop from the manifest
+        shell: pwsh
+        run: scoop install packaging/scoop/rigtop.json
+      - name: Run it
+        shell: pwsh
+        run: |
+          rigtop --version
+          $json = rigtop --dump-json | ConvertFrom-Json
+          "host: $($json.host.os), $($json.cpu.per_core_percent.Count) cores, $($json.processes.Count) processes"
+          if (-not (Get-Command rigtop-gui -ErrorAction SilentlyContinue)) { throw "rigtop-gui is not on the PATH" }
+          Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Scoop Apps" -Filter "rigtop*"
+
+  deb:
+    name: .deb (${{ matrix.image }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { image: "ubuntu:22.04", runner: ubuntu-latest, arch: amd64 }
+          - { image: "debian:12", runner: ubuntu-latest, arch: amd64 }
+          - { image: "ubuntu:24.04", runner: ubuntu-24.04-arm, arch: arm64 }
+    steps:
+      - name: Download the package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download ${{ inputs.tag }} --repo "$GITHUB_REPOSITORY" --pattern "*_${{ matrix.arch }}.deb" --dir pkg
+      - name: Install and run it
+        run: |
+          docker run --rm -v "$PWD/pkg:/pkg:ro" ${{ matrix.image }} bash -euc '
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update -qq
+            apt-get install -y -qq /pkg/*.deb > /dev/null
+            dpkg -s rigtop | grep -E "^(Version|Depends|Recommends):"
+            rigtop --version
+            rigtop --dump-json | head -c 300; echo
+            if [ -x /usr/bin/rigtop-gui ]; then rigtop-gui --help | head -n 3; fi
+          '
+
+  windows-gui:
+    name: GUI screenshot (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Render the GUI with this machine's data
+        shell: bash
+        env:
+          RIGTOP_GUI_SCREENSHOT: ${{ github.workspace }}/windows-gui.png
+          RIGTOP_GUI_SAMPLES: "40"
+          RIGTOP_GUI_SIZE: 1400x900
+        run: cargo test -p rigtop-gui -- --ignored screenshot
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-gui-screenshot
+          path: windows-gui.png
+          retention-days: 14
