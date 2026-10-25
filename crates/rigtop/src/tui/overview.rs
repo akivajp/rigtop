@@ -382,6 +382,8 @@ fn process_lines(snapshot: &Snapshot, limit: usize) -> Vec<Line<'static>> {
             ),
         ]));
     }
+    // Blank lines up to the limit, so the sections below stay in place.
+    lines.resize(limit + 1, Line::default());
     lines
 }
 

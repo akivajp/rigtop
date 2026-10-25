@@ -59,8 +59,12 @@ impl Snapshot {
     /// Keeps only the `limit` processes with the highest CPU usage.
     ///
     /// Used to reduce the payload when a host is shown in an overview rather
-    /// than in detail. `process_count` keeps the original total.
+    /// than in detail. Kernel threads are dropped first: the overview does not
+    /// show them, and busy `kworker`s would otherwise take places in the top
+    /// `limit` and leave the list short. `process_count` keeps the original
+    /// total.
     pub fn truncate_processes(&mut self, limit: usize) {
+        self.processes.retain(|p| !p.kernel_thread);
         if self.processes.len() <= limit {
             return;
         }
@@ -690,6 +694,29 @@ mod tests {
         assert_eq!(pids, vec![2, 4]);
         // The total is preserved for display ("2 of 4 processes").
         assert_eq!(snapshot.process_count, 4);
+    }
+
+    #[test]
+    fn truncate_leaves_out_kernel_threads() {
+        let kworker = |pid: u32, cpu: f32| ProcessInfo {
+            kernel_thread: true,
+            ..process(pid, cpu)
+        };
+        let mut snapshot = Snapshot {
+            processes: vec![
+                kworker(1, 9.0),
+                process(2, 5.0),
+                kworker(3, 8.0),
+                process(4, 1.0),
+                process(5, 0.0),
+            ],
+            process_count: 5,
+            ..Default::default()
+        };
+        snapshot.truncate_processes(3);
+        let pids: Vec<u32> = snapshot.processes.iter().map(|p| p.pid).collect();
+        assert_eq!(pids, vec![2, 4, 5], "busy kworkers take no places");
+        assert_eq!(snapshot.process_count, 5);
     }
 
     #[test]

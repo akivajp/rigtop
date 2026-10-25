@@ -279,8 +279,9 @@ fn section_rows(section: OverviewSection, snapshot: &Snapshot, processes: usize)
     match section {
         OverviewSection::Cpu => 2,
         OverviewSection::Gpu => snapshot.gpus.len(),
-        OverviewSection::Memory => 1 + usize::from(snapshot.memory.swap_used_bytes > 0),
-        OverviewSection::Processes => 1 + processes.min(snapshot.processes.len()),
+        OverviewSection::Memory => 1 + usize::from(snapshot.memory.swap_total_bytes > 0),
+        // Always the full height, so the sections below stay in place.
+        OverviewSection::Processes => 1 + processes,
         OverviewSection::Network => 1,
         OverviewSection::Storage => snapshot.filesystems.len().min(3) + 1,
     }
@@ -504,7 +505,9 @@ fn memory_section(ui: &mut Ui, snapshot: &Snapshot) {
             ratio * 100.0
         )),
     );
-    if memory.swap_total_bytes > 0 && memory.swap_used_bytes > 0 {
+    // Shown whenever there is swap (not only when used), so the card does
+    // not change height as swap usage comes and goes.
+    if memory.swap_total_bytes > 0 {
         let swap = memory.swap_used_bytes as f32 / memory.swap_total_bytes as f32;
         meter_row(
             ui,
@@ -516,7 +519,8 @@ fn memory_section(ui: &mut Ui, snapshot: &Snapshot) {
 }
 
 /// The top `limit` processes by CPU (fewer if the card is short), leaving
-/// the rest of the card to the following sections.
+/// the rest of the card to the following sections. The rows are reserved
+/// even when there are fewer processes, so later sections do not jump.
 fn process_section(ui: &mut Ui, snapshot: &Snapshot, limit: usize) {
     let mut processes: Vec<_> = snapshot
         .processes
@@ -561,6 +565,11 @@ fn process_section(ui: &mut Ui, snapshot: &Snapshot, limit: usize) {
                     },
                     widgets::GPU_TITLE,
                 ));
+                ui.end_row();
+            }
+            // Blank rows up to the reserved height.
+            for _ in processes.len().min(rows)..rows {
+                ui.label(" ");
                 ui.end_row();
             }
         });

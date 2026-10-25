@@ -7,6 +7,14 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Fixed
+
+- Overview: Linux hosts listed fewer processes than configured, because
+  busy kernel threads took places in the top list the agent sends and
+  were then hidden; the agent now leaves them out
+- Overview: the process list (and the GUI's swap row) keeps its height
+  when there are fewer entries, so the sections below no longer jump
+
 ## [0.5.0] - 2026-10-25
 
 ### Added
