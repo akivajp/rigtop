@@ -20,6 +20,9 @@ pub struct HwmonChip {
     pub chip: SensorChip,
     /// Power readings in watts (`power<N>_input`, or `power<N>_average`).
     pub power_w: Vec<(String, f32)>,
+    /// amdgpu of an APU (integrated graphics): only APUs have the `vddnb`
+    /// voltage rail. Discrete GPUs report their board power instead.
+    pub is_apu: bool,
 }
 
 /// Reads all hwmon chips, in `hwmonN` order.
@@ -84,6 +87,8 @@ fn read_chip(dir: &Path, entry: &str) -> Option<HwmonChip> {
         })
         .collect();
 
+    let is_apu = name == "amdgpu"
+        && read_trimmed(&dir.join("in1_label")).is_some_and(|label| label == "vddnb");
     Some(HwmonChip {
         chip: SensorChip {
             key,
@@ -92,6 +97,7 @@ fn read_chip(dir: &Path, entry: &str) -> Option<HwmonChip> {
             fans,
         },
         power_w,
+        is_apu,
     })
 }
 
@@ -172,6 +178,11 @@ mod tests {
         write(root, "sys/class/hwmon/hwmon2/name", "amdgpu\n");
         write(root, "sys/class/hwmon/hwmon2/power1_input", "12500000\n");
         write(root, "sys/class/hwmon/hwmon2/power1_label", "PPT\n");
+        write(root, "sys/class/hwmon/hwmon2/in1_label", "vddnb\n");
+        // A discrete amdgpu has no vddnb rail.
+        write(root, "sys/class/hwmon/hwmon7/name", "amdgpu\n");
+        write(root, "sys/class/hwmon/hwmon7/power1_input", "80000000\n");
+        write(root, "sys/class/hwmon/hwmon7/in0_label", "vddgfx\n");
 
         // A chip without any supported channel must be skipped.
         write(root, "sys/class/hwmon/hwmon3/name", "hid_battery\n");
@@ -184,12 +195,15 @@ mod tests {
             vec![
                 "amdgpu:hwmon2",
                 "k10temp:0000:00:18.3",
+                "amdgpu:hwmon7",
                 "nct6686:nct6683.2592"
             ]
         );
 
         let amdgpu = &chips[0];
         assert_eq!(amdgpu.power_w, vec![("PPT".to_owned(), 12.5)]);
+        assert!(amdgpu.is_apu);
+        assert!(!chips[2].is_apu, "discrete GPU");
 
         let k10 = &chips[1].chip;
         assert!(is_cpu_chip(k10));
@@ -200,7 +214,7 @@ mod tests {
         assert_eq!(k10.temperatures[1].label, "Tccd1");
         assert_eq!(k10.temperatures[1].max_celsius, None);
 
-        let nct = &chips[2].chip;
+        let nct = &chips[3].chip;
         assert_eq!(nct.fans.len(), 2);
         assert_eq!(nct.fans[0].key, "nct6686:nct6683.2592/fan1");
         assert_eq!(nct.fans[0].label, "fan1");

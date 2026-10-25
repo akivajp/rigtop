@@ -1143,6 +1143,26 @@ mod tests {
     }
 
     #[test]
+    fn laptop_shows_soc_power_and_battery() {
+        let mut snapshot = sample_snapshot();
+        snapshot.power.cpu_package_w = None;
+        snapshot.power.igpu_w = Some(6.0);
+        snapshot.power.battery = Some(rigtop_core::snapshot::BatteryStats {
+            percent: Some(72.0),
+            status: "Charging".to_owned(),
+            power_w: Some(20.0),
+        });
+        let mut harness = harness_with(snapshot);
+        harness.run();
+        for label in ["Power SoC", "72% +20W"] {
+            assert!(
+                harness.query_all_by_label_contains(label).next().is_some(),
+                "missing {label:?}"
+            );
+        }
+    }
+
+    #[test]
     fn hints_at_librehardwaremonitor_when_unreachable() {
         let mut snapshot = sample_snapshot();
         snapshot.lhm_error = Some("127.0.0.1:8085: connection refused".to_owned());

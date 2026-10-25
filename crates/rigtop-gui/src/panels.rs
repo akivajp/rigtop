@@ -308,12 +308,18 @@ fn cpu_info(ui: &mut Ui, state: &GuiState, snapshot: &Snapshot) -> bool {
     ui.horizontal_wrapped(|ui| {
         let power = &snapshot.power;
         let watts = |w: Option<f32>| w.map_or("--".to_owned(), |w| format!("{w:.0}W"));
-        ui.label(dim("Power CPU"));
-        ui.label(watts(power.cpu_package_w));
+        // Without RAPL, an AMD APU's SoC power stands in for the CPU.
+        let (cpu_label, cpu_w) = power.cpu_or_soc_w();
+        ui.label(dim(format!("Power {cpu_label}")));
+        ui.label(watts(cpu_w));
         ui.label(dim("GPU"));
         ui.label(watts(power.gpus_w));
         ui.label(dim("Σ"));
         ui.label(colored(watts(power.total_w), TEXT).strong());
+        if let Some(battery) = &power.battery {
+            ui.label(dim("   Bat"));
+            ui.label(battery.summary());
+        }
         let fans: Vec<_> = snapshot
             .sensors
             .iter()

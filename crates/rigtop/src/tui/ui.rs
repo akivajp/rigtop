@@ -502,14 +502,20 @@ fn cpu_info_lines(app: &App, snapshot: &Snapshot) -> Vec<Line<'static>> {
 
     let power = &snapshot.power;
     let watts = |w: Option<f32>| w.map_or("--".to_owned(), |w| format!("{w:.0}W"));
+    // Without RAPL, an AMD APU's SoC power stands in for the CPU.
+    let (cpu_label, cpu_w) = power.cpu_or_soc_w();
     let mut second = vec![
-        dim("Power CPU "),
-        Span::raw(watts(power.cpu_package_w)),
+        dim(format!("Power {cpu_label} ")),
+        Span::raw(watts(cpu_w)),
         dim(" GPU "),
         Span::raw(watts(power.gpus_w)),
         dim(" Σ "),
         colored(watts(power.total_w), Color::White),
     ];
+    if let Some(battery) = &power.battery {
+        second.push(dim("   Bat "));
+        second.push(Span::raw(battery.summary()));
+    }
     let fans: Vec<_> = snapshot
         .sensors
         .iter()
@@ -1426,6 +1432,24 @@ mod tests {
         assert!(screen.contains("DEGRADED"), "{screen}");
         // All 32 cores fit in the grid.
         assert!(screen.contains("C31"), "{screen}");
+    }
+
+    #[test]
+    fn laptop_shows_soc_power_and_battery() {
+        let mut app = App::new(Config::default(), Duration::from_secs(1));
+        let mut snapshot = sample_snapshot();
+        // RAPL unreadable (root only), an AMD APU and a battery.
+        snapshot.power.cpu_package_w = None;
+        snapshot.power.igpu_w = Some(6.0);
+        snapshot.power.battery = Some(rigtop_core::snapshot::BatteryStats {
+            percent: Some(72.0),
+            status: "Discharging".to_owned(),
+            power_w: Some(12.3),
+        });
+        app.apply(Event::Snapshot(Box::new(snapshot)));
+        let screen = render(&mut app, 160, 50);
+        assert!(screen.contains("Power SoC 6W"), "{screen}");
+        assert!(screen.contains("Bat 72% -12W"), "{screen}");
     }
 
     #[test]

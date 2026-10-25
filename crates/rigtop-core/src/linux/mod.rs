@@ -6,6 +6,7 @@
 //! Every reader takes its root directories from [`SysRoots`] instead of
 //! hard-coding `/sys` and `/proc`, so tests can point them at a fixture tree.
 
+pub mod battery;
 pub mod btrfs;
 pub mod diskstats;
 pub mod hwmon;

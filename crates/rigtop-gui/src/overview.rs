@@ -441,6 +441,10 @@ fn cpu_section(ui: &mut Ui, host: &HostEntry, snapshot: &Snapshot, graph_height:
             ui.label(dim(" Σ"));
             ui.label(format!("{total:.0}W"));
         }
+        if let Some(battery) = &power.battery {
+            ui.label(dim(" bat"));
+            ui.label(battery.summary());
+        }
         if let Some(load) = cpu.load_average {
             ui.label(dim(format!(" load {:.2}", load[0])));
         }

@@ -7,8 +7,17 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Added
+
+- Laptops (Linux): battery charge and charge/discharge power in the Power
+  line (`Bat 72% -12W`) and on overview cards; batteries of mice and
+  keyboards are left out
+- AMD APUs (Linux): without readable RAPL, the APU's SoC power (amdgpu
+  `PPT`) is shown as `SoC` and counted in the total
+
 ### Changed
 
+- Discrete AMD GPUs' power is no longer reported as integrated GPU power
 - Linux: collecting processes no longer refreshes every thread, which cut
   the agent's CPU use to about a quarter on a desktop with thousands of
   browser threads; thread counts now come from `/proc/<pid>/stat`

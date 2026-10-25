@@ -290,6 +290,10 @@ fn cpu_lines(host: &HostTui, snapshot: &Snapshot, width: usize) -> Vec<Line<'sta
         info.push(dim("Σ "));
         info.push(Span::raw(format!("{total:.0}W ")));
     }
+    if let Some(battery) = &snapshot.power.battery {
+        info.push(dim("bat "));
+        info.push(Span::raw(format!("{} ", battery.summary())));
+    }
     if let Some(load) = cpu.load_average {
         info.push(dim(format!("load {:.2}", load[0])));
     }

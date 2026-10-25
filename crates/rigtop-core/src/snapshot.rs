@@ -231,11 +231,64 @@ pub struct PowerStats {
     pub cpu_package_w: Option<f32>,
     /// Sum of power reported by discrete GPUs.
     pub gpus_w: Option<f32>,
-    /// Integrated GPU power (e.g. amdgpu PPT). Reported separately and *not*
-    /// added to the total, because it may already be part of the CPU package.
+    /// Power an AMD APU's graphics driver reports (amdgpu `PPT`). Per the
+    /// kernel documentation it covers the whole SoC, CPU cores included, so
+    /// it overlaps the CPU package and only stands in for it when RAPL cannot
+    /// be read (see [`PowerStats::cpu_or_soc_w`]).
     pub igpu_w: Option<f32>,
-    /// `cpu_package_w + gpus_w`, counting only the parts that are available.
+    /// `cpu_package_w` (or `igpu_w` without it) `+ gpus_w`, counting only the
+    /// parts that are available.
     pub total_w: Option<f32>,
+    /// Laptop battery, if there is one.
+    pub battery: Option<BatteryStats>,
+}
+
+/// Below this, an APU reading is not whole-SoC power: desktop Ryzen CPUs
+/// with a small iGPU report only a few milliwatts there, while a laptop
+/// APU's SoC never idles under a watt.
+const MIN_SOC_W: f32 = 1.0;
+
+impl PowerStats {
+    /// The CPU figure to show: `("CPU", RAPL)`, else `("SoC", APU PPT)`.
+    pub fn cpu_or_soc_w(&self) -> (&'static str, Option<f32>) {
+        match (self.cpu_package_w, self.igpu_w) {
+            (Some(w), _) => ("CPU", Some(w)),
+            (None, Some(w)) if w >= MIN_SOC_W => ("SoC", Some(w)),
+            _ => ("CPU", None),
+        }
+    }
+}
+
+/// Charge and power of the system's batteries (summed when there are
+/// several), from `/sys/class/power_supply` on Linux.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BatteryStats {
+    /// Charge in percent.
+    pub percent: Option<f32>,
+    /// Kernel status: `Charging`, `Discharging`, `Full`, `Not charging`...
+    pub status: String,
+    /// Charge or discharge power (not signed; see `status`).
+    pub power_w: Option<f32>,
+}
+
+impl BatteryStats {
+    /// Short form for status lines: `72% -12W` while discharging, `+20W`
+    /// while charging.
+    pub fn summary(&self) -> String {
+        let percent = self
+            .percent
+            .map_or("--%".to_owned(), |p| format!("{p:.0}%"));
+        let sign = match self.status.as_str() {
+            "Discharging" => "-",
+            "Charging" => "+",
+            _ => return percent,
+        };
+        match self.power_w {
+            Some(w) if w >= 0.5 => format!("{percent} {sign}{w:.0}W"),
+            _ => percent,
+        }
+    }
 }
 
 /// I/O activity of a block device.
@@ -601,6 +654,23 @@ mod tests {
             cpu_percent: cpu,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn cpu_power_falls_back_to_a_laptop_apu_only() {
+        let power = |cpu: Option<f32>, igpu: Option<f32>| PowerStats {
+            cpu_package_w: cpu,
+            igpu_w: igpu,
+            ..Default::default()
+        };
+        assert_eq!(
+            power(Some(30.0), Some(6.0)).cpu_or_soc_w(),
+            ("CPU", Some(30.0))
+        );
+        assert_eq!(power(None, Some(6.0)).cpu_or_soc_w(), ("SoC", Some(6.0)));
+        // A desktop Ryzen iGPU's few milliwatts are not the SoC.
+        assert_eq!(power(None, Some(0.007)).cpu_or_soc_w(), ("CPU", None));
+        assert_eq!(power(None, None).cpu_or_soc_w(), ("CPU", None));
     }
 
     #[test]

@@ -204,7 +204,7 @@ impl LocalSource {
         self.collect_portable(&mut snapshot, elapsed);
 
         let power = &mut snapshot.power;
-        power.total_w = sum_present([power.cpu_package_w, power.gpus_w]);
+        power.total_w = sum_present([power.cpu_or_soc_w().1, power.gpus_w]);
         snapshot
     }
 
@@ -248,14 +248,15 @@ impl LocalSource {
             .collect();
         snapshot.memory.cached_bytes = linux::meminfo::read_cached_bytes(&self.roots);
         snapshot.power.cpu_package_w = self.rapl.sample(&self.roots, now);
-        // amdgpu power is treated as the integrated GPU (Ryzen iGPU).
-        // Discrete AMD GPUs are not distinguished yet.
+        // The APU's amdgpu power covers the whole SoC (see PowerStats).
+        // Discrete AMD GPUs are not reported yet.
         snapshot.power.igpu_w = sum_present(
             chips
                 .iter()
-                .filter(|c| c.chip.name == "amdgpu")
+                .filter(|c| c.is_apu)
                 .flat_map(|c| c.power_w.iter().map(|(_, w)| Some(*w))),
         );
+        snapshot.power.battery = linux::battery::read_battery(&self.roots);
 
         let mut disks = self.diskstats.sample(&self.roots, now);
         for disk in &mut disks {
@@ -407,6 +408,7 @@ mod tests {
                 fans: Vec::new(),
             },
             power_w: Vec::new(),
+            is_apu: false,
         };
         let chips = vec![chip("nvme:nvme1", 40.0), chip("nvme:nvme10", 50.0)];
         assert_eq!(nvme_temperature(&chips, "nvme10n1"), Some(50.0));
