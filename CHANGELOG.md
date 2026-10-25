@@ -7,6 +7,11 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Changed
+
+- Remote hosts: when `rigtop` is not on the `PATH` of the SSH session,
+  the default agent command falls back to `~/.cargo/bin/rigtop --agent`
+
 ## [0.4.0] - 2026-10-25
 
 ### Added

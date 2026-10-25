@@ -106,7 +106,7 @@ With more than one host, rigtop opens on an **overview** with one card per host,
 rigtop starts `rigtop --agent` on each remote host through your system's `ssh` (the built-in OpenSSH client on Windows), so `~/.ssh/config`, keys and `ProxyJump` work as usual. There is no daemon to run and no port to open; the agent exits when the connection closes, and rigtop reconnects by itself. Hosts not shown in detail only send their top processes.
 
 - Authentication must work without a prompt (key or agent), and the host key must already be known: connect once with `ssh <host>` first.
-- If `rigtop` is not on the `PATH` of non-interactive SSH sessions, set `command` for the host (or `--remote-command` for `--host`), e.g. `~/.cargo/bin/rigtop --agent`.
+- Non-interactive SSH sessions often lack `~/.cargo/bin` on their `PATH` (zsh reads only `~/.zshenv` for them, bash usually nothing). When `rigtop` is not found there, rigtop tries `~/.cargo/bin/rigtop --agent` by itself. For other locations, set `command` for the host (or `--remote-command` for `--host`).
 - Killing processes on a remote host uses the SSH user's permissions.
 
 ## Windows

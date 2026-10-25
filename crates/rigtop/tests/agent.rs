@@ -13,7 +13,29 @@ fn agent_source() -> RemoteSource {
         name: "local-agent".to_owned(),
         program: env!("CARGO_BIN_EXE_rigtop").to_owned(),
         args: vec!["--agent".to_owned()],
+        fallback_args: None,
     })
+}
+
+/// rigtop missing from the PATH: the agent starts through the fallback
+/// command, as `~/.cargo/bin/rigtop --agent` would.
+#[cfg(unix)]
+#[test]
+fn falls_back_when_the_command_is_not_found() {
+    let mut source = RemoteSource::new(RemoteTarget {
+        name: "no-path".to_owned(),
+        program: "sh".to_owned(),
+        args: vec![
+            "-c".to_owned(),
+            "echo 'sh: 1: rigtop: not found' >&2; exit 127".to_owned(),
+        ],
+        fallback_args: Some(vec![
+            "-c".to_owned(),
+            format!("exec '{}' --agent", env!("CARGO_BIN_EXE_rigtop")),
+        ]),
+    });
+    let snapshot = source.poll().expect("snapshot through the fallback");
+    assert!(!snapshot.host.hostname.is_empty());
 }
 
 #[test]
