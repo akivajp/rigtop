@@ -7,6 +7,8 @@ include breaking changes).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-25
+
 ### Added
 
 - Laptops (Linux): battery charge and charge/discharge power in the Power
@@ -110,7 +112,8 @@ First release.
 - Windows support (CPU, memory, processes, network with link speeds, drives,
   NVIDIA GPUs; temperatures, fans and CPU power are not available yet)
 
-[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/akivajp/rigtop/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/akivajp/rigtop/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/akivajp/rigtop/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/akivajp/rigtop/compare/v0.1.0...v0.2.0
