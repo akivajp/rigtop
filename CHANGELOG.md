@@ -25,6 +25,10 @@ include breaking changes).
 - Debian packages in the releases (`amd64` with the GUI and a desktop entry,
   `arm64` with the terminal UI), and a Scoop manifest for Windows
   (`packaging/scoop/rigtop.json`, adds a Start menu shortcut).
+- `--demo` (TUI and GUI): made-up data for three hosts (a workstation
+  training on two GPUs, a laptop on battery, a NAS with alerts) to try the
+  interface; every poll is a second of made-up time, so a short
+  `--interval-ms` fast-forwards. The README screenshots use it.
 
 ### Fixed
 - TUI: the CPU model no longer runs into the core grid next to the graph

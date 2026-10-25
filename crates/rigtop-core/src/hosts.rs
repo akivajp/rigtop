@@ -2,6 +2,7 @@
 //! configuration and the command line.
 
 use crate::config::{Config, HostConfig, OverviewSection};
+use crate::demo::DemoHost;
 use crate::remote::{DEFAULT_REMOTE_COMMAND, RemoteTarget};
 
 /// Name of the entry for the machine rigtop runs on.
@@ -14,6 +15,8 @@ pub enum HostKind {
     Local,
     /// A remote host reached through SSH.
     Remote(RemoteTarget),
+    /// A made-up host (`--demo`).
+    Demo(DemoHost),
 }
 
 /// One monitored host.

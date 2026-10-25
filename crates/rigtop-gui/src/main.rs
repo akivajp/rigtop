@@ -53,6 +53,11 @@ struct Cli {
     #[arg(long, value_name = "COMMAND")]
     remote_command: Option<String>,
 
+    /// Show made-up data for three hosts instead of this machine and the
+    /// configured hosts (to try the interface, or for screenshots).
+    #[arg(long)]
+    demo: bool,
+
     /// Show a sample desktop notification at startup, to check that alert
     /// notifications reach the desktop.
     #[arg(long)]
@@ -114,6 +119,7 @@ fn run() -> Result<()> {
                 interval,
                 &cli.hosts,
                 cli.remote_command.as_deref(),
+                cli.demo,
             )))
         }),
     )

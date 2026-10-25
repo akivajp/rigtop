@@ -62,6 +62,11 @@ struct Cli {
     #[arg(long, conflicts_with = "dump_json")]
     agent: bool,
 
+    /// Show made-up data for three hosts instead of this machine and the
+    /// configured hosts (to try the interface, or for screenshots).
+    #[arg(long, conflicts_with_all = ["agent", "dump_json", "hosts"])]
+    demo: bool,
+
     /// Linux, as root: install and start the systemd timer that collects
     /// SMART data and btrfs scrub results for rigtop every 10 minutes
     /// (smartctl needs root). Use the full path with sudo, e.g.
@@ -109,7 +114,11 @@ fn main() -> Result<()> {
         let stdin = io::BufReader::new(io::stdin());
         return run_agent(source, interval, stdin, io::stdout().lock()).context("agent failed");
     }
-    let specs = host_specs(&config, &cli.hosts, cli.remote_command.as_deref());
+    let specs = if cli.demo {
+        rigtop_core::demo::host_specs(&config)
+    } else {
+        host_specs(&config, &cli.hosts, cli.remote_command.as_deref())
+    };
     tui::run(config, interval, specs)
 }
 

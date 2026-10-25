@@ -16,6 +16,7 @@ use ratatui::crossterm::event::{
 };
 use ratatui::crossterm::execute;
 use ratatui::layout::{Constraint, Layout, Position, Rect};
+use rigtop_core::demo::DemoSource;
 use rigtop_core::hosts::{HostKind, HostSpec};
 use rigtop_core::remote::RemoteSource;
 use rigtop_core::widget::{Widget, start_widgets};
@@ -51,6 +52,7 @@ pub fn run(config: Config, interval: Duration, specs: Vec<HostSpec>) -> Result<(
                     match kind {
                         HostKind::Remote(target) => Box::new(RemoteSource::new(target)),
                         HostKind::Local => Box::new(LocalSource::with_config(&source_config)),
+                        HostKind::Demo(host) => Box::new(DemoSource::new(host)),
                     }
                 },
                 interval,

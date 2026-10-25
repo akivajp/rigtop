@@ -71,6 +71,8 @@ cargo run --release -p rigtop            # terminal UI
 cargo run --release -p rigtop -- --help  # options (--interval-ms, --config, --dump-json)
 ```
 
+`--demo` (TUI and GUI) shows made-up data for three hosts instead, to try the interface; the screenshots here use it.
+
 | Key | Action |
 |---|---|
 | `↑` `↓` `PgUp` `PgDn` `Home` `End` | select a process |
@@ -155,7 +157,7 @@ In the GUI, **hosts…** (in the tab bar, or in the CPU panel title while only t
 
 With more than one host, rigtop opens on an **overview** with one card per host, plus a tab per host (this machine included) for the full detail view. Cards show alerts (storage errors, failing SMART, degraded RAID, nearly full filesystems, hot CPUs, GPUs and drives) and then CPU, GPU, memory, the top processes, network and storage, in that order and as far as the card has room. Change the default order with `[overview] sections`, per host with `sections`, or in the GUI with each card's "sections" menu. Whether this machine gets a card is `[overview] include_local` (or the checkbox in the GUI, `l` in the TUI). In the TUI, `Tab` and `0`-`9` switch between the overview and the hosts.
 
-![rigtop-gui on Windows showing an overview of three hosts: the Windows machine itself, a Linux workstation with two GPUs and btrfs RAID, and a Linux laptop with its battery (process lists blurred)](docs/images/rigtop-gui-overview.png)
+![rigtop-gui showing an overview of three hosts: a workstation training on two GPUs, a laptop on battery, and a NAS flagged red for a drive with reallocated sectors, with a RAID resync and a nearly full filesystem; a clock and Claude Code widget on the right](docs/images/rigtop-gui-overview.png)
 
 rigtop starts `rigtop --agent` on each remote host through your system's `ssh` (the built-in OpenSSH client on Windows), so `~/.ssh/config`, keys and `ProxyJump` work as usual. There is no daemon to run and no port to open; the agent exits when the connection closes, and rigtop reconnects by itself. Hosts not shown in detail only send their top processes.
 

@@ -7,11 +7,13 @@
 //! - [`system`], [`gpu`], [`smart`], `linux`: the individual collectors.
 //! - [`agent`], [`remote`]: remote monitoring over SSH (`rigtop --agent` and
 //!   the [`remote::RemoteSource`] that talks to it).
+//! - [`demo`]: made-up hosts for trying the interface (`--demo`).
 //! - [`worker`], [`view`], [`format`]: front-end helpers shared by the TUI
 //!   and the GUI (background polling thread, process table logic, units).
 
 pub mod agent;
 pub mod config;
+pub mod demo;
 pub mod format;
 pub mod gpu;
 pub mod hosts;

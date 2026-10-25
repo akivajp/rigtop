@@ -9,6 +9,7 @@ use egui::{
 };
 use egui_tiles::{Container, SimplificationOptions, Tile, TileId, Tiles, Tree, UiResponse};
 use rigtop_core::config::{HostConfig, OverviewSection, SensorConfig};
+use rigtop_core::demo::DemoSource;
 use rigtop_core::hosts::{HostKind, HostSpec, host_specs};
 use rigtop_core::remote::RemoteSource;
 use rigtop_core::view::{
@@ -320,6 +321,8 @@ pub struct RigtopApp {
     /// The loaded configuration; `hosts` changes when edited in the GUI.
     config: Config,
     /// Where host changes are saved (`None` if there is no config directory).
+    /// Made-up hosts instead of real ones (`--demo`).
+    demo: bool,
     config_path: Option<PathBuf>,
     /// Hosts given with `--host`, which are not saved.
     cli_hosts: Vec<String>,
@@ -362,6 +365,7 @@ impl RigtopApp {
         interval: Duration,
         extra_hosts: &[String],
         remote_command: Option<&str>,
+        demo: bool,
     ) -> Self {
         let storage = cc.storage;
         let initial_zoom = storage
@@ -378,6 +382,7 @@ impl RigtopApp {
         app.config_path = config_path;
         app.cli_hosts = extra_hosts.to_vec();
         app.remote_command = remote_command.map(str::to_owned);
+        app.demo = demo;
         app.interval = interval;
         app.repaint = Some(cc.egui_ctx.clone());
         app.graph_span = storage
@@ -409,6 +414,7 @@ impl RigtopApp {
             overview_processes: config.overview.processes,
             config,
             config_path: None,
+            demo: false,
             cli_hosts: Vec::new(),
             remote_command: None,
             interval: Duration::from_secs(1),
@@ -436,6 +442,7 @@ impl RigtopApp {
                     match kind {
                         HostKind::Remote(target) => Box::new(RemoteSource::new(target)),
                         HostKind::Local => Box::new(LocalSource::with_config(&source_config)),
+                        HostKind::Demo(host) => Box::new(DemoSource::new(host)),
                     }
                 },
                 self.interval,
@@ -456,11 +463,15 @@ impl RigtopApp {
     /// command line: unchanged hosts keep their collector and history, new
     /// ones are started and removed ones stopped.
     fn update_hosts(&mut self) {
-        let specs = host_specs(
-            &self.config,
-            &self.cli_hosts,
-            self.remote_command.as_deref(),
-        );
+        let specs = if self.demo {
+            rigtop_core::demo::host_specs(&self.config)
+        } else {
+            host_specs(
+                &self.config,
+                &self.cli_hosts,
+                self.remote_command.as_deref(),
+            )
+        };
         let shown = match self.view {
             View::Host(index) => self.hosts.get(index).map(|h| h.spec.name.clone()),
             View::Overview => None,
@@ -1366,9 +1377,10 @@ mod tests {
             {"label":"5h","value":"58% left · 14:30","gauge":0.58,"gauge_style":"level","level":"ok"},
             {"label":"week","value":"22% left · Fri 09:00","gauge":0.22,"gauge_style":"level","level":"warn"},
             {"value":"rigtop","heading":true},
-            {"label":"busy","value":"7a · 2 agents","level":"ok"},
+            {"label":"busy","value":"7a · 1 agent","level":"ok"},
+            {"label":"  agent","value":"Explore: find the config loader"},
             {"label":"idle","value":"06 · waiting on 1 task · 3m","level":"ok"},
-            {"value":"my-obsidian-vault","heading":true},
+            {"value":"website","heading":true},
             {"label":"idle","value":"d8 · your turn · 12m","level":"normal"}
         ]}"#;
         vec![
@@ -1519,7 +1531,8 @@ mod tests {
     /// `RIGTOP_GUI_SIZE` (window size such as `1000x700`; default 1400x900),
     /// `RIGTOP_GUI_HOSTS` (comma-separated names for an overview) and
     /// `RIGTOP_GUI_CLICK` (comma-separated labels clicked in order, e.g.
-    /// `hosts…,add host` to show the hosts window).
+    /// `hosts…,add host` to show the hosts window) and `RIGTOP_GUI_DEMO`
+    /// (made-up data of `--demo`).
     #[test]
     #[ignore]
     fn screenshot_local_machine() {
@@ -1531,16 +1544,46 @@ mod tests {
             .unwrap_or(20);
         // RIGTOP_GUI_HOSTS=local,zefat,nas renders the overview with this
         // machine's data under every name.
-        let names_env = std::env::var("RIGTOP_GUI_HOSTS").unwrap_or_else(|_| "local".to_owned());
+        // RIGTOP_GUI_DEMO=1 uses the made-up hosts of `--demo` instead
+        // (named workstation, laptop, nas; all three by default), sampled
+        // without waiting, and no configuration file.
+        let demo = std::env::var("RIGTOP_GUI_DEMO").is_ok();
+        let default_names = if demo {
+            "workstation,laptop,nas"
+        } else {
+            "local"
+        };
+        let names_env =
+            std::env::var("RIGTOP_GUI_HOSTS").unwrap_or_else(|_| default_names.to_owned());
         let names: Vec<&str> = names_env.split(',').collect();
-        let mut source = LocalSource::new();
-        let mut app = RigtopApp::for_test(Config::load_default().unwrap_or_default(), &names);
-        for _ in 0..samples {
-            std::thread::sleep(Duration::from_millis(300));
-            let snapshot = source.poll().unwrap();
+        let config = if demo {
+            Config::default()
+        } else {
+            Config::load_default().unwrap_or_default()
+        };
+        let mut app = RigtopApp::for_test(config, &names);
+        if demo {
+            use rigtop_core::demo::{DemoHost, DemoSource};
             for host in &mut app.hosts {
-                host.state
-                    .apply(Event::Snapshot(Box::new(snapshot.clone())));
+                let kind = DemoHost::ALL
+                    .into_iter()
+                    .find(|d| d.name() == host.spec.name)
+                    .unwrap_or(DemoHost::Workstation);
+                let mut source = DemoSource::new(kind);
+                for _ in 0..samples {
+                    let snapshot = source.poll().unwrap();
+                    host.state.apply(Event::Snapshot(Box::new(snapshot)));
+                }
+            }
+        } else {
+            let mut source = LocalSource::new();
+            for _ in 0..samples {
+                std::thread::sleep(Duration::from_millis(300));
+                let snapshot = source.poll().unwrap();
+                for host in &mut app.hosts {
+                    host.state
+                        .apply(Event::Snapshot(Box::new(snapshot.clone())));
+                }
             }
         }
         if std::env::var("RIGTOP_GUI_WIDGETS").is_ok() {
