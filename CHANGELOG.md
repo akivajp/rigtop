@@ -7,6 +7,8 @@ include breaking changes).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-26
+
 ### Added
 
 - Widgets: a column on the right (GUI and TUI, in the overview and host
@@ -176,7 +178,8 @@ First release.
 - Windows support (CPU, memory, processes, network with link speeds, drives,
   NVIDIA GPUs; temperatures, fans and CPU power are not available yet)
 
-[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/akivajp/rigtop/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/akivajp/rigtop/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/akivajp/rigtop/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/akivajp/rigtop/compare/v0.5.1...v0.6.0
