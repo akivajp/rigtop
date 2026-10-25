@@ -7,6 +7,8 @@ include breaking changes).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-26
+
 ### Added
 
 - Linux: AMD and Intel GPUs in the GPU panel and on overview cards (usage,
@@ -138,7 +140,8 @@ First release.
 - Windows support (CPU, memory, processes, network with link speeds, drives,
   NVIDIA GPUs; temperatures, fans and CPU power are not available yet)
 
-[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/akivajp/rigtop/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/akivajp/rigtop/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/akivajp/rigtop/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/akivajp/rigtop/compare/v0.3.0...v0.4.0
