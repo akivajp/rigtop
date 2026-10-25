@@ -1,0 +1,183 @@
+#!/usr/bin/env python3
+"""rigtop widget: running Claude Code sessions, their active subagents and
+the subscription usage limits (5-hour and weekly windows).
+
+Prints the JSON rows rigtop's [[widgets]] understand. Uses only the Python
+standard library. Sources, from most to least stable:
+
+- sessions: `claude agents --json` (documented); falls back to
+  ~/.claude/sessions/*.json (undocumented) when `claude` is not on the PATH
+- subagents: ~/.claude/projects/<project>/<session>/subagents/ (the path is
+  documented, the file contents are not); a subagent counts as active while
+  its transcript changed in the last ACTIVE_SECS seconds
+- usage limits: the `rate_limits` Claude Code passes to the status line,
+  saved by the companion `statusline-save-limits` (see README.md)
+
+Claude Code's files are internal and may change between versions; this
+script degrades to fewer rows instead of failing.
+"""
+
+import glob
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+from datetime import datetime
+
+HOME = os.path.expanduser("~")
+CLAUDE_DIR = os.environ.get("CLAUDE_CONFIG_DIR", os.path.join(HOME, ".claude"))
+CACHE_DIR = os.environ.get("XDG_CACHE_HOME", os.path.join(HOME, ".cache"))
+LIMITS_FILE = os.path.join(CACHE_DIR, "rigtop", "claude-rate-limits.json")
+# A subagent whose transcript changed this recently is shown as active.
+ACTIVE_SECS = int(os.environ.get("RIGTOP_CLAUDE_ACTIVE_SECS", "120"))
+# Usage data older than this is marked as such (it updates only while a
+# session talks to the API).
+STALE_LIMITS_SECS = 15 * 60
+
+WINDOWS = (("five_hour", "5h"), ("seven_day", "week"))
+STATUS_LEVELS = {"busy": "ok", "waiting": "warn", "idle": "dim"}
+
+
+def row(value="", label="", **extra):
+    return {"label": label, "value": value, **extra}
+
+
+def find_claude():
+    found = shutil.which("claude")
+    if found:
+        return found
+    # Non-interactive shells (e.g. over ssh) often lack ~/.local/bin.
+    local = os.path.join(HOME, ".local", "bin", "claude")
+    return local if os.access(local, os.X_OK) else None
+
+
+def sessions():
+    claude = find_claude()
+    if claude:
+        try:
+            out = subprocess.run(
+                [claude, "agents", "--json"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            data = json.loads(out.stdout)
+            if isinstance(data, list):
+                return data
+        except (OSError, ValueError, subprocess.SubprocessError):
+            pass
+    # Fallback: one file per session, left behind when a process dies.
+    found = []
+    for path in glob.glob(os.path.join(CLAUDE_DIR, "sessions", "*.json")):
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+            os.kill(int(data["pid"]), 0)
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        found.append(data)
+    return found
+
+
+def project_dir(cwd):
+    # Claude Code names project directories after the working directory,
+    # with every non-alphanumeric character replaced by "-".
+    return re.sub(r"[^A-Za-z0-9]", "-", cwd)
+
+
+def active_subagents(session, now):
+    directory = os.path.join(
+        CLAUDE_DIR,
+        "projects",
+        project_dir(session.get("cwd", "")),
+        session.get("sessionId", ""),
+        "subagents",
+    )
+    active = []
+    for meta_path in glob.glob(os.path.join(directory, "*.meta.json")):
+        transcript = meta_path[: -len(".meta.json")] + ".jsonl"
+        try:
+            age = now - os.path.getmtime(transcript)
+            with open(meta_path, encoding="utf-8") as f:
+                meta = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if age <= ACTIVE_SECS:
+            active.append((age, meta.get("agentType", "agent"), meta.get("description", "")))
+    return sorted(active)
+
+
+def reset_text(epoch, now):
+    when = datetime.fromtimestamp(epoch)
+    if when.date() == datetime.fromtimestamp(now).date():
+        return when.strftime("%H:%M")
+    return when.strftime("%a %H:%M")
+
+
+def limit_rows(now):
+    try:
+        with open(LIMITS_FILE, encoding="utf-8") as f:
+            saved = json.load(f)
+        limits = saved["rate_limits"]
+        saved_at = float(saved.get("saved_at", 0))
+    except (OSError, ValueError, KeyError, TypeError):
+        return [row("usage: set up statusline-save-limits", label="limits", level="dim")]
+    rows = []
+    for key, label in WINDOWS:
+        window = limits.get(key)
+        if not isinstance(window, dict):
+            continue
+        try:
+            used = float(window["used_percentage"])
+            resets = float(window["resets_at"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if resets <= now:
+            # The window has rolled over since the data was saved.
+            rows.append(row("reset (no newer data)", label=label, level="dim"))
+            continue
+        level = "bad" if used >= 90 else "warn" if used >= 70 else "ok"
+        rows.append(
+            row(
+                f"{used:.0f}% · resets {reset_text(resets, now)}",
+                label=label,
+                gauge=max(0.0, min(1.0, used / 100)),
+                level=level,
+            )
+        )
+    if rows and now - saved_at > STALE_LIMITS_SECS:
+        rows.append(row(f"as of {reset_text(saved_at, now)}", label="", level="dim"))
+    return rows or [row("usage: no data yet", label="limits", level="dim")]
+
+
+def session_rows(now):
+    found = sessions()
+    if not found:
+        return [row("no running sessions", level="dim")]
+    rows = []
+    for session in sorted(found, key=lambda s: (s.get("cwd", ""), s.get("startedAt", 0))):
+        project = os.path.basename(session.get("cwd", "").rstrip("/\\")) or "?"
+        rows.append(row(project, heading=True))
+        status = session.get("status", "?")
+        detail = session.get("name") or "main"
+        if session.get("waitingFor"):
+            detail = f"{detail} (waiting for {session['waitingFor']})"
+        rows.append(row(detail, label=status, level=STATUS_LEVELS.get(status, "normal")))
+        for age, kind, description in active_subagents(session, now):
+            text = f"{kind}: {description}" if description else kind
+            rows.append(row(text, label="  agent", level="normal" if age < 30 else "dim"))
+    return rows
+
+
+def main():
+    now = time.time()
+    rows = limit_rows(now) + session_rows(now)
+    json.dump({"rows": rows}, sys.stdout, ensure_ascii=False)
+    print()
+
+
+if __name__ == "__main__":
+    main()

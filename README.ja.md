@@ -115,6 +115,8 @@ timeout_secs = 10            # 既定 10
 
 `gauge` は割合（0〜1）でバーとして描き、`level` は `normal`・`dim`・`ok`・`warn`・`bad` のいずれかです。実行に失敗したときは、前回の内容を残したまま、コマンドの stderr の最後の行を表示します。
 
+例: [`contrib/widgets/claude-code/`](contrib/widgets/claude-code/) は、Claude Code の利用枠・稼働中のセッション・サブエージェントを表示します。
+
 ## SSH による遠隔監視
 
 監視される側にも rigtop を入れたうえで、設定ファイルかコマンドラインでホストを指定します。

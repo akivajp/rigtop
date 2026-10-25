@@ -115,6 +115,8 @@ The command prints plain text (one row per line) or JSON rows, every field optio
 
 `gauge` is a fraction drawn as a bar, `level` one of `normal`, `dim`, `ok`, `warn`, `bad`. When a run fails, the widget keeps the last rows and shows the last line of the command's stderr.
 
+Example: [`contrib/widgets/claude-code/`](contrib/widgets/claude-code/) shows Claude Code's usage limits, running sessions and subagents.
+
 ## Remote monitoring over SSH
 
 Install rigtop on the remote hosts too, then list them in the configuration file or on the command line:

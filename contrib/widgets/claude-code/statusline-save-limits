@@ -1,0 +1,69 @@
+#!/usr/bin/env python3
+"""Claude Code status line command that saves the subscription usage limits
+for rigtop's claude-code-widget.
+
+Claude Code runs the status line command with a JSON document on stdin; for
+Pro and Max plans it includes `rate_limits.five_hour` and
+`rate_limits.seven_day` (`used_percentage`, `resets_at`). This script saves
+them to ~/.cache/rigtop/claude-rate-limits.json, then prints a status line:
+the output of the command given as arguments (your existing status line,
+fed the same JSON), or a short default.
+
+    "statusLine": {"type": "command",
+                   "command": "/path/to/statusline-save-limits"}
+"""
+
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import time
+
+HOME = os.path.expanduser("~")
+CACHE_DIR = os.environ.get("XDG_CACHE_HOME", os.path.join(HOME, ".cache"))
+LIMITS_FILE = os.path.join(CACHE_DIR, "rigtop", "claude-rate-limits.json")
+
+
+def save(limits):
+    directory = os.path.dirname(LIMITS_FILE)
+    os.makedirs(directory, exist_ok=True)
+    # Write and rename, so the widget never reads half a file.
+    fd, temp = tempfile.mkstemp(dir=directory, prefix=".limits-")
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump({"saved_at": time.time(), "rate_limits": limits}, f)
+    os.replace(temp, LIMITS_FILE)
+
+
+def default_line(data):
+    model = (data.get("model") or {}).get("display_name", "Claude")
+    parts = [model]
+    for key, label in (("five_hour", "5h"), ("seven_day", "week")):
+        window = (data.get("rate_limits") or {}).get(key)
+        if isinstance(window, dict) and "used_percentage" in window:
+            parts.append(f"{label} {float(window['used_percentage']):.0f}%")
+    return " · ".join(parts)
+
+
+def main():
+    raw = sys.stdin.read()
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        data = {}
+    limits = data.get("rate_limits")
+    if isinstance(limits, dict) and limits:
+        try:
+            save(limits)
+        except OSError:
+            pass
+    if len(sys.argv) > 1:
+        # Chain to the status line command given as arguments.
+        result = subprocess.run(sys.argv[1:], input=raw, capture_output=True, text=True)
+        sys.stdout.write(result.stdout)
+    else:
+        print(default_line(data))
+
+
+if __name__ == "__main__":
+    main()

@@ -13,6 +13,8 @@ include breaking changes).
   views) with a built-in large clock and `[[widgets]]` fed by any command
   that prints text or JSON rows (labels, values, gauges, colors); `w`
   toggles it in the TUI
+- `contrib/widgets/claude-code/`: a widget showing Claude Code's usage
+  limits (5-hour and weekly), running sessions and active subagents
 
 ## [0.7.1] - 2026-10-26
 
