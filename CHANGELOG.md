@@ -7,6 +7,13 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Added
+
+- Widgets: a column on the right (GUI and TUI, in the overview and host
+  views) with a built-in large clock and `[[widgets]]` fed by any command
+  that prints text or JSON rows (labels, values, gauges, colors); `w`
+  toggles it in the TUI
+
 ## [0.7.1] - 2026-10-26
 
 ### Fixed

@@ -15,6 +15,7 @@ mod lhm_setup;
 mod notify;
 mod overview;
 mod panels;
+mod widget_panel;
 mod widgets;
 
 use std::path::PathBuf;

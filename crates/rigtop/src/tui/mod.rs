@@ -4,6 +4,7 @@ mod app;
 mod graph;
 mod overview;
 mod ui;
+mod widget_panel;
 
 use std::io::stdout;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -17,6 +18,7 @@ use ratatui::crossterm::execute;
 use ratatui::layout::{Constraint, Layout, Position, Rect};
 use rigtop_core::hosts::{HostKind, HostSpec};
 use rigtop_core::remote::RemoteSource;
+use rigtop_core::widget::{Widget, start_widgets};
 use rigtop_core::worker::{Command, Worker};
 use rigtop_core::{Config, DataSource, LocalSource};
 
@@ -65,6 +67,8 @@ pub fn run(config: Config, interval: Duration, specs: Vec<HostSpec>) -> Result<(
             }
         })
         .collect();
+    // The TUI redraws every second anyway, which shows new widget content.
+    let widgets = start_widgets(&config.widgets, || {});
     let mut screen = Screen {
         view: if hosts.len() > 1 {
             View::Overview
@@ -75,6 +79,7 @@ pub fn run(config: Config, interval: Duration, specs: Vec<HostSpec>) -> Result<(
         processes: config.overview.processes,
         tabs: Vec::new(),
         quit: false,
+        show_widgets: true,
     };
 
     // ratatui::init installs a panic hook that restores the terminal; mouse
@@ -87,7 +92,7 @@ pub fn run(config: Config, interval: Duration, specs: Vec<HostSpec>) -> Result<(
         previous_hook(info);
     }));
 
-    let result = event_loop(&mut terminal, &mut hosts, &mut screen);
+    let result = event_loop(&mut terminal, &mut hosts, &mut screen, &widgets);
     let _ = execute!(stdout(), DisableMouseCapture);
     ratatui::restore();
     result
@@ -103,6 +108,8 @@ struct Screen {
     /// Clickable tab regions from the last frame.
     tabs: Vec<(Rect, View)>,
     quit: bool,
+    /// Whether the widget column is shown (`w`).
+    show_widgets: bool,
 }
 
 impl Screen {
@@ -151,6 +158,7 @@ fn event_loop(
     terminal: &mut ratatui::DefaultTerminal,
     hosts: &mut [HostTui],
     screen: &mut Screen,
+    widgets: &[Widget],
 ) -> Result<()> {
     let multi = hosts.len() > 1;
     let mut dirty = true;
@@ -183,7 +191,7 @@ fn event_loop(
         }
         if dirty {
             terminal.draw(|frame| {
-                let area = frame.area();
+                let area = widget_column(frame, frame.area(), screen, widgets);
                 let body = if multi {
                     let [bar, body] =
                         Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
@@ -208,7 +216,7 @@ fn event_loop(
         if event::poll(INPUT_POLL)? {
             match event::read()? {
                 TermEvent::Key(key) if key.kind != KeyEventKind::Release => {
-                    handle_key(key, hosts, screen, multi);
+                    handle_key(key, hosts, screen, multi, !widgets.is_empty());
                     dirty = true;
                 }
                 TermEvent::Mouse(mouse) => {
@@ -253,7 +261,31 @@ fn event_loop(
 
 /// Routes a key: view switching first (unless the active host is typing a
 /// filter or confirming a signal), then the active host's own keys.
-fn handle_key(key: KeyEvent, hosts: &mut [HostTui], screen: &mut Screen, multi: bool) {
+/// Draws the widget column on the right when there are widgets, they are
+/// not hidden and the terminal is wide enough; returns the rest of `area`.
+fn widget_column(
+    frame: &mut ratatui::Frame,
+    area: Rect,
+    screen: &Screen,
+    widgets: &[Widget],
+) -> Rect {
+    if widgets.is_empty() || !screen.show_widgets || area.width < widget_panel::MIN_TERMINAL_WIDTH {
+        return area;
+    }
+    let [main, side] =
+        Layout::horizontal([Constraint::Fill(1), Constraint::Length(widget_panel::WIDTH)])
+            .areas(area);
+    widget_panel::draw(frame, side, widgets);
+    main
+}
+
+fn handle_key(
+    key: KeyEvent,
+    hosts: &mut [HostTui],
+    screen: &mut Screen,
+    multi: bool,
+    has_widgets: bool,
+) {
     if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
         screen.quit = true;
         return;
@@ -262,6 +294,10 @@ fn handle_key(key: KeyEvent, hosts: &mut [HostTui], screen: &mut Screen, multi: 
         View::Host(i) => hosts[i].app.editing_filter || hosts[i].app.confirm.is_some(),
         View::Overview => false,
     };
+    if has_widgets && !busy && key.code == KeyCode::Char('w') {
+        screen.show_widgets = !screen.show_widgets;
+        return;
+    }
     if multi && !busy && screen.handle_key(key, hosts.len()) {
         return;
     }
@@ -283,6 +319,7 @@ mod tests {
             processes: 10,
             tabs: Vec::new(),
             quit: false,
+            show_widgets: true,
         }
     }
 

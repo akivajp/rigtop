@@ -21,6 +21,7 @@ pub const GPU_TITLE: Color32 = Color32::from_rgb(200, 130, 230);
 pub const STORAGE_TITLE: Color32 = Color32::from_rgb(90, 200, 220);
 pub const NET_TITLE: Color32 = Color32::from_rgb(110, 150, 240);
 pub const PROC_TITLE: Color32 = Color32::from_rgb(240, 150, 90);
+pub const WIDGET_TITLE: Color32 = Color32::from_rgb(225, 140, 185);
 /// Status colors.
 pub const OK: Color32 = Color32::from_rgb(110, 200, 110);
 pub const WARN: Color32 = Color32::from_rgb(230, 200, 70);

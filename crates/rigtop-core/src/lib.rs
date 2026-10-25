@@ -26,6 +26,7 @@ pub mod snapshot;
 pub mod source;
 pub mod system;
 pub mod view;
+pub mod widget;
 #[cfg(windows)]
 mod windows;
 pub mod worker;

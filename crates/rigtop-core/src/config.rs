@@ -41,6 +41,16 @@
 //! ssh = "admin@nas.local"
 //! command = "/usr/local/bin/rigtop --agent"
 //! sections = ["storage", "cpu", "network"]
+//!
+//! [[widgets]]
+//! name = "Clock"
+//! builtin = "clock"
+//!
+//! [[widgets]]
+//! name = "Rates"
+//! command = "~/bin/rates.sh"   # prints text or JSON rows, see `widget`
+//! interval_secs = 60
+//!
 //! ```
 //!
 //! Labels are applied by front-ends rather than by data sources, so that a
@@ -113,6 +123,45 @@ pub struct Config {
     pub notifications: NotificationsConfig,
     /// Remote hosts monitored over SSH (`[[hosts]]` tables).
     pub hosts: Vec<HostConfig>,
+    /// Extra panels beside the monitor (`[[widgets]]` tables).
+    pub widgets: Vec<WidgetConfig>,
+}
+
+/// Widgets drawn by rigtop itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BuiltinWidget {
+    /// The date and a large clock.
+    Clock,
+}
+
+/// One widget: a built-in one, or a command whose output is shown (see
+/// [`crate::widget`] for the output format).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct WidgetConfig {
+    /// Title of the widget.
+    pub name: String,
+    /// Shell command printing the content.
+    pub command: Option<String>,
+    /// Or a built-in widget.
+    pub builtin: Option<BuiltinWidget>,
+    /// Seconds between runs of the command.
+    pub interval_secs: u64,
+    /// Seconds after which a run is killed.
+    pub timeout_secs: u64,
+}
+
+impl Default for WidgetConfig {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            command: None,
+            builtin: None,
+            interval_secs: 5,
+            timeout_secs: 10,
+        }
+    }
 }
 
 /// A block of information on a host card in the overview.
@@ -509,6 +558,15 @@ name = "zefat"
 name = "nas"
 ssh = "admin@nas.local"
 sections = ["storage"]
+
+[[widgets]]
+name = "Clock"
+builtin = "clock"
+
+[[widgets]]
+name = "Rates"
+command = "rates.sh"
+interval_secs = 60
 "#,
         )
         .unwrap();
@@ -520,6 +578,10 @@ sections = ["storage"]
         assert_eq!(config.overview.processes, 10, "default kept");
         assert_eq!(config.hosts.len(), 2);
         assert_eq!(config.hosts[0].destination(), "zefat");
+        assert_eq!(config.widgets[0].builtin, Some(BuiltinWidget::Clock));
+        assert_eq!(config.widgets[1].command.as_deref(), Some("rates.sh"));
+        assert_eq!(config.widgets[1].interval_secs, 60);
+        assert_eq!(config.widgets[1].timeout_secs, 10, "default kept");
         assert_eq!(config.hosts[1].destination(), "admin@nas.local");
         assert_eq!(
             config.hosts[1].sections,

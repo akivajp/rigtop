@@ -87,6 +87,34 @@ When a new alert appears on any host (drive errors, a missing RAID device, faili
 
 With mouse support on, most terminals select text with Shift+drag.
 
+## Widgets
+
+Anything else you want on the same screen can go in a column of widgets on the right, next to the overview and the host views (in the TUI when the terminal is at least 120 columns wide; `w` hides and shows it). A widget is a built-in clock or any command, run every few seconds on the machine that displays it:
+
+```toml
+[[widgets]]
+name = "Clock"
+builtin = "clock"
+
+[[widgets]]
+name = "Rates"
+command = "~/bin/rates.sh"   # run with sh -c (cmd /C on Windows)
+interval_secs = 60           # default 5
+timeout_secs = 10            # default 10
+```
+
+The command prints plain text (one row per line) or JSON rows, every field optional:
+
+```json
+{"rows": [
+  {"label": "5h", "value": "42% · resets 14:30", "gauge": 0.42, "level": "ok"},
+  {"value": "rigtop", "heading": true},
+  {"label": "busy", "value": "2 subagents", "level": "warn"}
+]}
+```
+
+`gauge` is a fraction drawn as a bar, `level` one of `normal`, `dim`, `ok`, `warn`, `bad`. When a run fails, the widget keeps the last rows and shows the last line of the command's stderr.
+
 ## Remote monitoring over SSH
 
 Install rigtop on the remote hosts too, then list them in the configuration file or on the command line:

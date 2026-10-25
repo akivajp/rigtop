@@ -22,6 +22,7 @@ use crate::lhm_setup::{self, LhmSetup};
 use crate::notify::{self, Notifier};
 use crate::overview;
 use crate::panels;
+use crate::widget_panel;
 use crate::widgets::{self, BACKGROUND, BORDER, DIM, TEXT};
 
 /// How long a status message stays visible.
@@ -310,6 +311,8 @@ pub struct RigtopApp {
     pub hosts_dialog: HostsDialog,
     /// Desktop notifications for new alerts.
     notifier: Notifier,
+    /// The widget column (`[[widgets]]`), empty without any.
+    pub(crate) widgets: Vec<rigtop_core::widget::Widget>,
     tree: Tree<Pane>,
     /// Processes per overview card (hosts not shown in detail send only these).
     overview_processes: usize,
@@ -353,6 +356,10 @@ impl RigtopApp {
         app.remote_command = remote_command.map(str::to_owned);
         app.interval = interval;
         app.repaint = Some(cc.egui_ctx.clone());
+        let repaint = cc.egui_ctx.clone();
+        app.widgets = rigtop_core::widget::start_widgets(&app.config.widgets, move || {
+            repaint.request_repaint()
+        });
         app.update_hosts();
         app
     }
@@ -378,6 +385,7 @@ impl RigtopApp {
             repaint: None,
             hosts_dialog: HostsDialog::default(),
             notifier,
+            widgets: Vec::new(),
             tree,
             styled: false,
             initial_zoom,
@@ -594,6 +602,18 @@ impl RigtopApp {
             .fill(BACKGROUND)
             .inner_margin(Margin::same(4))
             .show(ui, |ui| {
+                // Widgets get a column on the right in every view.
+                if !self.widgets.is_empty() {
+                    egui::Panel::right("widget_panel")
+                        .resizable(true)
+                        .default_size(widget_panel::DEFAULT_WIDTH)
+                        .size_range(160.0..=900.0)
+                        .frame(egui::Frame::new().fill(BACKGROUND).inner_margin(Margin {
+                            left: 6,
+                            ..Margin::ZERO
+                        }))
+                        .show(ui, |ui| widget_panel::show(ui, &self.widgets));
+                }
                 if self.hosts.len() > 1 {
                     self.tab_bar(ui, &mut actions);
                 }
@@ -1249,6 +1269,51 @@ mod tests {
         assert!(harness.query_by_label("Set up").is_none());
     }
 
+    /// A clock and a widget with fixed rows, as a command would print.
+    fn sample_widgets() -> Vec<rigtop_core::widget::Widget> {
+        use rigtop_core::widget::{Widget, WidgetSource, parse_output};
+        let rows = r#"{"rows":[
+            {"label":"5h","value":"42% · resets 14:30","gauge":0.42,"level":"ok"},
+            {"label":"week","value":"71% · resets Fri 09:00","gauge":0.71,"level":"warn"},
+            {"value":"rigtop","heading":true},
+            {"label":"busy","value":"main + 2 subagents","level":"warn"},
+            {"value":"my-obsidian-vault","heading":true},
+            {"label":"idle","value":"main","level":"dim"}
+        ]}"#;
+        vec![
+            Widget {
+                name: "Clock".to_owned(),
+                source: WidgetSource::Clock,
+            },
+            Widget {
+                name: "Claude Code".to_owned(),
+                source: WidgetSource::Fixed(parse_output(rows)),
+            },
+        ]
+    }
+
+    #[test]
+    fn widget_column_shows_clock_and_rows() {
+        let mut app = RigtopApp::for_test(Config::default(), &["local", "zefat"]);
+        app.widgets = sample_widgets();
+        let mut harness = Harness::builder()
+            .with_size([1400.0, 900.0])
+            .build_ui_state(|ui, app: &mut RigtopApp| app.show(ui), app);
+        harness.run();
+        for label in [
+            "Clock",
+            "Claude Code",
+            "42% · resets 14:30",
+            "rigtop",
+            "main + 2 subagents",
+        ] {
+            assert!(
+                harness.query_all_by_label_contains(label).next().is_some(),
+                "missing {label:?}"
+            );
+        }
+    }
+
     #[test]
     fn hosts_window_adds_and_removes_hosts() {
         use egui::accesskit::Role;
@@ -1335,6 +1400,9 @@ mod tests {
                 host.state
                     .apply(Event::Snapshot(Box::new(snapshot.clone())));
             }
+        }
+        if std::env::var("RIGTOP_GUI_WIDGETS").is_ok() {
+            app.widgets = sample_widgets();
         }
         if let Ok(filter) = std::env::var("RIGTOP_GUI_FILTER") {
             app.primary_mut().filter = filter;

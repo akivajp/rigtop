@@ -87,6 +87,34 @@ cargo run --release -p rigtop-gui            # オプションは TUI と同じ�
 
 マウス操作が有効なため、多くの端末では Shift+ドラッグで文字を選択できます。
 
+## ウィジェット
+
+同じ画面で一緒に見たいものは、右端のウィジェットの列に並べられます。オーバービューでもホストの詳細表示でも出ます（TUI は端末の幅が120桁以上のとき。`w` で表示・非表示を切り替え）。ウィジェットは組み込みの時計か任意のコマンドで、コマンドは表示している機械で数秒ごとに実行します。
+
+```toml
+[[widgets]]
+name = "Clock"
+builtin = "clock"
+
+[[widgets]]
+name = "Rates"
+command = "~/bin/rates.sh"   # sh -c で実行（Windows は cmd /C）
+interval_secs = 60           # 既定 5
+timeout_secs = 10            # 既定 10
+```
+
+コマンドは、テキスト（1行が1行）か、次の形の JSON を出力します。どの項目も省略できます。
+
+```json
+{"rows": [
+  {"label": "5h", "value": "42% · resets 14:30", "gauge": 0.42, "level": "ok"},
+  {"value": "rigtop", "heading": true},
+  {"label": "busy", "value": "2 subagents", "level": "warn"}
+]}
+```
+
+`gauge` は割合（0〜1）でバーとして描き、`level` は `normal`・`dim`・`ok`・`warn`・`bad` のいずれかです。実行に失敗したときは、前回の内容を残したまま、コマンドの stderr の最後の行を表示します。
+
 ## SSH による遠隔監視
 
 監視される側にも rigtop を入れたうえで、設定ファイルかコマンドラインでホストを指定します。
