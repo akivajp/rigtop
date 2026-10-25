@@ -7,6 +7,12 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Fixed
+
+- Windows: NVMe drive temperatures from LibreHardwareMonitor ("Composite
+  Temperature", or numbered sensors), and values it sends as text with
+  units
+
 ## [0.7.0] - 2026-10-26
 
 ### Added

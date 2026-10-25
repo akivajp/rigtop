@@ -287,7 +287,8 @@ fn add_storage_sensor(
     let drive = &mut out.smart[index];
     let whole = value.max(0.0).round();
     match sensor {
-        "Temperature" => drive.temperature_c = Some(value as f32),
+        // NVMe drives call their main reading "Composite Temperature".
+        "Temperature" | "Composite Temperature" => drive.temperature_c = Some(value as f32),
         // Some NVMe drives only have numbered sensors ("Temperature #1");
         // take the first unless the main reading comes.
         name if name.starts_with("Temperature #") => {
@@ -310,11 +311,17 @@ fn add_storage_sensor(
 
 /// `RawValue`, else the number at the start of the formatted `Value`.
 fn sensor_value(sensor: &Node) -> Option<f64> {
-    if let Some(value) = sensor.raw_value.as_f64() {
-        return value.is_finite().then_some(value);
+    match &sensor.raw_value {
+        serde_json::Value::Number(n) => n.as_f64().filter(|v| v.is_finite()),
+        // Some versions send it as text in base units ("72056.9 B/s").
+        serde_json::Value::String(text) => leading_number(text),
+        _ => leading_number(&sensor.value),
     }
-    let number: String = sensor
-        .value
+}
+
+/// The number at the start of `text` ("41,5 °C" -> 41.5).
+fn leading_number(text: &str) -> Option<f64> {
+    let number: String = text
         .trim()
         .chars()
         .take_while(|c| c.is_ascii_digit() || matches!(c, '.' | ',' | '-'))
@@ -544,8 +551,29 @@ mod tests {
         add_storage_sensor(&mut out, "SSD", "nvme", "3", "Temperature #1", 38.0);
         add_storage_sensor(&mut out, "SSD", "nvme", "3", "Temperature #2", 45.0);
         assert_eq!(out.smart[0].temperature_c, Some(38.0));
+        // The composite reading wins over numbered sensors, in either order.
+        add_storage_sensor(&mut out, "SSD", "nvme", "3", "Composite Temperature", 47.0);
+        add_storage_sensor(&mut out, "SSD", "nvme", "3", "Temperature #1", 46.9);
+        assert_eq!(out.smart[0].temperature_c, Some(47.0));
         // The drive temperature still shows as a sensor chip too.
         assert!(readings.chips.iter().any(|c| c.key == "lhm:/nvme/0"));
+    }
+
+    #[test]
+    fn raw_values_sent_as_text() {
+        // As LHM 0.9.6 sent them on a Crucial T500: units included.
+        let body = r#"{"Text":"Sensor","Children":[{"Text":"PC","Children":[
+          {"Text":"CT2000T500SSD8","HardwareId":"/nvme/0","Children":[
+            {"Text":"Temperatures","Children":[
+              {"Text":"Composite Temperature","SensorId":"/nvme/0/temperature/0","Type":"Temperature","Value":"47.0 °C","RawValue":"47.0 °C","Children":[]},
+              {"Text":"Temperature #1","SensorId":"/nvme/0/temperature/1","Type":"Temperature","Value":"46.9 °C","RawValue":"46.9 °C","Children":[]}]},
+            {"Text":"Levels","Children":[
+              {"Text":"Percentage Used","SensorId":"/nvme/0/level/102","Type":"Level","Value":"6.0 %","RawValue":"6.0 %","Children":[]}]}]}]}]}"#;
+        let readings = parse(body.as_bytes()).unwrap();
+        let drive = &readings.smart[0];
+        assert_eq!(drive.model, "CT2000T500SSD8");
+        assert_eq!(drive.temperature_c, Some(47.0));
+        assert_eq!(drive.percentage_used, Some(6));
     }
 
     #[test]
