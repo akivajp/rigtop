@@ -111,6 +111,16 @@ fn view_controls(ui: &mut Ui, state: &mut GuiState) {
     {
         state.view_actions.push(ViewAction::ResetLayout);
     }
+    if ui
+        .add(small(&format!("graph {}", state.graph_span.label())))
+        .on_hover_text(
+            "time the graphs cover: fit to the width (one sample per pixel), \
+             or the last 1, 5, 15 minutes or hour; click for the next",
+        )
+        .clicked()
+    {
+        state.view_actions.push(ViewAction::NextGraphSpan);
+    }
     if state.show_zoom {
         crate::overview::zoom_controls(ui, state.zoom, &mut state.view_actions);
         // Without a tab bar (a single host), the hosts window opens here.
@@ -175,7 +185,10 @@ fn cpu(ui: &mut Ui, state: &GuiState) -> bool {
     ui.allocate_rect(area, Sense::hover());
 
     // Total usage graph with the current value and model on top.
-    let samples = state.history.cpu.last(graph_width as usize);
+    let samples = state
+        .history
+        .cpu
+        .graph(graph_width as usize, state.graph_span, state.interval);
     widgets::paint_area_graph(ui, graph_rect, &samples, 100.0, widgets::heat_color, false);
     ui.painter().text(
         graph_rect.left_top(),
@@ -538,7 +551,7 @@ fn gpus(ui: &mut Ui, state: &GuiState) {
                 .history
                 .gpus
                 .get(i)
-                .map(|h| h.last(width as usize))
+                .map(|h| h.graph(width as usize, state.graph_span, state.interval))
                 .unwrap_or_default();
             widgets::area_graph(
                 ui,
@@ -839,11 +852,13 @@ fn network(ui: &mut Ui, state: &mut GuiState) {
     let graphs_height = (ui.available_height() - list_height).max(40.0);
     let width = ui.available_width();
     let history = &state.history;
-    let max = history
+    let rx_samples = history
         .net_rx
-        .max_of_last(width as usize)
-        .max(history.net_tx.max_of_last(width as usize))
-        .max(10.0 * 1024.0);
+        .graph(width as usize, state.graph_span, state.interval);
+    let tx_samples = history
+        .net_tx
+        .graph(width as usize, state.graph_span, state.interval);
+    let max = graph_max(&rx_samples, &tx_samples);
     let selected = history
         .net_interface
         .as_deref()
@@ -859,14 +874,7 @@ fn network(ui: &mut Ui, state: &mut GuiState) {
 
     // Download on top, upload mirrored below, on a shared scale.
     let half = vec2(width, graphs_height / 2.0);
-    let rx = widgets::area_graph(
-        ui,
-        half,
-        &history.net_rx.last(width as usize),
-        max,
-        widgets::rx_color,
-        false,
-    );
+    let rx = widgets::area_graph(ui, half, &rx_samples, max, widgets::rx_color, false);
     ui.painter().text(
         rx.rect.left_top(),
         egui::Align2::LEFT_TOP,
@@ -879,14 +887,7 @@ fn network(ui: &mut Ui, state: &mut GuiState) {
         FontId::monospace(12.0),
         TEXT,
     );
-    let tx = widgets::area_graph(
-        ui,
-        half,
-        &history.net_tx.last(width as usize),
-        max,
-        widgets::tx_color,
-        true,
-    );
+    let tx = widgets::area_graph(ui, half, &tx_samples, max, widgets::tx_color, true);
     ui.painter().text(
         tx.rect.left_bottom(),
         egui::Align2::LEFT_BOTTOM,
@@ -1167,6 +1168,14 @@ pub fn confirm_dialog(ctx: &egui::Context, state: &mut GuiState) {
         }
         None => {}
     }
+}
+
+/// Shared scale of a download and an upload graph: at least 10 KiB/s, so
+/// that idle noise does not fill them.
+pub fn graph_max(rx: &[f64], tx: &[f64]) -> f64 {
+    rx.iter()
+        .chain(tx)
+        .fold(10.0 * 1024.0, |max, &v| max.max(v))
 }
 
 #[cfg(test)]

@@ -8,7 +8,9 @@ use ratatui::crossterm::event::{
 };
 use ratatui::layout::{Position, Rect};
 use ratatui::widgets::TableState;
-use rigtop_core::view::{self, MetricHistory, ProcessQuery, ProcessRow, SortKey, signal_name};
+use rigtop_core::view::{
+    self, GraphSpan, MetricHistory, ProcessQuery, ProcessRow, SortKey, signal_name,
+};
 use rigtop_core::worker::{Command, Event};
 use rigtop_core::{Config, ProcessSignal, Snapshot};
 
@@ -60,6 +62,8 @@ pub struct App {
     pub proc_hit: Option<ProcTableHit>,
     status: Option<(String, Instant)>,
     pub interval: Duration,
+    /// How much time the graphs cover.
+    pub graph_span: GraphSpan,
     pub should_quit: bool,
     /// Shown until the first snapshot arrives ("connecting to zefat…").
     pub waiting_message: String,
@@ -87,6 +91,7 @@ impl App {
             proc_hit: None,
             status: None,
             interval,
+            graph_span: GraphSpan::default(),
             should_quit: false,
             waiting_message: "collecting…".to_owned(),
             connection_error: None,
@@ -228,6 +233,14 @@ impl App {
                 self.set_status(format!("kernel threads {state}"));
             }
             KeyCode::Char('n') => self.cycle_interface(),
+            KeyCode::Char('g') => {
+                self.graph_span = self.graph_span.next();
+                let span = match self.graph_span {
+                    GraphSpan::Fit => "fit to width".to_owned(),
+                    span => format!("last {}", span.label()),
+                };
+                self.set_status(format!("graphs: {span}"));
+            }
             KeyCode::Char('k') => self.ask_signal(ProcessSignal::Terminate),
             KeyCode::Char('K') => self.ask_signal(ProcessSignal::Kill),
             KeyCode::Char('+') => return Some(self.change_interval(true)),

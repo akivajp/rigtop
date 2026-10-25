@@ -7,6 +7,16 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Added
+- Graph time span: fit to the width (one sample per pixel or braille dot,
+  as before), or the last 1, 5, 15 minutes or hour, averaged or stretched to
+  the width; `g` in the TUI, the "graph" button in the GUI's CPU panel title
+  (remembered between runs). The same span applies to every host. Graphs
+  keep 4096 samples (over an hour at the default interval).
+
+### Fixed
+- TUI: the CPU model no longer runs into the core grid next to the graph
+
 ## [0.8.2] - 2026-10-26
 
 ### Added

@@ -12,7 +12,7 @@ use rigtop_core::config::{HostConfig, OverviewSection};
 use rigtop_core::hosts::{HostKind, HostSpec, host_specs};
 use rigtop_core::remote::RemoteSource;
 use rigtop_core::view::{
-    MetricHistory, ProcessQuery, ProcessRow, SortKey, process_rows, signal_name,
+    GraphSpan, MetricHistory, ProcessQuery, ProcessRow, SortKey, process_rows, signal_name,
 };
 use rigtop_core::worker::{Command, Event, Worker};
 use rigtop_core::{Config, DataSource, LocalSource, ProcessSignal, Snapshot};
@@ -39,6 +39,8 @@ const ZOOM_KEY: &str = "zoom";
 const LAYOUT_KEY: &str = "layout";
 const OVERVIEW_KEY: &str = "overview";
 const WIDGETS_KEY: &str = "widgets_visible";
+/// eframe storage key for the time the graphs cover (seconds, 0 to fit).
+const GRAPH_SPAN_KEY: &str = "graph_span";
 
 /// One panel of the layout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -106,6 +108,8 @@ pub enum ViewAction {
     EditHosts,
     /// Show or hide the widget column.
     ToggleWidgets,
+    /// Switch the graphs to the next time span.
+    NextGraphSpan,
 }
 
 /// Everything the panels read and modify.
@@ -135,6 +139,10 @@ pub struct GuiState {
     /// Whether the widget column is shown, or `None` without widgets (for
     /// the toggle in the CPU panel title in single-host mode).
     pub widgets_visible: Option<bool>,
+    /// How much time the graphs cover.
+    pub graph_span: GraphSpan,
+    /// Collection interval, to turn a time span into samples.
+    pub interval: Duration,
     /// Whether this is the machine rigtop runs on (setup offers apply only
     /// to it).
     pub is_local: bool,
@@ -163,6 +171,8 @@ impl GuiState {
             last_update: None,
             show_zoom: true,
             widgets_visible: None,
+            graph_span: GraphSpan::default(),
+            interval: Duration::from_secs(1),
             is_local: false,
             lhm_setup: LhmSetup::default(),
             status: None,
@@ -322,6 +332,7 @@ pub struct RigtopApp {
     pub(crate) widgets: Vec<rigtop_core::widget::Widget>,
     /// Whether the widget column is shown (it can be hidden for room).
     show_widgets: bool,
+    graph_span: GraphSpan,
     tree: Tree<Pane>,
     /// Processes per overview card (hosts not shown in detail send only these).
     overview_processes: usize,
@@ -365,6 +376,9 @@ impl RigtopApp {
         app.remote_command = remote_command.map(str::to_owned);
         app.interval = interval;
         app.repaint = Some(cc.egui_ctx.clone());
+        app.graph_span = storage
+            .and_then(|s| eframe::get_value::<u64>(s, GRAPH_SPAN_KEY))
+            .map_or(GraphSpan::Fit, GraphSpan::from_secs);
         app.show_widgets = storage
             .and_then(|s| eframe::get_value::<bool>(s, WIDGETS_KEY))
             .unwrap_or(true);
@@ -399,6 +413,7 @@ impl RigtopApp {
             notifier,
             widgets: Vec::new(),
             show_widgets: true,
+            graph_span: GraphSpan::default(),
             tree,
             styled: false,
             initial_zoom,
@@ -610,6 +625,11 @@ impl RigtopApp {
             self.view = View::Host(0);
         }
 
+        // Cards and panels alike draw their graphs over the same span.
+        for host in &mut self.hosts {
+            host.state.graph_span = self.graph_span;
+            host.state.interval = self.interval;
+        }
         let mut actions = Vec::new();
         egui::Frame::new()
             .fill(BACKGROUND)
@@ -674,6 +694,7 @@ impl RigtopApp {
                 ViewAction::ResetLayout => self.tree = default_tree(),
                 ViewAction::EditHosts => self.hosts_dialog.open(),
                 ViewAction::ToggleWidgets => self.show_widgets = !self.show_widgets,
+                ViewAction::NextGraphSpan => self.graph_span = self.graph_span.next(),
             }
         }
         let fixed = self.fixed_host_names();
@@ -800,6 +821,7 @@ impl eframe::App for RigtopApp {
         eframe::set_value(storage, LAYOUT_KEY, &self.tree);
         eframe::set_value(storage, OVERVIEW_KEY, &self.overview);
         eframe::set_value(storage, WIDGETS_KEY, &self.show_widgets);
+        eframe::set_value(storage, GRAPH_SPAN_KEY, &self.graph_span.as_secs());
     }
 }
 

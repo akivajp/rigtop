@@ -4,13 +4,15 @@
 //! Nothing here depends on a UI toolkit.
 
 use std::collections::{HashMap, VecDeque};
+use std::time::Duration;
 
 use crate::snapshot::{ProcessInfo, Snapshot};
 use crate::source::ProcessSignal;
 
-/// Number of samples kept for graphs (wider than any realistic terminal in
-/// braille dots: 2 samples per cell).
-pub const HISTORY_LEN: usize = 1024;
+/// Number of samples kept for graphs: over an hour at the default interval
+/// of 1 s, and wider than any realistic terminal in braille dots (2 samples
+/// per cell).
+pub const HISTORY_LEN: usize = 4096;
 
 /// Interface name prefixes skipped when choosing the default network
 /// interface (container bridges and virtual links).
@@ -40,6 +42,105 @@ impl History {
     /// Largest of the newest `n` samples.
     pub fn max_of_last(&self, n: usize) -> f64 {
         self.last(n).into_iter().fold(0.0, f64::max)
+    }
+
+    /// Values for a graph `columns` wide, oldest first. [`GraphSpan::Fit`]
+    /// gives the newest sample per column; a time span gives the samples of
+    /// that span (one every `interval`) spread over the columns, averaged
+    /// where several share a column and interpolated where there are fewer
+    /// samples than columns. While the history is shorter than the span,
+    /// fewer values come back, so the graph fills up from the right.
+    pub fn graph(&self, columns: usize, span: GraphSpan, interval: Duration) -> Vec<f64> {
+        let GraphSpan::Secs(secs) = span else {
+            return self.last(columns);
+        };
+        let wanted = (secs as f64 / interval.as_secs_f64().max(0.001)).round() as usize;
+        let samples = self.last(wanted.max(1));
+        if columns == 0 || samples.is_empty() {
+            return Vec::new();
+        }
+        // The share of the columns that the available samples cover.
+        let shown = (columns as f64 * samples.len() as f64 / wanted.max(1) as f64).round() as usize;
+        let shown = shown.clamp(1, columns);
+        let per_column = samples.len() as f64 / shown as f64;
+        if per_column < 1.0 {
+            // Stretched: a straight line between neighbouring samples.
+            let last = samples.len() - 1;
+            return (0..shown)
+                .map(|i| {
+                    let at = ((i as f64 + 0.5) * per_column - 0.5).clamp(0.0, last as f64);
+                    let (below, frac) = (at.floor() as usize, at.fract());
+                    let above = (below + 1).min(last);
+                    samples[below] * (1.0 - frac) + samples[above] * frac
+                })
+                .collect();
+        }
+        (0..shown)
+            .map(|i| {
+                let end = (((i + 1) as f64 * per_column) as usize).clamp(1, samples.len());
+                let start = ((i as f64 * per_column) as usize).min(end - 1);
+                let part = &samples[start..end];
+                part.iter().sum::<f64>() / part.len() as f64
+            })
+            .collect()
+    }
+}
+
+/// How much time the graphs cover.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GraphSpan {
+    /// One sample per graph column, so the time covered grows with the
+    /// width and the interval.
+    #[default]
+    Fit,
+    /// The last this many seconds, spread over the width.
+    Secs(u64),
+}
+
+impl GraphSpan {
+    /// The choices [`GraphSpan::next`] steps through.
+    pub const CHOICES: [GraphSpan; 5] = [
+        GraphSpan::Fit,
+        GraphSpan::Secs(60),
+        GraphSpan::Secs(5 * 60),
+        GraphSpan::Secs(15 * 60),
+        GraphSpan::Secs(60 * 60),
+    ];
+
+    /// The choice after this one, back to the first after the last.
+    pub fn next(self) -> Self {
+        let index = Self::CHOICES
+            .iter()
+            .position(|c| *c == self)
+            .map_or(0, |i| i + 1);
+        Self::CHOICES[index % Self::CHOICES.len()]
+    }
+
+    /// Short name: "fit", "1m", "1h".
+    pub fn label(self) -> String {
+        match self {
+            GraphSpan::Fit => "fit".to_owned(),
+            GraphSpan::Secs(secs) if secs > 0 && secs % 3600 == 0 => format!("{}h", secs / 3600),
+            GraphSpan::Secs(secs) if secs > 0 && secs % 60 == 0 => format!("{}m", secs / 60),
+            GraphSpan::Secs(secs) => format!("{secs}s"),
+        }
+    }
+
+    /// Seconds covered, 0 for [`GraphSpan::Fit`] (for storing the choice).
+    pub fn as_secs(self) -> u64 {
+        match self {
+            GraphSpan::Fit => 0,
+            GraphSpan::Secs(secs) => secs,
+        }
+    }
+
+    /// The inverse of [`GraphSpan::as_secs`].
+    pub fn from_secs(secs: u64) -> Self {
+        if secs == 0 {
+            GraphSpan::Fit
+        } else {
+            GraphSpan::Secs(secs)
+        }
     }
 }
 
@@ -434,6 +535,57 @@ mod tests {
         );
         assert_eq!(history.last(HISTORY_LEN * 2).len(), HISTORY_LEN);
         assert_eq!(history.max_of_last(3), (HISTORY_LEN + 4) as f64);
+    }
+
+    #[test]
+    fn graph_spans_spread_samples_over_the_width() {
+        let second = Duration::from_secs(1);
+        let mut history = History::default();
+        for i in 0..120 {
+            history.push(i as f64);
+        }
+        // Fit: one sample per column, the newest ones.
+        assert_eq!(
+            history.graph(3, GraphSpan::Fit, second),
+            vec![117.0, 118.0, 119.0]
+        );
+        // A minute on 30 columns: two samples averaged per column.
+        let minute = history.graph(30, GraphSpan::Secs(60), second);
+        assert_eq!(minute.len(), 30);
+        assert_eq!(minute[0], 60.5);
+        assert_eq!(minute[29], 118.5);
+        // Fewer samples than columns: interpolated between them.
+        let stretched = history.graph(120, GraphSpan::Secs(60), Duration::from_secs(2));
+        assert_eq!(stretched.len(), 120);
+        assert_eq!(&stretched[..2], &[90.0, 90.0]);
+        assert_eq!(&stretched[2..4], &[90.125, 90.375]);
+        assert_eq!(stretched[119], 119.0);
+        assert!(stretched.windows(2).all(|w| w[0] <= w[1]));
+        // An hour with two minutes recorded fills the right 1/30.
+        let hour = history.graph(300, GraphSpan::Secs(3600), second);
+        assert_eq!(hour.len(), 10);
+        assert_eq!(hour[0], 5.5);
+        assert!(
+            History::default()
+                .graph(10, GraphSpan::Secs(60), second)
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn graph_span_choices_cycle() {
+        let labels: Vec<String> = std::iter::successors(Some(GraphSpan::Fit), |s| Some(s.next()))
+            .take(6)
+            .map(GraphSpan::label)
+            .collect();
+        assert_eq!(labels, ["fit", "1m", "5m", "15m", "1h", "fit"]);
+        assert_eq!(
+            GraphSpan::from_secs(GraphSpan::Secs(300).as_secs()),
+            GraphSpan::Secs(300)
+        );
+        assert_eq!(GraphSpan::from_secs(0), GraphSpan::Fit);
+        // A stored span that is not a choice starts over.
+        assert_eq!(GraphSpan::Secs(7).next(), GraphSpan::Fit);
     }
 
     #[test]

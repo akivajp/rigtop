@@ -499,7 +499,11 @@ fn cpu_section(ui: &mut Ui, host: &HostEntry, snapshot: &Snapshot, graph_height:
     // Usage history, as tall as the card's spare room allows.
     if graph_height > 0.0 {
         let width = ui.available_width();
-        let samples = host.state.history.cpu.last(width as usize);
+        let state = &host.state;
+        let samples = state
+            .history
+            .cpu
+            .graph(width as usize, state.graph_span, state.interval);
         widgets::area_graph(
             ui,
             vec2(width, graph_height),
@@ -643,16 +647,14 @@ fn network_section(ui: &mut Ui, host: &HostEntry, snapshot: &Snapshot, graph_hei
     });
     if graph_height > 0.0 {
         let width = ui.available_width();
-        let max = history
-            .net_rx
-            .max_of_last(width as usize)
-            .max(history.net_tx.max_of_last(width as usize))
-            .max(10.0 * 1024.0);
+        let (span, interval) = (host.state.graph_span, host.state.interval);
+        let rx = history.net_rx.graph(width as usize, span, interval);
+        let tx = history.net_tx.graph(width as usize, span, interval);
         widgets::area_graph(
             ui,
             vec2(width, graph_height),
-            &history.net_rx.last(width as usize),
-            max,
+            &rx,
+            crate::panels::graph_max(&rx, &tx),
             widgets::rx_color,
             false,
         );

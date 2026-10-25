@@ -26,7 +26,7 @@ use rigtop_core::snapshot::{
 use super::app::{App, ProcTableHit};
 use super::graph::{self, BrailleGraph};
 use rigtop_core::format;
-use rigtop_core::view::{LHM_HINT, SortKey, is_virtual_interface, signal_name};
+use rigtop_core::view::{GraphSpan, LHM_HINT, SortKey, is_virtual_interface, signal_name};
 
 /// Box border color.
 pub(super) const BORDER: Color = Color::Rgb(85, 85, 100);
@@ -350,7 +350,14 @@ fn draw_cpu(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect, layou
     let host = &snapshot.host;
     // Local wall-clock time of the machine running the UI, like btop's clock.
     let clock = chrono::Local::now().format(" %H:%M:%S ").to_string();
-    let block = panel("cpu", CPU_TITLE)
+    let mut block = panel("cpu", CPU_TITLE);
+    if app.graph_span != GraphSpan::Fit {
+        block = block.title_top(Line::from(dim(format!(
+            " graph {} ",
+            app.graph_span.label()
+        ))));
+    }
+    let block = block
         .title_top(
             Line::from(Span::styled(
                 clock,
@@ -387,15 +394,19 @@ fn draw_cpu(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect, layou
         dim(format!(" {}", cpu.model)),
     ]);
     let [grid_area, info_area] = if layout.graph {
-        let samples = app
-            .history
-            .cpu
-            .last(BrailleGraph::capacity(graph_area.width));
+        let samples = app.history.cpu.graph(
+            BrailleGraph::capacity(graph_area.width),
+            app.graph_span,
+            app.interval,
+        );
         frame.render_widget(BrailleGraph::new(&samples, 100.0), graph_area);
+        // One cell short of the graph, so the model does not run into the
+        // core grid.
         frame.render_widget(
             Paragraph::new(total),
             Rect {
                 height: 1,
+                width: graph_area.width.saturating_sub(1),
                 ..graph_area
             },
         );
@@ -655,7 +666,13 @@ fn draw_gpus(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
             .history
             .gpus
             .get(i)
-            .map(|h| h.last(BrailleGraph::capacity(inner.width)))
+            .map(|h| {
+                h.graph(
+                    BrailleGraph::capacity(inner.width),
+                    app.graph_span,
+                    app.interval,
+                )
+            })
             .unwrap_or_default();
         frame.render_widget(
             BrailleGraph::new(&samples, 100.0),
@@ -1003,16 +1020,15 @@ fn draw_network_graphs(frame: &mut Frame, app: &App, selected: Option<&NetworkSt
         return;
     }
     let capacity = BrailleGraph::capacity(area.width);
-    let rx = app.history.net_rx.last(capacity);
-    let tx = app.history.net_tx.last(capacity);
+    let history = &app.history;
+    let rx = history.net_rx.graph(capacity, app.graph_span, app.interval);
+    let tx = history.net_tx.graph(capacity, app.graph_span, app.interval);
     // Shared scale so download and upload are comparable; at least 10 KiB/s
     // so that idle noise does not fill the graph.
-    let max = app
-        .history
-        .net_rx
-        .max_of_last(capacity)
-        .max(app.history.net_tx.max_of_last(capacity))
-        .max(10.0 * 1024.0);
+    let max = rx
+        .iter()
+        .chain(&tx)
+        .fold(10.0 * 1024.0, |a: f64, &b| a.max(b));
 
     let [rx_area, tx_area] =
         Layout::vertical([Constraint::Fill(1), Constraint::Fill(1)]).areas(area);
@@ -1085,7 +1101,7 @@ fn draw_processes(
     let footer = match app.status() {
         Some(status) => Line::from(colored(format!(" {status} "), WARN)),
         None => Line::from(dim(
-            " ↑↓ select  ←→ sort  r reverse  / filter  t kthreads  k term  K kill  +- interval  q quit ",
+            " ↑↓ select  ←→ sort  r reverse  / filter  t kthreads  k term  K kill  +- interval  g graph span  q quit ",
         )),
     };
     let block = panel("proc", PROC_TITLE)

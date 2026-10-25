@@ -301,10 +301,15 @@ fn handle_key(
     if multi && !busy && screen.handle_key(key, hosts.len()) {
         return;
     }
-    if let View::Host(i) = screen.view
-        && let Some(command) = hosts[i].app.handle_key(key)
-    {
-        hosts[i].worker.send(command);
+    if let View::Host(i) = screen.view {
+        if let Some(command) = hosts[i].app.handle_key(key) {
+            hosts[i].worker.send(command);
+        }
+        // Every host's graphs cover the same time, like in the GUI.
+        let span = hosts[i].app.graph_span;
+        for host in hosts.iter_mut() {
+            host.app.graph_span = span;
+        }
     }
 }
 

@@ -68,6 +68,7 @@ cargo run --release -p rigtop -- --help  # options (--interval-ms, --config, --d
 | `k` / `K` | send SIGTERM / SIGKILL to the selected process (asks first) |
 | `n` | switch the network interface |
 | `+` / `-` | slower / faster updates |
+| `g` | time the graphs cover: fit to the width (one sample per dot), or the last 1, 5, 15 minutes or hour |
 | `q` | quit |
 | mouse | click a process to select it, click a column header to sort (again to reverse), wheel to scroll |
 
@@ -81,7 +82,7 @@ cargo run --release -p rigtop-gui            # same options: --interval-ms, --co
 
 Drag panel borders to resize and panel titles to rearrange. Click a column header to sort, right-click a process to terminate or kill it (asks first), and pick the network interface from the list.
 
-Zoom with Ctrl + mouse wheel, Ctrl + `+` / `-` / `0`, or the `A-` / `A+` buttons in the CPU panel title. The zoom level and panel layout are restored on the next start; "reset layout" brings back the default arrangement.
+Zoom with Ctrl + mouse wheel, Ctrl + `+` / `-` / `0`, or the `A-` / `A+` buttons in the CPU panel title. The zoom level and panel layout are restored on the next start; "reset layout" brings back the default arrangement. The "graph" button next to them sets the time the graphs cover (fit to the width, or the last 1, 5, 15 minutes or hour), also restored on the next start.
 
 When a new alert appears on any host (drive errors, a missing RAID device, failing SMART, a nearly full filesystem), the GUI shows a desktop notification, also while it is minimized (Linux and macOS; not on Windows yet). Alerts present at startup are not announced. `[notifications] level` in the [configuration](#configuration) picks `"critical"` (default), `"warning"` (also resyncs, filling filesystems, hot GPUs) or `"off"`; `rigtop-gui --test-notification` shows a sample notification.
 
