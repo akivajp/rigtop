@@ -584,7 +584,7 @@ impl RigtopApp {
             let Some(snapshot) = &host.state.snapshot else {
                 continue;
             };
-            let alerts = rigtop_core::view::alerts(snapshot);
+            let alerts = rigtop_core::view::alerts_with(snapshot, &host.state.config.alerts);
             for alert in self.notifier.new_alerts(&host.spec.name, &alerts) {
                 // Tests run without workers (and without notifications).
                 if self.repaint.is_some() {

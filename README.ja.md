@@ -84,7 +84,7 @@ cargo run --release -p rigtop-gui            # オプションは TUI と同じ�
 
 文字の大きさは Ctrl + マウスホイール、Ctrl + `+` / `-` / `0`、または CPU パネルの見出しにある `A-` / `A+` ボタンで変えられます。拡大率とパネルの配置は次回起動時に復元されます。「reset layout」で初期配置に戻せます。同じ見出しの「graph」ボタンでグラフの時間幅（幅に合わせる・直近の 1・5・15 分・1 時間）を切り替えられ、これも次回に復元されます。
 
-いずれかのホストに新しい警告（ドライブのエラー、RAID のデバイスの欠落、SMART の異常、残り容量の少ないファイルシステム）が出ると、GUI はデスクトップ通知を出します（最小化中も。Linux と macOS のみで、Windows は未対応）。起動時から出ている警告は通知しません。[設定](#設定)の `[notifications] level` で、`"critical"`（既定）、`"warning"`（RAID の再同期・容量の逼迫・GPU の高温も含む）、`"off"` を選べます。`rigtop-gui --test-notification` で通知の見本を出せます。
+いずれかのホストに新しい警告（ドライブのエラー、RAID のデバイスの欠落、SMART の異常、残り容量の少ないファイルシステム）が出ると、GUI はデスクトップ通知を出します（最小化中も。Linux と macOS のみで、Windows は未対応）。起動時から出ている警告は通知しません。[設定](#設定)の `[notifications] level` で、`"critical"`（既定）、`"warning"`（RAID の再同期・容量の逼迫・CPU・GPU・ドライブの高温も含む）、`"off"` を選べます。しきい値は `[alerts]` で変えられます。`rigtop-gui --test-notification` で通知の見本を出せます。
 
 マウス操作が有効なため、多くの端末では Shift+ドラッグで文字を選択できます。
 
@@ -141,7 +141,7 @@ rigtop-gui --host hermon        # GUI: コマンドラインのホストも追�
 
 GUI では **hosts…**（タブの並び、または手元の機だけを表示しているときは CPU パネルの見出し）から、ホストの追加・編集・削除と接続テストができます。変更は設定ファイルの `[[hosts]]` に書き込まれるので、TUI にも反映されます。ファイルのそれ以外の部分はそのまま残ります。
 
-ホストが2台以上あると、全ホストを並べた**オーバービュー**から始まります。ホストごと（手元の機を含む）の詳細表示はタブで切り替えます。各ホストのカードには、まず要注意の項目（ストレージのエラー、SMART の異常、RAID の劣化、残り容量の少ないファイルシステム、高温の GPU）を出し、続けて CPU・GPU・メモリ・プロセス上位・ネットワーク・ストレージを、この順にカードに入る分だけ出します。順番は `[overview] sections`（全体）、ホストごとの `sections`、GUI のカードの「sections」メニューで変えられます。手元の機のカードを出すかどうかは `[overview] include_local`（GUI はチェックボックス、TUI は `l` キー）で切り替えます。TUI では `Tab` と `0`〜`9` で、オーバービューと各ホストを切り替えます。
+ホストが2台以上あると、全ホストを並べた**オーバービュー**から始まります。ホストごと（手元の機を含む）の詳細表示はタブで切り替えます。各ホストのカードには、まず要注意の項目（ストレージのエラー、SMART の異常、RAID の劣化、残り容量の少ないファイルシステム、高温の CPU・GPU・ドライブ）を出し、続けて CPU・GPU・メモリ・プロセス上位・ネットワーク・ストレージを、この順にカードに入る分だけ出します。順番は `[overview] sections`（全体）、ホストごとの `sections`、GUI のカードの「sections」メニューで変えられます。手元の機のカードを出すかどうかは `[overview] include_local`（GUI はチェックボックス、TUI は `l` キー）で切り替えます。TUI では `Tab` と `0`〜`9` で、オーバービューと各ホストを切り替えます。
 
 ![Windows の rigtop-gui で3台を並べたオーバービュー: Windows 機自身、GPU 2枚と btrfs RAID の Linux ワークステーション、バッテリー表示のある Linux ノート PC（プロセス一覧はぼかしています）](docs/images/rigtop-gui-overview.png)
 
@@ -242,6 +242,14 @@ dir = "/var/lib/rigtop/smart"
 
 [btrfs]
 scrub_dir = "/var/lib/rigtop/btrfs"
+
+[alerts]
+# 警告にする値（0 でその警告を出さない）
+filesystem_warning_percent = 90
+filesystem_critical_percent = 97
+cpu_warning_celsius = 96    # CPU の最も高い温度
+gpu_warning_celsius = 85
+drive_warning_celsius = 70  # SMART か NVMe のセンサー
 
 [notifications]
 # rigtop-gui: 新しい警告のデスクトップ通知（"critical"・"warning"・"off"）

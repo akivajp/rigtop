@@ -6,6 +6,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::time::Duration;
 
+use crate::config::AlertsConfig;
 use crate::snapshot::{ProcessInfo, Snapshot};
 use crate::source::ProcessSignal;
 
@@ -272,15 +273,17 @@ pub struct Alert {
     pub text: String,
 }
 
-/// Filesystem usage that triggers a warning, and a critical alert.
-const FS_WARN_PERCENT: f64 = 90.0;
-const FS_CRITICAL_PERCENT: f64 = 97.0;
-/// GPU temperature that triggers a warning.
-const GPU_HOT_CELSIUS: f32 = 85.0;
+/// [`alerts_with`] the default thresholds.
+pub fn alerts(snapshot: &Snapshot) -> Vec<Alert> {
+    alerts_with(snapshot, &AlertsConfig::default())
+}
 
 /// Conditions in `snapshot` that need attention, most severe first:
-/// storage errors and failing drives, degraded RAID, full filesystems, hot GPUs.
-pub fn alerts(snapshot: &Snapshot) -> Vec<Alert> {
+/// storage errors and failing drives, degraded RAID, full filesystems, hot
+/// CPUs, GPUs and drives, judged by `limits` (0 turns a threshold off).
+pub fn alerts_with(snapshot: &Snapshot, limits: &AlertsConfig) -> Vec<Alert> {
+    // A threshold of 0 (or less) is turned off.
+    let reached = |value: f64, limit: f64| limit > 0.0 && value >= limit;
     let mut alerts = Vec::new();
     let mut add = |severity, text: String| alerts.push(Alert { severity, text });
     for fs in &snapshot.raid.btrfs {
@@ -367,20 +370,63 @@ pub fn alerts(snapshot: &Snapshot) -> Vec<Alert> {
             .mount_points
             .first()
             .map_or(fs.device.as_str(), String::as_str);
-        if percent >= FS_CRITICAL_PERCENT {
+        if reached(percent, limits.filesystem_critical_percent) {
             add(Severity::Critical, format!("{name} {percent:.0}% full"));
-        } else if percent >= FS_WARN_PERCENT {
+        } else if reached(percent, limits.filesystem_warning_percent) {
             add(Severity::Warning, format!("{name} {percent:.0}% full"));
         }
     }
+    let hottest_cpu = snapshot
+        .cpu
+        .temperatures
+        .iter()
+        .map(|t| t.celsius)
+        .fold(f32::NAN, f32::max);
+    if reached(hottest_cpu as f64, limits.cpu_warning_celsius as f64) {
+        add(Severity::Warning, format!("CPU at {hottest_cpu:.0}°C"));
+    }
     for gpu in &snapshot.gpus {
-        if let Some(t) = gpu.temperature_c.filter(|t| *t >= GPU_HOT_CELSIUS) {
+        if let Some(t) = gpu
+            .temperature_c
+            .filter(|t| reached(*t as f64, limits.gpu_warning_celsius as f64))
+        {
             add(Severity::Warning, format!("GPU {} at {t:.0}°C", gpu.index));
+        }
+    }
+    for (device, celsius) in drive_temperatures(snapshot) {
+        if reached(celsius as f64, limits.drive_warning_celsius as f64) {
+            add(Severity::Warning, format!("{device} at {celsius:.0}°C"));
         }
     }
     // Stable sort keeps the order above within each severity.
     alerts.sort_by_key(|a| std::cmp::Reverse(a.severity));
     alerts
+}
+
+/// (device, °C) of each drive: SMART results, then NVMe drives without
+/// them from their hwmon sensor ("Composite", the drive's own summary).
+fn drive_temperatures(snapshot: &Snapshot) -> Vec<(String, f32)> {
+    let mut drives: Vec<(String, f32)> = snapshot
+        .smart
+        .iter()
+        .filter_map(|s| Some((s.device.clone(), s.temperature_c?)))
+        .collect();
+    for chip in snapshot.sensors.iter().filter(|c| c.name == "nvme") {
+        // The chip key is "nvme:<device>".
+        let device = chip.key.split_once(':').map_or(chip.key.as_str(), |k| k.1);
+        if drives.iter().any(|(d, _)| d == device) {
+            continue;
+        }
+        let composite = chip
+            .temperatures
+            .iter()
+            .find(|t| t.label == "Composite")
+            .or(chip.temperatures.first());
+        if let Some(t) = composite {
+            drives.push((device.to_owned(), t.celsius));
+        }
+    }
+    drives
 }
 
 /// How the process table is filtered and sorted.
@@ -718,6 +764,85 @@ mod tests {
         assert_eq!(alerts[0].severity, Severity::Critical);
         assert_eq!(alerts[2].severity, Severity::Warning);
         assert!(super::alerts(&Snapshot::default()).is_empty());
+    }
+
+    #[test]
+    fn alert_thresholds_come_from_the_configuration() {
+        use crate::snapshot::{FilesystemUsage, GpuStats, SensorChip, SmartDevice, Temperature};
+        let temp = |label: &str, celsius| Temperature {
+            label: label.to_owned(),
+            celsius,
+            ..Default::default()
+        };
+        let mut snapshot = Snapshot {
+            filesystems: vec![FilesystemUsage {
+                mount_points: vec!["/data".to_owned()],
+                total_bytes: 100,
+                available_bytes: 8,
+                ..Default::default()
+            }],
+            gpus: vec![GpuStats {
+                index: 0,
+                temperature_c: Some(80.0),
+                ..Default::default()
+            }],
+            smart: vec![SmartDevice {
+                device: "nvme0".to_owned(),
+                temperature_c: Some(72.0),
+                ..Default::default()
+            }],
+            // nvme0 also has SMART (reported once); nvme1 only its sensor.
+            sensors: vec![
+                SensorChip {
+                    key: "nvme:nvme0".to_owned(),
+                    name: "nvme".to_owned(),
+                    temperatures: vec![temp("Composite", 71.0)],
+                    ..Default::default()
+                },
+                SensorChip {
+                    key: "nvme:nvme1".to_owned(),
+                    name: "nvme".to_owned(),
+                    temperatures: vec![temp("Sensor 1", 90.0), temp("Composite", 74.0)],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        snapshot.cpu.temperatures = vec![temp("Tctl", 97.0), temp("Tccd1", 90.0)];
+        let texts = |limits: &AlertsConfig| -> Vec<String> {
+            alerts_with(&snapshot, limits)
+                .into_iter()
+                .map(|a| a.text)
+                .collect()
+        };
+        assert_eq!(
+            texts(&AlertsConfig::default()),
+            [
+                "/data 92% full",
+                "CPU at 97°C",
+                "nvme0 at 72°C",
+                "nvme1 at 74°C"
+            ]
+        );
+        let custom = AlertsConfig {
+            filesystem_warning_percent: 0.0,
+            cpu_warning_celsius: 0.0,
+            gpu_warning_celsius: 75.0,
+            drive_warning_celsius: 73.0,
+            ..Default::default()
+        };
+        assert_eq!(texts(&custom), ["GPU 0 at 80°C", "nvme1 at 74°C"]);
+        let critical = AlertsConfig {
+            filesystem_critical_percent: 90.0,
+            ..custom
+        };
+        assert_eq!(
+            alerts_with(&snapshot, &critical)[0],
+            Alert {
+                severity: Severity::Critical,
+                text: "/data 92% full".to_owned()
+            }
+        );
     }
 
     #[test]

@@ -19,6 +19,14 @@
 //! # Directory with btrfs scrub status files copied by the root timer.
 //! scrub_dir = "/var/lib/rigtop/btrfs"
 //!
+//! [alerts]
+//! # When readings become alerts (0 turns one off).
+//! filesystem_warning_percent = 90
+//! filesystem_critical_percent = 97
+//! cpu_warning_celsius = 96    # hottest CPU reading
+//! gpu_warning_celsius = 85
+//! drive_warning_celsius = 70  # SMART or NVMe sensor
+//!
 //! [notifications]
 //! # rigtop-gui: desktop notifications for new alerts ("critical", "warning" or "off").
 //! level = "critical"
@@ -119,6 +127,8 @@ pub struct Config {
     pub lhm: LhmConfig,
     /// The multi-host overview.
     pub overview: OverviewConfig,
+    /// When a reading becomes an alert.
+    pub alerts: AlertsConfig,
     /// Desktop notifications for new alerts (GUI).
     pub notifications: NotificationsConfig,
     /// Remote hosts monitored over SSH (`[[hosts]]` tables).
@@ -299,6 +309,37 @@ pub enum NotifyLevel {
     /// Critical alerts only (data at risk).
     #[default]
     Critical,
+}
+
+/// Thresholds that turn readings into alerts (overview cards, status dots
+/// and notifications). 0 turns an alert off. Applied by the front-end, so
+/// remote hosts are judged by the viewer's settings.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AlertsConfig {
+    /// Filesystem usage (%) for a warning.
+    pub filesystem_warning_percent: f64,
+    /// Filesystem usage (%) for a critical alert.
+    pub filesystem_critical_percent: f64,
+    /// Hottest CPU reading (°C) for a warning. Desktop Ryzen CPUs run up to
+    /// 95 °C under full load by design.
+    pub cpu_warning_celsius: f32,
+    /// GPU temperature (°C) for a warning.
+    pub gpu_warning_celsius: f32,
+    /// Drive temperature (°C, from SMART or the NVMe sensor) for a warning.
+    pub drive_warning_celsius: f32,
+}
+
+impl Default for AlertsConfig {
+    fn default() -> Self {
+        Self {
+            filesystem_warning_percent: 90.0,
+            filesystem_critical_percent: 97.0,
+            cpu_warning_celsius: 96.0,
+            gpu_warning_celsius: 85.0,
+            drive_warning_celsius: 70.0,
+        }
+    }
 }
 
 /// Desktop notification settings.
@@ -518,6 +559,10 @@ url = ""
 
 [notifications]
 level = "warning"
+
+[alerts]
+drive_warning_celsius = 65
+cpu_warning_celsius = 0
 "#,
         )
         .unwrap();
@@ -541,6 +586,10 @@ level = "warning"
         assert_eq!(config.notifications.level, NotifyLevel::Warning);
         assert_eq!(Config::default().notifications.level, NotifyLevel::Critical);
         assert_eq!(Config::default().lhm.url, DEFAULT_LHM_URL);
+        assert_eq!(config.alerts.drive_warning_celsius, 65.0);
+        assert_eq!(config.alerts.cpu_warning_celsius, 0.0);
+        // Unset thresholds keep their defaults.
+        assert_eq!(config.alerts.gpu_warning_celsius, 85.0);
     }
 
     #[test]

@@ -84,7 +84,7 @@ Drag panel borders to resize and panel titles to rearrange. Click a column heade
 
 Zoom with Ctrl + mouse wheel, Ctrl + `+` / `-` / `0`, or the `A-` / `A+` buttons in the CPU panel title. The zoom level and panel layout are restored on the next start; "reset layout" brings back the default arrangement. The "graph" button next to them sets the time the graphs cover (fit to the width, or the last 1, 5, 15 minutes or hour), also restored on the next start.
 
-When a new alert appears on any host (drive errors, a missing RAID device, failing SMART, a nearly full filesystem), the GUI shows a desktop notification, also while it is minimized (Linux and macOS; not on Windows yet). Alerts present at startup are not announced. `[notifications] level` in the [configuration](#configuration) picks `"critical"` (default), `"warning"` (also resyncs, filling filesystems, hot GPUs) or `"off"`; `rigtop-gui --test-notification` shows a sample notification.
+When a new alert appears on any host (drive errors, a missing RAID device, failing SMART, a nearly full filesystem), the GUI shows a desktop notification, also while it is minimized (Linux and macOS; not on Windows yet). Alerts present at startup are not announced. `[notifications] level` in the [configuration](#configuration) picks `"critical"` (default), `"warning"` (also resyncs, filling filesystems, hot CPUs, GPUs and drives) or `"off"`; the thresholds are in `[alerts]`; `rigtop-gui --test-notification` shows a sample notification.
 
 With mouse support on, most terminals select text with Shift+drag.
 
@@ -141,7 +141,7 @@ rigtop-gui --host hermon        # GUI: plus a host from the command line (repeat
 
 In the GUI, **hosts…** (in the tab bar, or in the CPU panel title while only this machine is shown) adds, edits and removes hosts and can test the connection first. Changes are written to the `[[hosts]]` of the configuration file, so the TUI sees them too; the rest of the file is left as it is.
 
-With more than one host, rigtop opens on an **overview** with one card per host, plus a tab per host (this machine included) for the full detail view. Cards show alerts (storage errors, failing SMART, degraded RAID, nearly full filesystems, hot GPUs) and then CPU, GPU, memory, the top processes, network and storage, in that order and as far as the card has room. Change the default order with `[overview] sections`, per host with `sections`, or in the GUI with each card's "sections" menu. Whether this machine gets a card is `[overview] include_local` (or the checkbox in the GUI, `l` in the TUI). In the TUI, `Tab` and `0`-`9` switch between the overview and the hosts.
+With more than one host, rigtop opens on an **overview** with one card per host, plus a tab per host (this machine included) for the full detail view. Cards show alerts (storage errors, failing SMART, degraded RAID, nearly full filesystems, hot CPUs, GPUs and drives) and then CPU, GPU, memory, the top processes, network and storage, in that order and as far as the card has room. Change the default order with `[overview] sections`, per host with `sections`, or in the GUI with each card's "sections" menu. Whether this machine gets a card is `[overview] include_local` (or the checkbox in the GUI, `l` in the TUI). In the TUI, `Tab` and `0`-`9` switch between the overview and the hosts.
 
 ![rigtop-gui on Windows showing an overview of three hosts: the Windows machine itself, a Linux workstation with two GPUs and btrfs RAID, and a Linux laptop with its battery (process lists blurred)](docs/images/rigtop-gui-overview.png)
 
@@ -242,6 +242,14 @@ dir = "/var/lib/rigtop/smart"
 
 [btrfs]
 scrub_dir = "/var/lib/rigtop/btrfs"
+
+[alerts]
+# When readings become alerts (0 turns one off).
+filesystem_warning_percent = 90
+filesystem_critical_percent = 97
+cpu_warning_celsius = 96    # hottest CPU reading
+gpu_warning_celsius = 85
+drive_warning_celsius = 70  # SMART or NVMe sensor
 
 [notifications]
 # rigtop-gui: desktop notifications for new alerts ("critical", "warning" or "off").

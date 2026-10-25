@@ -10,7 +10,7 @@ use ratatui::widgets::{Block, BorderType, Paragraph, Wrap};
 use rigtop_core::config::OverviewSection;
 use rigtop_core::format;
 use rigtop_core::snapshot::Snapshot;
-use rigtop_core::view::{Severity, alerts};
+use rigtop_core::view::{Severity, alerts_with};
 
 use super::HostTui;
 use super::ui::{
@@ -48,10 +48,11 @@ pub fn host_status(host: &HostTui) -> (Color, String) {
             (WARN, format!("no data for {}s", at.elapsed().as_secs()))
         }
         Some(_) => {
-            let critical = app
-                .snapshot
-                .as_ref()
-                .is_some_and(|s| alerts(s).iter().any(|a| a.severity == Severity::Critical));
+            let critical = app.snapshot.as_ref().is_some_and(|s| {
+                alerts_with(s, &app.config.alerts)
+                    .iter()
+                    .any(|a| a.severity == Severity::Critical)
+            });
             if critical {
                 (BAD, "needs attention".to_owned())
             } else {
@@ -214,7 +215,7 @@ fn draw_host_box(frame: &mut Frame, area: Rect, host: &HostTui, processes: usize
     if let Some(error) = &host.app.connection_error {
         lines.push(Line::from(colored(format!("disconnected: {error}"), WARN)));
     }
-    let alerts = alerts(snapshot);
+    let alerts = alerts_with(snapshot, &host.app.config.alerts);
     for alert in alerts.iter().take(MAX_ALERTS) {
         let color = if alert.severity == Severity::Critical {
             BAD

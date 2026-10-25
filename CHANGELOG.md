@@ -13,6 +13,11 @@ include breaking changes).
   the width; `g` in the TUI, the "graph" button in the GUI's CPU panel title
   (remembered between runs). The same span applies to every host. Graphs
   keep 4096 samples (over an hour at the default interval).
+- `[alerts]` in the configuration sets when readings become alerts:
+  filesystem usage (90% warning, 97% critical), and new warnings for hot
+  CPUs (96 °C), GPUs (85 °C) and drives (70 °C, from SMART or the NVMe
+  sensor); 0 turns one off. Remote hosts are judged by the viewer's
+  settings.
 
 ### Fixed
 - TUI: the CPU model no longer runs into the core grid next to the graph

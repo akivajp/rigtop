@@ -5,10 +5,11 @@ use std::time::Duration;
 
 use egui::text::LayoutJob;
 use egui::{Align, Color32, FontId, Layout, RichText, Sense, TextFormat, Ui, vec2};
+use rigtop_core::config::AlertsConfig;
 use rigtop_core::config::OverviewSection;
 use rigtop_core::format;
 use rigtop_core::snapshot::Snapshot;
-use rigtop_core::view::{Severity, alerts};
+use rigtop_core::view::{Severity, alerts_with};
 
 use crate::app::{HostEntry, OverviewSettings, ViewAction};
 use crate::widgets::{self, BAD, BORDER, DIM, OK, TEXT, WARN, percent_color, temperature_color};
@@ -49,10 +50,11 @@ pub fn host_status(host: &HostEntry) -> (Color32, String) {
             (WARN, format!("no data for {}s", at.elapsed().as_secs()))
         }
         Some(_) => {
-            let critical = state
-                .snapshot
-                .as_ref()
-                .is_some_and(|s| alerts(s).iter().any(|a| a.severity == Severity::Critical));
+            let critical = state.snapshot.as_ref().is_some_and(|s| {
+                alerts_with(s, &state.config.alerts)
+                    .iter()
+                    .any(|a| a.severity == Severity::Critical)
+            });
             if critical {
                 (BAD, "needs attention".to_owned())
             } else {
@@ -294,7 +296,7 @@ fn card(
             if let Some(error) = &host.state.connection_error {
                 ui.label(colored(format!("disconnected: {error}"), WARN));
             }
-            alert_lines(ui, snapshot);
+            alert_lines(ui, snapshot, &host.state.config.alerts);
             let graphs = graph_heights(ui.available_height(), snapshot, sections, processes);
             for &section in sections {
                 if ui.available_height() < section_min_height(section) {
@@ -428,8 +430,8 @@ fn sections_menu(
     result
 }
 
-fn alert_lines(ui: &mut Ui, snapshot: &Snapshot) {
-    let alerts = alerts(snapshot);
+fn alert_lines(ui: &mut Ui, snapshot: &Snapshot, limits: &AlertsConfig) {
+    let alerts = alerts_with(snapshot, limits);
     for alert in alerts.iter().take(MAX_ALERTS) {
         let color = match alert.severity {
             Severity::Critical => BAD,
