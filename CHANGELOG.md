@@ -7,6 +7,8 @@ include breaking changes).
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-26
+
 ### Fixed
 
 - Windows: NVMe drive temperatures from LibreHardwareMonitor ("Composite
@@ -165,7 +167,8 @@ First release.
 - Windows support (CPU, memory, processes, network with link speeds, drives,
   NVIDIA GPUs; temperatures, fans and CPU power are not available yet)
 
-[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/akivajp/rigtop/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/akivajp/rigtop/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/akivajp/rigtop/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/akivajp/rigtop/compare/v0.5.0...v0.5.1
