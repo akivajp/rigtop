@@ -440,23 +440,11 @@ impl Config {
     /// Used by the GUI's host editor. The edited file is checked to load as
     /// a valid configuration before it replaces the old one.
     pub fn save_hosts(path: &Path, hosts: &[HostConfig]) -> Result<(), ConfigError> {
-        let io_err = |source| ConfigError::Io {
-            path: path.to_owned(),
-            source,
-        };
-        let text = match fs::read_to_string(path) {
-            Ok(text) => text,
-            Err(err) if err.kind() == io::ErrorKind::NotFound => String::new(),
-            Err(err) => return Err(io_err(err)),
-        };
-        let mut document: toml_edit::DocumentMut =
-            text.parse().map_err(|source| ConfigError::Edit {
-                path: path.to_owned(),
-                source,
-            })?;
-        if hosts.is_empty() {
-            document.remove("hosts");
-        } else {
+        edit_file(path, |document| {
+            if hosts.is_empty() {
+                document.remove("hosts");
+                return Ok(());
+            }
             let mut tables = toml_edit::ArrayOfTables::new();
             for host in hosts {
                 let mut table = toml_edit::Table::new();
@@ -481,19 +469,56 @@ impl Config {
                 tables.push(table);
             }
             document["hosts"] = toml_edit::Item::ArrayOfTables(tables);
-        }
-        let edited = document.to_string();
-        // Never write a file that rigtop itself could not load afterwards.
-        toml::from_str::<Config>(&edited).map_err(|source| ConfigError::Parse {
-            path: path.to_owned(),
-            source,
-        })?;
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(io_err)?;
-        }
-        let tmp = path.with_extension("toml.tmp");
-        fs::write(&tmp, edited).map_err(io_err)?;
-        fs::rename(&tmp, path).map_err(io_err)
+            Ok(())
+        })
+    }
+
+    /// Replaces the sensor names and hidden sensors (`[sensors]`) of the
+    /// configuration file at `path`, keeping the rest of the file as it is,
+    /// like [`Config::save_hosts`]. Names stay an inline table if they were
+    /// one.
+    ///
+    /// Used by the GUI's sensor editor.
+    pub fn save_sensors(path: &Path, sensors: &SensorConfig) -> Result<(), ConfigError> {
+        edit_file(path, |document| {
+            if !document.contains_key("sensors") {
+                if sensors.labels.is_empty() && sensors.hidden.is_empty() {
+                    return Ok(());
+                }
+                document["sensors"] = toml_edit::table();
+            }
+            let Some(table) = document["sensors"].as_table_like_mut() else {
+                // Not a table: loading would have failed already.
+                return Ok(());
+            };
+            if sensors.hidden.is_empty() {
+                table.remove("hidden");
+            } else {
+                let hidden: toml_edit::Array = sensors.hidden.iter().map(String::as_str).collect();
+                table.insert("hidden", toml_edit::value(hidden));
+            }
+            let inline = table.get("labels").is_some_and(|l| l.is_inline_table());
+            if sensors.labels.is_empty() {
+                table.remove("labels");
+            } else if inline {
+                let labels: toml_edit::InlineTable = sensors
+                    .labels
+                    .iter()
+                    .map(|(k, v)| (k.as_str(), toml_edit::Value::from(v.as_str())))
+                    .collect();
+                table.insert("labels", toml_edit::value(labels));
+            } else {
+                let mut labels = toml_edit::Table::new();
+                for (key, name) in &sensors.labels {
+                    labels[key.as_str()] = toml_edit::value(name.as_str());
+                }
+                table.insert("labels", toml_edit::Item::Table(labels));
+            }
+            if table.is_empty() {
+                document.remove("sensors");
+            }
+            Ok(())
+        })
     }
 
     /// Display name of a fan: the user-defined label, or the driver/generic label.
@@ -526,6 +551,43 @@ impl Config {
     pub fn is_hidden(&self, key: &str) -> bool {
         self.sensors.hidden.iter().any(|k| k == key)
     }
+}
+
+/// Reads the configuration file at `path` (or an empty one), lets `edit`
+/// change it with comments and formatting kept, and writes it back if it
+/// still loads as a configuration (through a temporary file, so a crash
+/// never leaves a truncated file behind).
+fn edit_file(
+    path: &Path,
+    edit: impl FnOnce(&mut toml_edit::DocumentMut) -> Result<(), ConfigError>,
+) -> Result<(), ConfigError> {
+    let io_err = |source| ConfigError::Io {
+        path: path.to_owned(),
+        source,
+    };
+    let text = match fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => String::new(),
+        Err(err) => return Err(io_err(err)),
+    };
+    let mut document: toml_edit::DocumentMut =
+        text.parse().map_err(|source| ConfigError::Edit {
+            path: path.to_owned(),
+            source,
+        })?;
+    edit(&mut document)?;
+    let edited = document.to_string();
+    // Never write a file that rigtop itself could not load afterwards.
+    toml::from_str::<Config>(&edited).map_err(|source| ConfigError::Parse {
+        path: path.to_owned(),
+        source,
+    })?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(io_err)?;
+    }
+    let tmp = path.with_extension("toml.tmp");
+    fs::write(&tmp, edited).map_err(io_err)?;
+    fs::rename(&tmp, path).map_err(io_err)
 }
 
 #[cfg(test)]
@@ -676,6 +738,47 @@ interval_secs = 60
         Config::save_hosts(&path, &[]).unwrap();
         assert!(Config::load(&path).unwrap().hosts.is_empty());
         assert!(fs::read_to_string(&path).unwrap().contains("# keep me"));
+    }
+
+    #[test]
+    fn save_sensors_replaces_only_names_and_hidden_sensors() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("config.toml");
+        fs::write(
+            &path,
+            "# my settings\n[sensors]\nlabels = { \"a/fan1\" = \"CPU fan\" } # inline\n\n[[hosts]]\nname = \"zefat\"\n",
+        )
+        .unwrap();
+        let mut sensors = SensorConfig::default();
+        sensors
+            .labels
+            .insert("a/fan1".to_owned(), "CPU fan".to_owned());
+        sensors
+            .labels
+            .insert("b:c.1/temp2".to_owned(), "VRM".to_owned());
+        sensors.hidden.push("b:c.1/temp4".to_owned());
+        Config::save_sensors(&path, &sensors).unwrap();
+
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(text.contains("# my settings"), "{text}");
+        // Inline names stay inline.
+        assert!(text.contains("labels = {"), "{text}");
+        let config = Config::load(&path).unwrap();
+        assert_eq!(config.sensors, sensors);
+        assert_eq!(config.hosts[0].name, "zefat");
+
+        // Nothing left: the [sensors] table goes away.
+        Config::save_sensors(&path, &SensorConfig::default()).unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("[sensors]"), "{text}");
+        assert_eq!(Config::load(&path).unwrap().hosts.len(), 1);
+
+        // A new file gets a [sensors.labels] table.
+        let fresh = tmp.path().join("new.toml");
+        Config::save_sensors(&fresh, &sensors).unwrap();
+        let text = fs::read_to_string(&fresh).unwrap();
+        assert!(text.contains("[sensors.labels]"), "{text}");
+        assert_eq!(Config::load(&fresh).unwrap().sensors, sensors);
     }
 
     #[test]

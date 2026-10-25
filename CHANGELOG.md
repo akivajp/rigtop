@@ -18,6 +18,10 @@ include breaking changes).
   CPUs (96 °C), GPUs (85 °C) and drives (70 °C, from SMART or the NVMe
   sensor); 0 turns one off. Remote hosts are judged by the viewer's
   settings.
+- GUI: a "Sensors" window (the "sensors…" button under the CPU cores, or a
+  click on a sensor's name) lists every temperature and fan channel with its
+  reading, to name it or hide it; saved to `[sensors]` in the configuration
+  file with the rest of the file left as it was.
 
 ### Fixed
 - TUI: the CPU model no longer runs into the core grid next to the graph

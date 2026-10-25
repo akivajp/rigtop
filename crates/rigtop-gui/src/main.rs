@@ -15,6 +15,7 @@ mod lhm_setup;
 mod notify;
 mod overview;
 mod panels;
+mod sensors_dialog;
 mod widget_panel;
 mod widgets;
 

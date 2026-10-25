@@ -138,8 +138,12 @@ pub fn pane_contents(ui: &mut Ui, pane: Pane, state: &mut GuiState) {
     }
     match pane {
         Pane::Cpu => {
-            if cpu(ui, state) {
+            let requests = cpu(ui, state);
+            if requests.lhm_setup {
                 state.lhm_setup.open();
+            }
+            if requests.edit_sensors {
+                state.view_actions.push(ViewAction::EditSensors);
             }
         }
         Pane::Memory => memory(ui, state),
@@ -152,10 +156,18 @@ pub fn pane_contents(ui: &mut Ui, pane: Pane, state: &mut GuiState) {
 
 // ---------------------------------------------------------------- CPU
 
-/// Returns true when the LibreHardwareMonitor setup was asked for.
-fn cpu(ui: &mut Ui, state: &GuiState) -> bool {
+/// What the buttons of the CPU panel asked for.
+#[derive(Debug, Default)]
+struct CpuRequests {
+    /// The LibreHardwareMonitor setup (Windows).
+    lhm_setup: bool,
+    /// The window for naming and hiding sensors.
+    edit_sensors: bool,
+}
+
+fn cpu(ui: &mut Ui, state: &GuiState) -> CpuRequests {
     let Some(snapshot) = &state.snapshot else {
-        return false;
+        return CpuRequests::default();
     };
     let cpu = &snapshot.cpu;
     let area = ui.available_rect_before_wrap();
@@ -317,9 +329,8 @@ fn core_grid(ui: &Ui, rect: egui::Rect, cores: &[f32], mhz: &[u64]) -> f32 {
 }
 
 /// Load, temperatures, power and fans under the core grid.
-/// Returns true when the LibreHardwareMonitor setup was asked for.
-fn cpu_info(ui: &mut Ui, state: &GuiState, snapshot: &Snapshot) -> bool {
-    let mut setup = false;
+fn cpu_info(ui: &mut Ui, state: &GuiState, snapshot: &Snapshot) -> CpuRequests {
+    let mut requests = CpuRequests::default();
     let cpu = &snapshot.cpu;
     let config = &state.config;
     ui.horizontal_wrapped(|ui| {
@@ -340,8 +351,13 @@ fn cpu_info(ui: &mut Ui, state: &GuiState, snapshot: &Snapshot) -> bool {
             if config.is_hidden(&temp.key) {
                 continue;
             }
-            ui.label(dim(format!(" {}", config.temperature_label(temp))))
-                .on_hover_text(&temp.key);
+            if sensor_name(
+                ui,
+                &format!(" {}", config.temperature_label(temp)),
+                &temp.key,
+            ) {
+                requests.edit_sensors = true;
+            }
             ui.label(colored(
                 format!("{:.0}°C", temp.celsius),
                 temperature_color(temp.celsius),
@@ -352,8 +368,16 @@ fn cpu_info(ui: &mut Ui, state: &GuiState, snapshot: &Snapshot) -> bool {
                 .on_hover_text(lhm_help(error));
             // Setting up is possible only on this machine.
             if state.is_local && ui.small_button("set up…").clicked() {
-                setup = true;
+                requests.lhm_setup = true;
             }
+        }
+        if crate::sensors_dialog::has_sensors(snapshot)
+            && ui
+                .add(egui::Button::new(dim("sensors…")).frame(false))
+                .on_hover_text("name or hide temperature and fan sensors")
+                .clicked()
+        {
+            requests.edit_sensors = true;
         }
     });
     ui.horizontal_wrapped(|ui| {
@@ -382,12 +406,25 @@ fn cpu_info(ui: &mut Ui, state: &GuiState, snapshot: &Snapshot) -> bool {
         if !fans.is_empty() {
             ui.label(dim("   Fans"));
             for fan in fans {
-                ui.label(dim(config.fan_label(fan))).on_hover_text(&fan.key);
+                if sensor_name(ui, config.fan_label(fan), &fan.key) {
+                    requests.edit_sensors = true;
+                }
                 ui.label(format!("{} rpm", fan.rpm));
             }
         }
     });
-    setup
+    requests
+}
+
+/// A sensor's name; clicking it opens the sensor editor (returns true).
+fn sensor_name(ui: &mut Ui, name: &str, key: &str) -> bool {
+    let response = ui
+        .add(egui::Label::new(dim(name)).sense(Sense::click()))
+        .on_hover_text(format!("{key}\nclick to name or hide sensors"));
+    if response.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    response.clicked()
 }
 
 // ---------------------------------------------------------------- memory

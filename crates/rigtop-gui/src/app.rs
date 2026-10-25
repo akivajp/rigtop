@@ -8,7 +8,7 @@ use egui::{
     Color32, CornerRadius, FontId, Id, Margin, RichText, Sense, Stroke, TextStyle, Ui, Visuals,
 };
 use egui_tiles::{Container, SimplificationOptions, Tile, TileId, Tiles, Tree, UiResponse};
-use rigtop_core::config::{HostConfig, OverviewSection};
+use rigtop_core::config::{HostConfig, OverviewSection, SensorConfig};
 use rigtop_core::hosts::{HostKind, HostSpec, host_specs};
 use rigtop_core::remote::RemoteSource;
 use rigtop_core::view::{
@@ -22,6 +22,7 @@ use crate::lhm_setup::{self, LhmSetup};
 use crate::notify::{self, Notifier};
 use crate::overview;
 use crate::panels;
+use crate::sensors_dialog::{self, SensorsDialog};
 use crate::widget_panel;
 use crate::widgets::{self, BACKGROUND, BORDER, DIM, TEXT};
 
@@ -110,6 +111,8 @@ pub enum ViewAction {
     ToggleWidgets,
     /// Switch the graphs to the next time span.
     NextGraphSpan,
+    /// Open the window for naming and hiding sensors.
+    EditSensors,
 }
 
 /// Everything the panels read and modify.
@@ -326,6 +329,7 @@ pub struct RigtopApp {
     /// hosts get no worker.
     repaint: Option<egui::Context>,
     pub hosts_dialog: HostsDialog,
+    pub sensors_dialog: SensorsDialog,
     /// Desktop notifications for new alerts.
     notifier: Notifier,
     /// The widget column (`[[widgets]]`), empty without any.
@@ -410,6 +414,7 @@ impl RigtopApp {
             interval: Duration::from_secs(1),
             repaint: None,
             hosts_dialog: HostsDialog::default(),
+            sensors_dialog: SensorsDialog::default(),
             notifier,
             widgets: Vec::new(),
             show_widgets: true,
@@ -510,6 +515,29 @@ impl RigtopApp {
                     .report(format!("saved to {}", path.display()), true);
             }
             Err(err) => self.hosts_dialog.report(format!("not saved: {err}"), false),
+        }
+    }
+
+    /// Writes sensor names and hidden sensors to the configuration file and
+    /// applies them to every host.
+    fn save_sensors(&mut self, sensors: SensorConfig) {
+        let Some(path) = self.config_path.clone() else {
+            self.sensors_dialog
+                .report("no configuration file to save to".to_owned(), false);
+            return;
+        };
+        match Config::save_sensors(&path, &sensors) {
+            Ok(()) => {
+                for host in &mut self.hosts {
+                    host.state.config.sensors = sensors.clone();
+                }
+                self.config.sensors = sensors;
+                self.sensors_dialog
+                    .report(format!("saved to {}", path.display()), true);
+            }
+            Err(err) => self
+                .sensors_dialog
+                .report(format!("not saved: {err}"), false),
         }
     }
 
@@ -695,6 +723,7 @@ impl RigtopApp {
                 ViewAction::EditHosts => self.hosts_dialog.open(),
                 ViewAction::ToggleWidgets => self.show_widgets = !self.show_widgets,
                 ViewAction::NextGraphSpan => self.graph_span = self.graph_span.next(),
+                ViewAction::EditSensors => self.sensors_dialog.open(&self.config.sensors),
             }
         }
         let fixed = self.fixed_host_names();
@@ -706,6 +735,25 @@ impl RigtopApp {
             self.config_path.as_deref(),
         ) {
             self.save_hosts(hosts);
+        }
+        // The sensors of the host shown in detail.
+        let sensors = match self.view {
+            View::Host(index) => self.hosts[index]
+                .state
+                .snapshot
+                .as_ref()
+                .and_then(|snapshot| {
+                    sensors_dialog::show(
+                        &ctx,
+                        &mut self.sensors_dialog,
+                        snapshot,
+                        self.config_path.as_deref(),
+                    )
+                }),
+            View::Overview => None,
+        };
+        if let Some(sensors) = sensors {
+            self.save_sensors(sensors);
         }
 
         // The host shown in detail sends every process; the others only
@@ -1409,6 +1457,57 @@ mod tests {
         assert!(Config::load(&path).unwrap().hosts.is_empty());
         assert_eq!(harness.state().hosts.len(), 1);
         assert_eq!(harness.state().view, View::Host(0));
+    }
+
+    #[test]
+    fn sensors_window_names_and_hides_sensors() {
+        use egui::accesskit::Role;
+        use rigtop_core::snapshot::{Fan, SensorChip, Temperature};
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let mut snapshot = sample_snapshot();
+        snapshot.sensors = vec![SensorChip {
+            key: "nct6686:nct6683.2592".to_owned(),
+            name: "nct6686".to_owned(),
+            temperatures: vec![Temperature {
+                key: "nct6686:nct6683.2592/temp4".to_owned(),
+                label: "temp4".to_owned(),
+                celsius: -40.0,
+                ..Default::default()
+            }],
+            fans: vec![Fan {
+                key: "nct6686:nct6683.2592/fan2".to_owned(),
+                label: "fan2".to_owned(),
+                rpm: 1200,
+            }],
+        }];
+        let mut harness = harness_with(snapshot);
+        harness.state_mut().config_path = Some(path.clone());
+        harness.run();
+        harness.get_by_label("sensors…").click();
+        harness.run();
+        let fan_field = || {
+            egui_kittest::kittest::by()
+                .role(Role::TextInput)
+                .label("fan2")
+        };
+        harness.get(fan_field()).click();
+        harness.run();
+        harness.get(fan_field()).type_text("Pump ");
+        harness.run();
+        // The first channel is the unconnected thermistor: hide it.
+        harness.get_all_by_label("show").next().unwrap().click();
+        harness.run();
+        harness.get_by_label("save").click();
+        harness.run();
+
+        let saved = Config::load(&path).unwrap();
+        assert_eq!(saved.label_for("nct6686:nct6683.2592/fan2"), Some("Pump"));
+        assert!(saved.is_hidden("nct6686:nct6683.2592/temp4"));
+        // Applied at once: the fan shows under its new name.
+        assert_eq!(harness.state().primary().config.sensors, saved.sensors);
+        harness.get_by_label("Pump");
     }
 
     /// Renders the real machine to a PNG for visual checks:
