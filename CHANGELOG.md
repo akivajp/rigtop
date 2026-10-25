@@ -9,6 +9,9 @@ include breaking changes).
 
 ### Changed
 
+- Linux: collecting processes no longer refreshes every thread, which cut
+  the agent's CPU use to about a quarter on a desktop with thousands of
+  browser threads; thread counts now come from `/proc/<pid>/stat`
 - Remote hosts: when `rigtop` is not on the `PATH` of the SSH session,
   the default agent command falls back to `~/.cargo/bin/rigtop --agent`
 

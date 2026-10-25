@@ -13,6 +13,7 @@ pub mod mdstat;
 pub mod meminfo;
 pub mod mounts;
 pub mod net;
+pub mod procstat;
 pub mod rapl;
 
 use std::fs;

@@ -85,7 +85,11 @@ impl SystemCollector {
                 .with_cpu()
                 .with_memory()
                 .with_disk_usage()
-                .with_tasks()
+                // Tasks are on by default and make sysinfo refresh every
+                // thread as well (several /proc reads each), most of the
+                // collection time on busy desktops. Thread counts come from
+                // /proc/<pid>/stat on Linux instead.
+                .without_tasks()
                 .with_user(UpdateKind::OnlyIfNotSet)
                 .with_cmd(UpdateKind::OnlyIfNotSet),
         );
@@ -282,9 +286,9 @@ impl SystemCollector {
         self.system
             .processes()
             .values()
-            // On Linux, sysinfo also lists the threads of each process as
-            // entries; drop them. Kernel threads (kworker, ...) are kept and
-            // flagged, like btop does.
+            // With tasks refreshed, sysinfo would also list each thread as
+            // an entry; make sure none slip in. Kernel threads (kworker,
+            // ...) are kept and flagged, like btop does.
             .filter(|p| p.thread_kind() != Some(ThreadKind::Userland))
             .map(|p| {
                 let disk = p.disk_usage();
@@ -312,8 +316,9 @@ impl SystemCollector {
                     state: p.status().to_string(),
                     cpu_percent: p.cpu_usage(),
                     memory_bytes: p.memory(),
-                    // The task set includes the main thread itself.
-                    threads: p.tasks().map(|t| t.len().max(1) as u32),
+                    // Filled in from /proc/<pid>/stat on Linux; sysinfo has
+                    // no count without refreshing every thread.
+                    threads: None,
                     read_bytes_per_sec: rate(disk.read_bytes, elapsed_secs),
                     write_bytes_per_sec: rate(disk.written_bytes, elapsed_secs),
                     run_time_secs: p.run_time(),

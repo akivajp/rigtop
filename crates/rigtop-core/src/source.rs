@@ -271,6 +271,10 @@ impl LocalSource {
         self.net_links
             .annotate(&self.roots, &mut snapshot.networks, now);
         snapshot.raid.md = linux::mdstat::read_arrays(&self.roots);
+        // sysinfo no longer lists threads (see SystemCollector::refresh).
+        for process in &mut snapshot.processes {
+            process.threads = linux::procstat::thread_count(&self.roots, process.pid);
+        }
 
         snapshot.sensors = chips.into_iter().map(|c| c.chip).collect();
     }
