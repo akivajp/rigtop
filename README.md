@@ -171,6 +171,12 @@ SMART data and btrfs scrub results are readable only by root, and rigtop never r
 
 ```sh
 sudo apt install smartmontools   # Arch: sudo pacman -S smartmontools
+sudo "$(command -v rigtop)" --install-collector
+```
+
+`--install-collector` writes the script and the systemd units (the files in [`contrib/collect/`](contrib/collect/)), starts the timer and collects once right away; `--uninstall-collector` removes them and the collected files. The full path is needed because `sudo` usually does not search `~/.cargo/bin`. From a checkout, the same by hand:
+
+```sh
 sudo install -m 755 contrib/collect/rigtop-collect /usr/local/libexec/
 sudo install -m 644 contrib/collect/rigtop-collect.service contrib/collect/rigtop-collect.timer /etc/systemd/system/
 sudo systemctl daemon-reload

@@ -7,6 +7,12 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Added
+
+- `sudo rigtop --install-collector` sets up the root timer that collects
+  SMART data and btrfs scrub results (the files of `contrib/collect/` are
+  built in, so `cargo install` is enough); `--uninstall-collector` removes it
+
 ### Changed
 
 - btrfs: errors are reported per device name (`nvme0n1: 3`) instead of

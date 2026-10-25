@@ -5,6 +5,8 @@
 //! `rigtop --agent` streams the data, with an overview of all hosts.
 //! `--dump-json` prints one snapshot to check what the collectors see.
 
+#[cfg(target_os = "linux")]
+mod collector;
 mod tui;
 
 use std::io::{self, Write};
@@ -59,6 +61,17 @@ struct Cli {
     /// `rigtop --host` / `rigtop-gui --host` through SSH.
     #[arg(long, conflicts_with = "dump_json")]
     agent: bool,
+
+    /// Linux, as root: install and start the systemd timer that collects
+    /// SMART data and btrfs scrub results for rigtop every 10 minutes
+    /// (smartctl needs root). Use the full path with sudo, e.g.
+    /// `sudo "$(command -v rigtop)" --install-collector`.
+    #[arg(long, conflicts_with_all = ["agent", "dump_json", "hosts", "uninstall_collector"])]
+    install_collector: bool,
+
+    /// Linux, as root: stop and remove that timer and the data it wrote.
+    #[arg(long, conflicts_with_all = ["agent", "dump_json", "hosts"])]
+    uninstall_collector: bool,
 }
 
 fn main() -> Result<()> {
@@ -69,6 +82,17 @@ fn main() -> Result<()> {
             "--interval-ms must be at least {} ms",
             MIN_POLL_INTERVAL.as_millis()
         );
+    }
+
+    if cli.install_collector || cli.uninstall_collector {
+        #[cfg(target_os = "linux")]
+        return if cli.install_collector {
+            collector::install()
+        } else {
+            collector::uninstall()
+        };
+        #[cfg(not(target_os = "linux"))]
+        bail!("the collector is for Linux (SMART data comes from smartctl run by systemd)");
     }
 
     let config = match &cli.config {

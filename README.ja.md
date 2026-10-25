@@ -171,6 +171,12 @@ SMART と btrfs の scrub 結果は root しか読めません。rigtop 自身�
 
 ```sh
 sudo apt install smartmontools   # Arch 系: sudo pacman -S smartmontools
+sudo "$(command -v rigtop)" --install-collector
+```
+
+`--install-collector` はスクリプトと systemd のユニット（[`contrib/collect/`](contrib/collect/) のファイル）を配置し、タイマーを有効にして、その場で1回収集します。`--uninstall-collector` で、これらと集めたファイルを削除します。`sudo` は通常 `~/.cargo/bin` を探さないので、フルパスで実行してください。リポジトリを clone している場合は、手作業でも同じことができます。
+
+```sh
 sudo install -m 755 contrib/collect/rigtop-collect /usr/local/libexec/
 sudo install -m 644 contrib/collect/rigtop-collect.service contrib/collect/rigtop-collect.timer /etc/systemd/system/
 sudo systemctl daemon-reload

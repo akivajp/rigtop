@@ -3951,6 +3951,7 @@ dependencies = [
  "ratatui",
  "rigtop-core",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
