@@ -826,7 +826,7 @@ fn btrfs_health_line(fs: &BtrfsFilesystem, now_secs: u64) -> Line<'static> {
             .device_stats
             .iter()
             .filter(|d| d.total_errors() > 0)
-            .map(|d| format!("devid {}: {}", d.devid, d.total_errors()))
+            .map(|d| format!("{}: {}", d.label(), d.total_errors()))
             .collect();
         spans.push(colored(
             format!("errors {errors} ({})", detail.join(", ")),

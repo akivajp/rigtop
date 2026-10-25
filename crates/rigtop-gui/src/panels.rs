@@ -642,7 +642,7 @@ fn btrfs_rows(ui: &mut Ui, fs: &BtrfsFilesystem, now: u64) {
                 .device_stats
                 .iter()
                 .filter(|d| d.total_errors() > 0)
-                .map(|d| format!("devid {}: {}", d.devid, d.total_errors()))
+                .map(|d| format!("{}: {}", d.label(), d.total_errors()))
                 .collect();
             ui.label(colored(format!("errors {errors} ({})", detail.join(", ")), BAD));
         } else {

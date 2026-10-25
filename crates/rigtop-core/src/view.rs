@@ -196,9 +196,16 @@ pub fn alerts(snapshot: &Snapshot) -> Vec<Alert> {
         }
         let errors: u64 = fs.device_stats.iter().map(|d| d.total_errors()).sum();
         if errors > 0 {
+            // Which drives: the one to replace.
+            let devices: Vec<String> = fs
+                .device_stats
+                .iter()
+                .filter(|d| d.total_errors() > 0)
+                .map(|d| d.label())
+                .collect();
             add(
                 Severity::Critical,
-                format!("btrfs {name}: {errors} I/O errors"),
+                format!("btrfs {name}: {errors} I/O errors ({})", devices.join(", ")),
             );
         }
         if let Some(scrub) = &fs.scrub {
@@ -551,7 +558,7 @@ mod tests {
         assert_eq!(
             texts,
             vec![
-                "btrfs /: 2 I/O errors",
+                "btrfs /: 2 I/O errors (devid 1)",
                 "md0 (raid1) degraded",
                 "/data 92% full"
             ]

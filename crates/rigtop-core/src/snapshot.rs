@@ -434,10 +434,9 @@ pub struct BtrfsFilesystem {
     pub mount_points: Vec<String>,
     /// Member block devices (e.g. `"nvme0n1"`, `"nvme1n1p1"`).
     pub devices: Vec<String>,
-    /// Per-device error counters, keyed by btrfs device id.
-    ///
-    /// The kernel does not expose the devid-to-name mapping in sysfs, so this
-    /// list is not aligned with `devices`.
+    /// Per-device error counters, keyed by btrfs device id. Each carries its
+    /// device name when it could be looked up (see [`BtrfsDeviceStats::name`]);
+    /// the list is not aligned with `devices`.
     pub device_stats: Vec<BtrfsDeviceStats>,
     /// Allocation per block group type (data, metadata, system).
     pub allocations: Vec<BtrfsAllocation>,
@@ -482,6 +481,13 @@ impl BtrfsFilesystem {
 pub struct BtrfsDeviceStats {
     /// btrfs device id (1-based).
     pub devid: u64,
+    /// Device name (e.g. `"nvme0n1"`), from the `BTRFS_IOC_DEV_INFO` ioctl
+    /// on a mount point; empty when unknown (not mounted, device missing).
+    pub name: String,
+    /// Size of the device as btrfs uses it.
+    pub size_bytes: Option<u64>,
+    /// Space allocated on the device.
+    pub used_bytes: Option<u64>,
     /// Whether the device is missing from the filesystem.
     pub missing: bool,
     /// Write I/O errors.
@@ -497,6 +503,15 @@ pub struct BtrfsDeviceStats {
 }
 
 impl BtrfsDeviceStats {
+    /// Name for display: the device name, else `devid N`.
+    pub fn label(&self) -> String {
+        if self.name.is_empty() {
+            format!("devid {}", self.devid)
+        } else {
+            self.name.clone()
+        }
+    }
+
     /// Sum of all error counters.
     pub fn total_errors(&self) -> u64 {
         self.write_errs

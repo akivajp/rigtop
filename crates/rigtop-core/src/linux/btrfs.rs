@@ -8,6 +8,9 @@
 //! - `label`
 //! - `devices/<name>`: one symlink per member block device
 //! - `devinfo/<devid>/missing`, `devinfo/<devid>/error_stats`
+//!
+//! sysfs has no devid-to-name mapping, so device names come from the
+//! `BTRFS_IOC_DEV_INFO` ioctl on a mount point, which needs no root either.
 //! - `allocation/<data|metadata|system>/<profile>/{total_bytes,used_bytes}`
 //!
 //! Scrub results are not in sysfs: btrfs-progs keeps them in
@@ -15,7 +18,8 @@
 //! `contrib/collect/` copies that file to a world-readable directory; see
 //! [`read_scrub`].
 
-use std::fs;
+use std::fs::{self, File};
+use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 
 use super::mounts::MountEntry;
@@ -42,7 +46,7 @@ pub fn read_filesystems(roots: &SysRoots, mounts: &[MountEntry]) -> Vec<BtrfsFil
 
 fn read_filesystem(dir: &Path, fsid: String, mounts: &[MountEntry]) -> BtrfsFilesystem {
     let devices = sorted_entries(&dir.join("devices"));
-    let device_stats = sorted_entries(&dir.join("devinfo"))
+    let mut device_stats: Vec<BtrfsDeviceStats> = sorted_entries(&dir.join("devinfo"))
         .into_iter()
         .filter_map(|devid| read_device_stats(&dir.join("devinfo").join(&devid), &devid))
         .collect();
@@ -59,6 +63,10 @@ fn read_filesystem(dir: &Path, fsid: String, mounts: &[MountEntry]) -> BtrfsFile
         .collect();
     mount_points.sort_by_key(|m| (m.len(), m.clone()));
     mount_points.dedup();
+
+    if let Some(mount) = mount_points.first().and_then(|m| File::open(m).ok()) {
+        apply_dev_info(&mut device_stats, |devid| dev_info(&mount, devid));
+    }
 
     BtrfsFilesystem {
         label: read_trimmed(&dir.join("label")).unwrap_or_default(),
@@ -132,6 +140,70 @@ pub(crate) fn parse_scrub_status(text: &str) -> Option<BtrfsScrub> {
     }
     .to_owned();
     Some(scrub)
+}
+
+/// What `BTRFS_IOC_DEV_INFO` reports about one device.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct DevInfo {
+    /// Device path, e.g. `/dev/nvme0n1`.
+    pub path: String,
+    pub total_bytes: u64,
+    pub used_bytes: u64,
+}
+
+/// Fills names and sizes into `stats` from `lookup` (the ioctl, or a fake in
+/// tests). Devices it knows nothing about keep their `devid` label.
+pub(crate) fn apply_dev_info(
+    stats: &mut [BtrfsDeviceStats],
+    mut lookup: impl FnMut(u64) -> Option<DevInfo>,
+) {
+    for device in stats {
+        let Some(info) = lookup(device.devid) else {
+            continue;
+        };
+        // A missing device has no path.
+        if let Some(name) = Path::new(&info.path).file_name() {
+            device.name = name.to_string_lossy().into_owned();
+        }
+        device.size_bytes = Some(info.total_bytes);
+        device.used_bytes = Some(info.used_bytes);
+    }
+}
+
+/// `_IOWR(BTRFS_IOCTL_MAGIC = 0x94, 30, struct btrfs_ioctl_dev_info_args)`;
+/// the argument struct is 4096 bytes.
+const BTRFS_IOC_DEV_INFO: u32 = 0xD000_941E;
+/// Offsets in `struct btrfs_ioctl_dev_info_args` (linux/btrfs.h): devid,
+/// uuid[16], bytes_used, total_bytes, fsid[16], unused[377], path[1024].
+const DEV_INFO_SIZE: usize = 4096;
+const DEV_INFO_USED: usize = 24;
+const DEV_INFO_TOTAL: usize = 32;
+const DEV_INFO_PATH: usize = 3072;
+
+/// Asks the filesystem mounted at `mount` about device `devid`.
+fn dev_info(mount: &File, devid: u64) -> Option<DevInfo> {
+    let mut args = [0u8; DEV_INFO_SIZE];
+    args[..8].copy_from_slice(&devid.to_ne_bytes());
+    // SAFETY: the buffer has the size the request encodes, and the kernel
+    // only writes within it.
+    let result = unsafe {
+        libc::ioctl(
+            mount.as_raw_fd(),
+            BTRFS_IOC_DEV_INFO as _,
+            args.as_mut_ptr(),
+        )
+    };
+    if result != 0 {
+        return None;
+    }
+    let u64_at = |at: usize| u64::from_ne_bytes(args[at..at + 8].try_into().unwrap());
+    let path = &args[DEV_INFO_PATH..];
+    let end = path.iter().position(|&b| b == 0).unwrap_or(path.len());
+    Some(DevInfo {
+        path: String::from_utf8_lossy(&path[..end]).into_owned(),
+        total_bytes: u64_at(DEV_INFO_TOTAL),
+        used_bytes: u64_at(DEV_INFO_USED),
+    })
 }
 
 /// Reads `devinfo/<devid>`. Returns `None` for non-numeric entries.
@@ -318,5 +390,54 @@ acb6:2|data_bytes_scrubbed:2000|csum_errors:0|t_start:1792700005|duration:4000|c
             .collect();
         assert_eq!(profiles, vec![("data", "raid0"), ("metadata", "raid1c3")]);
         assert_eq!(fs.allocations[0].used_bytes, 900);
+    }
+
+    #[test]
+    fn device_names_come_from_dev_info() {
+        let mut stats: Vec<BtrfsDeviceStats> = (1..=3)
+            .map(|devid| BtrfsDeviceStats {
+                devid,
+                ..Default::default()
+            })
+            .collect();
+        apply_dev_info(&mut stats, |devid| match devid {
+            1 => Some(DevInfo {
+                path: "/dev/nvme2n1p1".to_owned(),
+                total_bytes: 2000,
+                used_bytes: 500,
+            }),
+            // A missing device: known to btrfs, without a path.
+            2 => Some(DevInfo {
+                path: String::new(),
+                total_bytes: 2000,
+                used_bytes: 0,
+            }),
+            _ => None,
+        });
+        assert_eq!(stats[0].label(), "nvme2n1p1");
+        assert_eq!(stats[0].size_bytes, Some(2000));
+        assert_eq!(stats[1].label(), "devid 2");
+        assert_eq!(stats[2].label(), "devid 3");
+        assert_eq!(stats[2].size_bytes, None);
+    }
+
+    /// The ioctl itself, where the root filesystem is btrfs (skipped
+    /// elsewhere, e.g. on CI).
+    #[test]
+    fn dev_info_on_a_real_btrfs_root() {
+        let mounts = fs::read_to_string("/proc/self/mounts").unwrap_or_default();
+        if !mounts
+            .lines()
+            .any(|l| l.split_whitespace().nth(1) == Some("/") && l.contains(" btrfs "))
+        {
+            return;
+        }
+        let root = File::open("/").unwrap();
+        let info = dev_info(&root, 1).expect("devid 1 of the root filesystem");
+        assert!(info.path.starts_with("/dev/"), "{info:?}");
+        assert!(
+            info.total_bytes > 0 && info.used_bytes <= info.total_bytes,
+            "{info:?}"
+        );
     }
 }

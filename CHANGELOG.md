@@ -7,6 +7,12 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Changed
+
+- btrfs: errors are reported per device name (`nvme0n1: 3`) instead of
+  btrfs device id, looked up with the `BTRFS_IOC_DEV_INFO` ioctl (no root
+  needed); alerts name the affected drives too
+
 ## [0.5.1] - 2026-10-26
 
 ### Fixed
