@@ -103,6 +103,8 @@ In the GUI, **hosts…** (in the tab bar, or in the CPU panel title while only t
 
 With more than one host, rigtop opens on an **overview** with one card per host, plus a tab per host (this machine included) for the full detail view. Cards show alerts (storage errors, failing SMART, degraded RAID, nearly full filesystems, hot GPUs) and then CPU, GPU, memory, the top processes, network and storage, in that order and as far as the card has room. Change the default order with `[overview] sections`, per host with `sections`, or in the GUI with each card's "sections" menu. Whether this machine gets a card is `[overview] include_local` (or the checkbox in the GUI, `l` in the TUI). In the TUI, `Tab` and `0`-`9` switch between the overview and the hosts.
 
+![rigtop-gui on Windows showing an overview of three hosts: the Windows machine itself, a Linux workstation with two GPUs and btrfs RAID, and a Linux laptop with its battery (process lists blurred)](docs/images/rigtop-gui-overview.png)
+
 rigtop starts `rigtop --agent` on each remote host through your system's `ssh` (the built-in OpenSSH client on Windows), so `~/.ssh/config`, keys and `ProxyJump` work as usual. There is no daemon to run and no port to open; the agent exits when the connection closes, and rigtop reconnects by itself. Hosts not shown in detail only send their top processes.
 
 - Authentication must work without a prompt (key or agent), and the host key must already be known: connect once with `ssh <host>` first.
@@ -142,6 +144,8 @@ What differs from Linux:
 - Temperatures, fans and CPU power need hardware drivers that Windows does not ship. rigtop reads them from [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor) when it is running (see below); otherwise only what Windows itself reports is shown, which is often nothing.
 - There is no load average and no disk busy percentage.
 - Windows has no signals: "kill" (`K`) ends the process immediately; "terminate" (`k`) asks the process's windows to close, like Task Manager's "End task", and reports when the process has no window (console programs, services).
+
+![rigtop-gui on Windows with CPU temperatures, fans and CPU power read through LibreHardwareMonitor, an NVIDIA GPU, drives and network](docs/images/rigtop-gui-windows.png)
 
 ### Temperatures, fans and CPU power with LibreHardwareMonitor
 
