@@ -20,7 +20,7 @@ eframe = { version = "0.37.0", features = ["persistence"] }
 egui = "0.37"
 egui_extras = "0.37.0"
 egui_tiles = { version = "0.18.0", features = ["serde"] }
-rigtop-core = { version = "0.6.0", path = "../rigtop-core" }
+rigtop-core = { version = "0.7.0", path = "../rigtop-core" }
 serde = { version = "1.0.229", features = ["derive"] }
 
 [dev-dependencies]
