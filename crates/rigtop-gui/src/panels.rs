@@ -109,7 +109,11 @@ pub fn pane_contents(ui: &mut Ui, pane: Pane, state: &mut GuiState) {
         return;
     }
     match pane {
-        Pane::Cpu => cpu(ui, state),
+        Pane::Cpu => {
+            if cpu(ui, state) {
+                state.lhm_setup.open();
+            }
+        }
         Pane::Memory => memory(ui, state),
         Pane::Gpu => gpus(ui, state),
         Pane::Storage => storage(ui, state),
@@ -120,9 +124,10 @@ pub fn pane_contents(ui: &mut Ui, pane: Pane, state: &mut GuiState) {
 
 // ---------------------------------------------------------------- CPU
 
-fn cpu(ui: &mut Ui, state: &GuiState) {
+/// Returns true when the LibreHardwareMonitor setup was asked for.
+fn cpu(ui: &mut Ui, state: &GuiState) -> bool {
     let Some(snapshot) = &state.snapshot else {
-        return;
+        return false;
     };
     let cpu = &snapshot.cpu;
     // Two wrapped label rows; labels are a little taller than ROW_HEIGHT.
@@ -163,7 +168,7 @@ fn cpu(ui: &mut Ui, state: &GuiState) {
         area.max,
     );
     let mut info = ui.new_child(egui::UiBuilder::new().max_rect(info_rect));
-    cpu_info(&mut info, state, snapshot);
+    cpu_info(&mut info, state, snapshot)
 }
 
 /// Layout of the per-core grid in a `width` x `height` area.
@@ -261,7 +266,9 @@ fn core_grid(ui: &Ui, rect: egui::Rect, cores: &[f32], mhz: &[u64]) -> f32 {
 }
 
 /// Load, temperatures, power and fans under the core grid.
-fn cpu_info(ui: &mut Ui, state: &GuiState, snapshot: &Snapshot) {
+/// Returns true when the LibreHardwareMonitor setup was asked for.
+fn cpu_info(ui: &mut Ui, state: &GuiState, snapshot: &Snapshot) -> bool {
+    let mut setup = false;
     let cpu = &snapshot.cpu;
     let config = &state.config;
     ui.horizontal_wrapped(|ui| {
@@ -292,6 +299,10 @@ fn cpu_info(ui: &mut Ui, state: &GuiState, snapshot: &Snapshot) {
         if let Some(error) = &snapshot.lhm_error {
             ui.label(colored(LHM_HINT, WARN))
                 .on_hover_text(lhm_help(error));
+            // Setting up is possible only on this machine.
+            if state.is_local && ui.small_button("set up…").clicked() {
+                setup = true;
+            }
         }
     });
     ui.horizontal_wrapped(|ui| {
@@ -319,6 +330,7 @@ fn cpu_info(ui: &mut Ui, state: &GuiState, snapshot: &Snapshot) {
             }
         }
     });
+    setup
 }
 
 // ---------------------------------------------------------------- memory

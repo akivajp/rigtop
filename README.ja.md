@@ -122,6 +122,8 @@ Linux との違い:
 
 ### LibreHardwareMonitor で温度・ファン・CPU の消費電力を表示する
 
+`rigtop-gui` では、CPU パネルの案内の横にある **set up…** が下の手順 1〜3 を代行します。必要なら winget で LibreHardwareMonitor を導入し、Web サーバーをこの PC からだけ接続できる形（127.0.0.1）で有効にして起動します。手作業で行う場合:
+
 1. CPU のセンサーに要る PawnIO ドライバと一緒に導入します（ドライバの導入で管理者の承認を求められます）。
    ```powershell
    winget install LibreHardwareMonitor.LibreHardwareMonitor

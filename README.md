@@ -122,6 +122,8 @@ What differs from Linux:
 
 ### Temperatures, fans and CPU power with LibreHardwareMonitor
 
+In `rigtop-gui`, **set up…** next to the note in the CPU panel does steps 1 to 3 for you: it installs LibreHardwareMonitor with winget if needed, turns its web server on for this computer only (127.0.0.1) and starts it. By hand:
+
 1. Install it, together with the PawnIO driver it needs for CPU sensors (Windows asks for administrator approval for the driver):
    ```powershell
    winget install LibreHardwareMonitor.LibreHardwareMonitor

@@ -18,6 +18,7 @@ use rigtop_core::worker::{Command, Event, Worker};
 use rigtop_core::{Config, DataSource, LocalSource, ProcessSignal, Snapshot};
 
 use crate::hosts_dialog::{self, HostsDialog};
+use crate::lhm_setup::{self, LhmSetup};
 use crate::overview;
 use crate::panels;
 use crate::widgets::{self, BACKGROUND, BORDER, DIM, TEXT};
@@ -126,6 +127,11 @@ pub struct GuiState {
     pub last_update: Option<Instant>,
     /// Whether the CPU panel title shows zoom buttons (single-host mode).
     pub show_zoom: bool,
+    /// Whether this is the machine rigtop runs on (setup offers apply only
+    /// to it).
+    pub is_local: bool,
+    /// The LibreHardwareMonitor setup window (Windows).
+    pub lhm_setup: LhmSetup,
     status: Option<(String, Instant)>,
 }
 
@@ -148,6 +154,8 @@ impl GuiState {
             connection_error: None,
             last_update: None,
             show_zoom: true,
+            is_local: false,
+            lhm_setup: LhmSetup::default(),
             status: None,
         }
     }
@@ -384,10 +392,12 @@ impl RigtopApp {
                 move || repaint.request_repaint(),
             )
         });
+        let mut state = GuiState::new(self.config.clone());
+        state.is_local = spec.is_local();
         HostEntry {
             spec,
             worker,
-            state: GuiState::new(self.config.clone()),
+            state,
             sent_limit: None,
         }
     }
@@ -590,6 +600,7 @@ impl RigtopApp {
             });
         if let View::Host(index) = self.view {
             panels::confirm_dialog(ui.ctx(), &mut self.hosts[index].state);
+            lhm_setup::dialog(ui.ctx(), &mut self.hosts[index].state);
         }
 
         for action in actions {
@@ -1143,6 +1154,43 @@ mod tests {
                 .next()
                 .is_some()
         );
+    }
+
+    #[test]
+    fn librehardwaremonitor_setup_window() {
+        let mut snapshot = sample_snapshot();
+        snapshot.lhm_error = Some("127.0.0.1:8085: connection refused".to_owned());
+        let mut harness = harness_with(snapshot.clone());
+        harness.run();
+        harness.get_by_label("set up…").click();
+        harness.run();
+        assert!(harness.query_by_label_contains("127.0.0.1:8085").is_some());
+        harness.get_by_label("Set up").click();
+        // The steps run in a thread; outside Windows they fail at once.
+        for _ in 0..50 {
+            harness.run();
+            if harness.query_by_label_contains("for Windows").is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(harness.query_by_label_contains("for Windows").is_some());
+        harness.get_by_label("Close").click();
+        harness.run();
+        assert!(harness.query_by_label("Set up").is_none());
+
+        // Already running: only where to switch the web server on.
+        snapshot.processes.push(rigtop_core::snapshot::ProcessInfo {
+            pid: 4242,
+            name: "LibreHardwareMonitor.exe".to_owned(),
+            ..Default::default()
+        });
+        let mut harness = harness_with(snapshot);
+        harness.run();
+        harness.get_by_label("set up…").click();
+        harness.run();
+        assert!(harness.query_by_label_contains("is running").is_some());
+        assert!(harness.query_by_label("Set up").is_none());
     }
 
     #[test]
