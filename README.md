@@ -149,7 +149,7 @@ Both `rigtop` and `rigtop-gui` run on Windows (see [Installation](#installation)
 What differs from Linux:
 
 - CPU load, memory, processes, network (with link speeds), drive capacity and per-drive I/O, and NVIDIA GPUs (via `nvml.dll` from the driver) work without extra software.
-- Temperatures, fans and CPU power need hardware drivers that Windows does not ship. rigtop reads them from [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor) when it is running (see below); otherwise only what Windows itself reports is shown, which is often nothing.
+- Temperatures, fans, CPU power and drive health (wear, spare capacity, temperature) need hardware drivers that Windows does not ship. rigtop reads them from [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor) when it is running (see below); otherwise only what Windows itself reports is shown, which is often nothing. Drives are named `disk0`, `disk1`... as in Disk Management.
 - There is no load average and no disk busy percentage.
 - Windows has no signals: "kill" (`K`) ends the process immediately; "terminate" (`k`) asks the process's windows to close, like Task Manager's "End task", and reports when the process has no window (console programs, services).
 

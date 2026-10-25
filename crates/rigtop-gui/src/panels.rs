@@ -584,7 +584,14 @@ fn storage(ui: &mut Ui, state: &GuiState) {
                     .any(|d| device_matches_disk(&s.device, &d.name))
             }) {
                 ui.horizontal(|ui| {
-                    ui.add_sized([70.0, ROW_HEIGHT], egui::Label::new(&smart.device));
+                    let label = ui.add_sized([70.0, ROW_HEIGHT], egui::Label::new(&smart.device));
+                    if !smart.model.is_empty() {
+                        label.on_hover_text(&smart.model);
+                    }
+                    // No disk row shows this drive's temperature, so show it here.
+                    if let Some(t) = smart.temperature_c {
+                        ui.label(colored(format!("{t:.0}°C"), temperature_color(t)));
+                    }
                     smart_labels(ui, smart, now);
                 });
             }

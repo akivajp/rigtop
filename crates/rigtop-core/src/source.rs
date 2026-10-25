@@ -235,6 +235,9 @@ impl LocalSource {
                         snapshot.cpu.temperatures = lhm.cpu_temperatures;
                     }
                     snapshot.power.cpu_package_w = lhm.cpu_package_w;
+                    if !lhm.smart.is_empty() {
+                        snapshot.smart = lhm.smart;
+                    }
                 }
                 None => snapshot.lhm_error = self.lhm.problem().map(str::to_owned),
             }

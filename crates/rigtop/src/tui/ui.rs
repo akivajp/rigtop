@@ -746,6 +746,10 @@ fn storage_lines(snapshot: &Snapshot, width: u16) -> Vec<Line<'static>> {
             .any(|d| device_matches_disk(&s.device, &d.name))
     }) {
         let mut spans = vec![Span::raw(format::pad(&smart.device, 8))];
+        // No disk row shows this drive's temperature, so show it here.
+        if let Some(t) = smart.temperature_c {
+            spans.push(colored(format!(" {t:.0}°C"), temperature_color(t)));
+        }
         spans.extend(smart_spans(smart, now_secs));
         lines.push(Line::from(spans));
     }

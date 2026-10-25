@@ -7,6 +7,13 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Added
+
+- Windows: drive health from LibreHardwareMonitor (wear, spare capacity,
+  temperature, power-on hours) in the SMART rows, as `disk0`, `disk1`...
+  like Disk Management; drives without a disk row also show their
+  temperature (and the model on hover in the GUI)
+
 ### Changed
 
 - NVIDIA: per-process GPU utilization, the costliest NVML query (about

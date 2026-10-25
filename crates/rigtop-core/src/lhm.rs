@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 
-use crate::snapshot::{Fan, SensorChip, Temperature};
+use crate::snapshot::{Fan, SensorChip, SmartDevice, Temperature};
 
 /// How long to wait for LHM before giving up on this sample.
 const TIMEOUT: Duration = Duration::from_millis(800);
@@ -40,6 +40,8 @@ pub struct LhmReadings {
     pub cpu_temperatures: Vec<Temperature>,
     /// CPU package power.
     pub cpu_package_w: Option<f32>,
+    /// Drive health, from LHM's storage sensors (SMART read by its driver).
+    pub smart: Vec<SmartDevice>,
 }
 
 /// Polls LHM's web server, backing off while it is unreachable.
@@ -168,9 +170,6 @@ fn walk<'a>(node: &'a Node, ancestors: &mut Vec<&'a Node>, out: &mut LhmReadings
 
 fn add_sensor(sensor: &Node, ancestors: &[&Node], out: &mut LhmReadings) {
     let group = ancestors.last().copied();
-    let Some(kind) = Kind::of(sensor, group) else {
-        return;
-    };
     let Some(value) = sensor_value(sensor) else {
         return;
     };
@@ -185,6 +184,12 @@ fn add_sensor(sensor: &Node, ancestors: &[&Node], out: &mut LhmReadings) {
         return;
     };
     let hardware_id = hardware.hardware_id.as_deref().unwrap_or(&hardware.text);
+    if let Some((transport, number)) = storage_disk(hardware_id) {
+        add_storage_sensor(out, &hardware.text, transport, number, &sensor.text, value);
+    }
+    let Some(kind) = Kind::of(sensor, group) else {
+        return;
+    };
     // NVML reports NVIDIA GPUs in more detail.
     if hardware_id.starts_with("/gpu-nvidia") {
         return;
@@ -237,6 +242,64 @@ fn add_sensor(sensor: &Node, ancestors: &[&Node], out: &mut LhmReadings) {
             rpm: value.max(0.0).round() as u32,
         }),
         Kind::Power => {}
+    }
+}
+
+/// A drive's hardware id, `/nvme/0` or `/ata/1`: its transport and Windows
+/// disk number. `None` for other hardware (and virtual disks).
+fn storage_disk(hardware_id: &str) -> Option<(&str, &str)> {
+    let mut parts = hardware_id.trim_start_matches('/').split('/');
+    let (transport, number) = (parts.next()?, parts.next()?);
+    let known = matches!(
+        transport,
+        "nvme" | "ata" | "ahci" | "scsi" | "sas" | "raid" | "usb" | "sd" | "mmc" | "disk"
+    );
+    (known && parts.next().is_none()).then_some((transport, number))
+}
+
+/// Folds one storage sensor into the drive's [`SmartDevice`], named
+/// `disk<N>` like Disk Management's "Disk N".
+fn add_storage_sensor(
+    out: &mut LhmReadings,
+    model: &str,
+    transport: &str,
+    number: &str,
+    sensor: &str,
+    value: f64,
+) {
+    let device = format!("disk{number}");
+    let index = match out.smart.iter().position(|d| d.device == device) {
+        Some(index) => index,
+        None => {
+            out.smart.push(SmartDevice {
+                protocol: match transport {
+                    "nvme" => "NVMe".to_owned(),
+                    "ata" | "ahci" => "ATA".to_owned(),
+                    other => other.to_uppercase(),
+                },
+                device,
+                model: model.to_owned(),
+                ..Default::default()
+            });
+            out.smart.len() - 1
+        }
+    };
+    let drive = &mut out.smart[index];
+    let whole = value.max(0.0).round();
+    match sensor {
+        "Temperature" => drive.temperature_c = Some(value as f32),
+        "Power On Hours" => drive.power_on_hours = Some(whole as u64),
+        // "Life" is the remaining share; NVMe's own "Percentage Used" (listed
+        // after it) replaces this estimate.
+        "Life" | "Remaining Life" => {
+            drive.percentage_used = Some((100.0 - whole).max(0.0) as u32);
+        }
+        "Percentage Used" => drive.percentage_used = Some(whole as u32),
+        "Available Spare" => drive.available_spare_percent = Some(whole as u32),
+        "Available Spare Threshold" => {
+            drive.available_spare_threshold_percent = Some(whole as u32);
+        }
+        _ => {}
     }
 }
 
@@ -418,6 +481,59 @@ mod tests {
         assert_eq!(board.temperatures[0].label, "System");
         // The CPU chip keeps LHM's full names.
         assert_eq!(readings.chips[0].temperatures[0].label, "Core (Tctl/Tdie)");
+    }
+
+    #[test]
+    fn storage_sensors_become_smart_devices() {
+        let sensor = |id: &str, kind: &str, name: &str, value: f64| {
+            format!(
+                r#"{{"Text":"{name}","SensorId":"{id}","Type":"{kind}","Value":"","RawValue":{value},"Children":[]}}"#
+            )
+        };
+        let body = format!(
+            r#"{{"Text":"Sensor","Children":[{{"Text":"PC","Children":[
+              {{"Text":"Samsung SSD 990 PRO 2TB","HardwareId":"/nvme/0","Children":[
+                {{"Text":"Temperatures","Children":[{}]}},
+                {{"Text":"Levels","Children":[{},{},{},{}]}},
+                {{"Text":"Factors","Children":[{}]}}]}},
+              {{"Text":"Crucial MX500","HardwareId":"/ata/1","Children":[
+                {{"Text":"Levels","Children":[{}]}}]}},
+              {{"Text":"Msft Virtual Disk","HardwareId":"/virtual/2","Children":[
+                {{"Text":"Levels","Children":[{}]}}]}}]}}]}}"#,
+            sensor("/nvme/0/temperature/0", "Temperature", "Temperature", 41.0),
+            sensor("/nvme/0/level/20", "Level", "Life", 97.0),
+            sensor("/nvme/0/level/25", "Level", "Available Spare", 100.0),
+            sensor(
+                "/nvme/0/level/26",
+                "Level",
+                "Available Spare Threshold",
+                10.0
+            ),
+            sensor("/nvme/0/level/27", "Level", "Percentage Used", 3.0),
+            sensor("/nvme/0/factor/24", "Factor", "Power On Hours", 1234.0),
+            sensor("/ata/1/level/20", "Level", "Life", 88.0),
+            sensor("/virtual/2/level/20", "Level", "Life", 100.0),
+        );
+        let readings = parse(body.as_bytes()).unwrap();
+        assert_eq!(readings.smart.len(), 2, "virtual disks are left out");
+        let nvme = &readings.smart[0];
+        assert_eq!(nvme.device, "disk0");
+        assert_eq!(nvme.protocol, "NVMe");
+        assert_eq!(nvme.model, "Samsung SSD 990 PRO 2TB");
+        assert_eq!(nvme.temperature_c, Some(41.0));
+        assert_eq!(nvme.percentage_used, Some(3));
+        assert_eq!(nvme.available_spare_percent, Some(100));
+        assert_eq!(nvme.available_spare_threshold_percent, Some(10));
+        assert_eq!(nvme.power_on_hours, Some(1234));
+        assert!(!nvme.needs_attention());
+        let sata = &readings.smart[1];
+        assert_eq!(
+            (sata.device.as_str(), sata.protocol.as_str()),
+            ("disk1", "ATA")
+        );
+        assert_eq!(sata.percentage_used, Some(12), "100 - life");
+        // The drive temperature still shows as a sensor chip too.
+        assert!(readings.chips.iter().any(|c| c.key == "lhm:/nvme/0"));
     }
 
     #[test]
