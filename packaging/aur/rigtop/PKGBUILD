@@ -1,0 +1,48 @@
+# Maintainer: Akiva Miura <akiva.miura@gmail.com>
+
+pkgname=rigtop
+pkgver=0.6.0
+pkgrel=1
+pkgdesc='btop-inspired system monitor (TUI and native GUI) with storage health, GPU usage and multi-host monitoring over SSH'
+arch=('x86_64' 'aarch64')
+url='https://github.com/akivajp/rigtop'
+license=('MIT OR Apache-2.0')
+# The GUI loads its windowing and graphics libraries at run time.
+depends=('gcc-libs' 'glibc' 'libxkbcommon' 'vulkan-icd-loader' 'wayland'
+         'libx11' 'libxcursor' 'libxi' 'libxrandr')
+makedepends=('cargo')
+optdepends=('smartmontools: SMART data (set up with sudo rigtop --install-collector)'
+            'iw: Wi-Fi signal and link rate'
+            'nvidia-utils: NVIDIA GPUs'
+            'openssh: monitoring remote hosts')
+options=('!lto')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz")
+sha256sums=('7e4d1d35f710d199536a24eca0af0f786593929a433733d383b2e990ef39d977')
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo build --frozen --release -p rigtop -p rigtop-gui
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  # The GUI's tests render with a GPU, which build environments lack.
+  cargo test --frozen -p rigtop-core -p rigtop
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm755 target/release/rigtop target/release/rigtop-gui -t "$pkgdir/usr/bin/"
+  install -Dm644 README.md README.ja.md CHANGELOG.md -t "$pkgdir/usr/share/doc/$pkgname/"
+  install -Dm644 LICENSE-MIT LICENSE-APACHE -t "$pkgdir/usr/share/licenses/$pkgname/"
+}
