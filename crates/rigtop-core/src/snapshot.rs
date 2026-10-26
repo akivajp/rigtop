@@ -89,6 +89,10 @@ pub struct HostInfo {
     pub kernel: String,
     /// Seconds since boot.
     pub uptime_secs: u64,
+    /// Version of the rigtop that took the snapshot (the agent's, for a
+    /// remote host). Agents before 0.9.1 leave it out; the remote source
+    /// fills it in from the agent's greeting.
+    pub rigtop_version: String,
 }
 
 /// CPU-wide and per-core statistics.

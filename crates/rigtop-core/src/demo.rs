@@ -529,6 +529,7 @@ fn workstation(t: f64) -> Snapshot {
             os: "Linux (Ubuntu 26.04)".to_owned(),
             kernel: "7.0.0-38-generic".to_owned(),
             uptime_secs: 9 * 86_400 + 4 * 3600 + t as u64,
+            rigtop_version: env!("CARGO_PKG_VERSION").to_owned(),
         },
         cpu: CpuStats {
             model: "AMD Ryzen 9 9950X3D 16-Core Processor".to_owned(),
@@ -740,6 +741,8 @@ fn laptop(t: f64) -> Snapshot {
             os: "Linux (CachyOS)".to_owned(),
             kernel: "7.0.2-cachyos".to_owned(),
             uptime_secs: 8 * 86_400 + 10 * 3600 + t as u64,
+            // An agent nobody updated yet.
+            rigtop_version: "0.8.2".to_owned(),
         },
         cpu: CpuStats {
             model: "AMD Ryzen 7 PRO 7840U w/ Radeon 780M Graphics".to_owned(),
@@ -892,6 +895,7 @@ fn nas(t: f64) -> Snapshot {
             os: "Linux (Debian 13)".to_owned(),
             kernel: "6.12.48-amd64".to_owned(),
             uptime_secs: 41 * 86_400 + t as u64,
+            rigtop_version: env!("CARGO_PKG_VERSION").to_owned(),
         },
         cpu: CpuStats {
             model: "Intel(R) Celeron(R) N5105 @ 2.00GHz".to_owned(),

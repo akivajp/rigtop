@@ -57,11 +57,16 @@ pub fn title_extras(ui: &mut Ui, pane: Pane, state: &mut GuiState) {
             let host = &snapshot.host;
             let uptime = format!("up {}", format::duration(host.uptime_secs));
             let hostname = host.hostname.clone();
+            let version = rigtop_core::view::version_note(snapshot)
+                .map(|note| (note, rigtop_core::view::version_hint(snapshot)));
             let title_end = ui.cursor().left();
             let controls_start = ui
                 .with_layout(Layout::right_to_left(Align::Center), |ui| {
                     ui.label(dim(uptime));
                     ui.label(colored(hostname, TEXT));
+                    if let Some((note, hint)) = version {
+                        ui.label(colored(note, WARN)).on_hover_text(hint);
+                    }
                     ui.add_space(12.0);
                     view_controls(ui, state);
                     ui.min_rect().left()

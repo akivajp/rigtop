@@ -410,6 +410,24 @@ impl AlertLog {
     }
 }
 
+/// "agent 0.8.2" when `snapshot` comes from a rigtop of another version
+/// than this one (an agent not updated yet), else `None`.
+pub fn version_note(snapshot: &Snapshot) -> Option<String> {
+    let version = &snapshot.host.rigtop_version;
+    (!version.is_empty() && version != env!("CARGO_PKG_VERSION"))
+        .then(|| format!("agent {version}"))
+}
+
+/// Hover text explaining a [`version_note`].
+pub fn version_hint(snapshot: &Snapshot) -> String {
+    format!(
+        "this host runs rigtop {}, this machine {}: install the same version on both \
+         for every reading",
+        snapshot.host.rigtop_version,
+        env!("CARGO_PKG_VERSION")
+    )
+}
+
 /// [`alerts_with`] the default thresholds.
 pub fn alerts(snapshot: &Snapshot) -> Vec<Alert> {
     alerts_with(snapshot, &AlertsConfig::default())
@@ -925,6 +943,17 @@ mod tests {
         assert_eq!(alerts[0].severity, Severity::Critical);
         assert_eq!(alerts[2].severity, Severity::Warning);
         assert!(super::alerts(&Snapshot::default()).is_empty());
+    }
+
+    #[test]
+    fn version_notes_only_for_other_versions() {
+        let mut snapshot = Snapshot::default();
+        assert_eq!(version_note(&snapshot), None);
+        snapshot.host.rigtop_version = env!("CARGO_PKG_VERSION").to_owned();
+        assert_eq!(version_note(&snapshot), None);
+        snapshot.host.rigtop_version = "0.1.0".to_owned();
+        assert_eq!(version_note(&snapshot).as_deref(), Some("agent 0.1.0"));
+        assert!(version_hint(&snapshot).contains("rigtop 0.1.0"));
     }
 
     #[test]

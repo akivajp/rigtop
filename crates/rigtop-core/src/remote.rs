@@ -218,6 +218,8 @@ pub struct RemoteSource {
     process_limit: Option<usize>,
     /// Snapshots received while waiting for something else (signal results).
     pending: VecDeque<Snapshot>,
+    /// rigtop version from the agent's greeting.
+    agent_version: String,
     /// Why the last connection failed, repeated while waiting to retry.
     last_error: Option<String>,
     /// Whether to start the agent with the fallback command.
@@ -236,6 +238,7 @@ impl RemoteSource {
             interval: Duration::from_secs(1),
             process_limit: None,
             pending: VecDeque::new(),
+            agent_version: String::new(),
             last_error: None,
             use_fallback: false,
             retry_now: false,
@@ -346,8 +349,16 @@ impl RemoteSource {
                 self.last_attempt = Some(Instant::now());
                 Err(self.disconnect(Some(reason)))
             }
-            AgentMessage::Hello { .. } | AgentMessage::SignalResult { .. } => Ok(()),
-            AgentMessage::Snapshot { snapshot } => {
+            AgentMessage::Hello { version, .. } => {
+                self.agent_version = version;
+                Ok(())
+            }
+            AgentMessage::SignalResult { .. } => Ok(()),
+            AgentMessage::Snapshot { mut snapshot } => {
+                // Agents before 0.9.1 do not put their version in snapshots.
+                if snapshot.host.rigtop_version.is_empty() {
+                    snapshot.host.rigtop_version = self.agent_version.clone();
+                }
                 if let Some(connection) = self.connection.as_mut() {
                     connection.established = true;
                 }
@@ -556,5 +567,30 @@ mod tests {
         });
         let err = source.poll().unwrap_err().to_string();
         assert!(err.contains("protocol 999"), "{err}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn old_agents_get_their_version_from_the_greeting() {
+        // An agent before 0.9.1: no version in its snapshots.
+        let mut source = RemoteSource::new(RemoteTarget {
+            name: "old".to_owned(),
+            program: "sh".to_owned(),
+            args: vec![
+                "-c".to_owned(),
+                r#"echo '{"type":"hello","protocol":1,"version":"0.8.2"}'
+                   echo '{"type":"snapshot","snapshot":{"host":{"hostname":"nas"}}}'
+                   sleep 5"#
+                    .to_owned(),
+            ],
+            fallback_args: None,
+        });
+        let snapshot = source.poll().unwrap();
+        assert_eq!(snapshot.host.hostname, "nas");
+        assert_eq!(snapshot.host.rigtop_version, "0.8.2");
+        assert_eq!(
+            crate::view::version_note(&snapshot).as_deref(),
+            Some("agent 0.8.2")
+        );
     }
 }

@@ -104,6 +104,7 @@ impl SystemCollector {
             os: System::long_os_version().unwrap_or_default(),
             kernel: System::kernel_version().unwrap_or_default(),
             uptime_secs: System::uptime(),
+            rigtop_version: env!("CARGO_PKG_VERSION").to_owned(),
         }
     }
 

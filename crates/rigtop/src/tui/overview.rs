@@ -176,6 +176,9 @@ fn draw_host_box(frame: &mut Frame, area: Rect, host: &HostTui, processes: usize
         if snapshot.host.hostname != host.spec.name {
             title_right.push(dim(format!(" {}", snapshot.host.hostname)));
         }
+        if let Some(note) = rigtop_core::view::version_note(snapshot) {
+            title_right.push(colored(format!(" {note}"), WARN));
+        }
         title_right.push(dim(format!(
             " up {} ",
             format::duration(snapshot.host.uptime_secs)

@@ -164,6 +164,7 @@ rigtop starts `rigtop --agent` on each remote host through your system's `ssh` (
 - Authentication must work without a prompt (key or agent), and the host key must already be known: connect once with `ssh <host>` first.
 - Non-interactive SSH sessions often lack `~/.cargo/bin` on their `PATH` (zsh reads only `~/.zshenv` for them, bash usually nothing). When `rigtop` is not found there, rigtop tries `~/.cargo/bin/rigtop --agent` by itself. For other locations, set `command` for the host (or `--remote-command` for `--host`).
 - Killing processes on a remote host uses the SSH user's permissions.
+- A host whose rigtop is another version than yours says so in its title (`agent 0.8.2`); newer readings appear once it is updated.
 
 ## Linux
 

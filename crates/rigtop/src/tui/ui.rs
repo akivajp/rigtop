@@ -368,11 +368,18 @@ fn draw_cpu(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect, layou
             .centered(),
         )
         .title_top(
-            Line::from(vec![
-                dim(" "),
-                colored(host.hostname.clone(), Color::White),
-                dim(format!(" up {} ", format::duration(host.uptime_secs))),
-            ])
+            Line::from(
+                [
+                    rigtop_core::view::version_note(snapshot)
+                        .map(|note| colored(format!(" {note}"), WARN)),
+                    Some(dim(" ")),
+                    Some(colored(host.hostname.clone(), Color::White)),
+                    Some(dim(format!(" up {} ", format::duration(host.uptime_secs)))),
+                ]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>(),
+            )
             .right_aligned(),
         );
     let inner = block.inner(area);

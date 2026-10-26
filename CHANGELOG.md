@@ -17,6 +17,10 @@ include breaking changes).
 - An application icon: in the Windows executable (Explorer, Start menu),
   the GUI window, and the Debian package's desktop entry
   (`crates/rigtop-gui/assets/rigtop.svg`).
+- Remote hosts running another rigtop version show it in their title
+  (`agent 0.8.2`, with a hint to update) in the TUI and the GUI. Snapshots
+  carry the version of the rigtop that took them; for older agents it comes
+  from their greeting.
 
 ## [0.9.0] - 2026-10-26
 

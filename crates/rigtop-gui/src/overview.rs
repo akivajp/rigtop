@@ -282,6 +282,10 @@ fn card(
                         if snapshot.host.hostname != host.spec.name {
                             ui.label(dim(snapshot.host.hostname.clone()));
                         }
+                        if let Some(note) = rigtop_core::view::version_note(snapshot) {
+                            ui.label(colored(note, WARN))
+                                .on_hover_text(rigtop_core::view::version_hint(snapshot));
+                        }
                     }
                 });
             });
