@@ -101,12 +101,17 @@ fn run() -> Result<()> {
         notify::send_test();
     }
 
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_title("rigtop")
+        .with_app_id("rigtop")
+        .with_inner_size([1400.0, 900.0])
+        .with_min_inner_size([640.0, 400.0]);
+    // The window icon (title bar, task bar, Alt+Tab).
+    if let Ok(icon) = eframe::icon_data::from_png_bytes(include_bytes!("../assets/rigtop.png")) {
+        viewport = viewport.with_icon(icon);
+    }
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title("rigtop")
-            .with_app_id("rigtop")
-            .with_inner_size([1400.0, 900.0])
-            .with_min_inner_size([640.0, 400.0]),
+        viewport,
         ..Default::default()
     };
     eframe::run_native(

@@ -14,6 +14,9 @@ include breaking changes).
   one host) lists the alerts of every host as they appeared and cleared,
   with times; until opened it shows the number of new alerts in the color of
   the worst. Useful where desktop notifications are off (Windows).
+- An application icon: in the Windows executable (Explorer, Start menu),
+  the GUI window, and the Debian package's desktop entry
+  (`crates/rigtop-gui/assets/rigtop.svg`).
 
 ## [0.9.0] - 2026-10-26
 

@@ -45,6 +45,8 @@ assets = [
     ["target/release/rigtop", "usr/bin/", "755"],
     ["target/release/rigtop-gui", "usr/bin/", "755"],
     ["../../packaging/linux/rigtop-gui.desktop", "usr/share/applications/", "644"],
+    ["../rigtop-gui/assets/rigtop.png", "usr/share/icons/hicolor/256x256/apps/", "644"],
+    ["../rigtop-gui/assets/rigtop.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
     ["../../README.md", "usr/share/doc/rigtop/", "644"],
     ["../../README.ja.md", "usr/share/doc/rigtop/", "644"],
     ["../../CHANGELOG.md", "usr/share/doc/rigtop/", "644"],
