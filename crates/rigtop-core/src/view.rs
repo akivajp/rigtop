@@ -3,7 +3,7 @@
 //!
 //! Nothing here depends on a UI toolkit.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Duration;
 
 use crate::config::AlertsConfig;
@@ -19,10 +19,20 @@ pub const HISTORY_LEN: usize = 4096;
 /// interface (container bridges and virtual links).
 const VIRTUAL_IFACE_PREFIXES: &[&str] = &["lo", "docker", "veth", "br-", "virbr"];
 
-/// Fixed-size history of samples, newest last.
+/// Samples averaged into one point of the coarse history (a minute at the
+/// default interval of 1 s).
+pub const COARSE_FACTOR: usize = 60;
+/// Points kept in the coarse history (a day at the default interval).
+pub const COARSE_LEN: usize = 1440;
+
+/// Fixed-size history of samples, newest last, plus a coarse history of
+/// averages for long time spans.
 #[derive(Debug, Default, Clone)]
 pub struct History {
     samples: VecDeque<f64>,
+    coarse: VecDeque<f64>,
+    /// Sum and count of the samples not yet averaged into `coarse`.
+    pending: (f64, usize),
 }
 
 impl History {
@@ -32,6 +42,15 @@ impl History {
             self.samples.pop_front();
         }
         self.samples.push_back(value);
+        self.pending.0 += value;
+        self.pending.1 += 1;
+        if self.pending.1 == COARSE_FACTOR {
+            if self.coarse.len() == COARSE_LEN {
+                self.coarse.pop_front();
+            }
+            self.coarse.push_back(self.pending.0 / COARSE_FACTOR as f64);
+            self.pending = (0.0, 0);
+        }
     }
 
     /// The newest `n` samples (or fewer), oldest first.
@@ -55,36 +74,51 @@ impl History {
         let GraphSpan::Secs(secs) = span else {
             return self.last(columns);
         };
-        let wanted = (secs as f64 / interval.as_secs_f64().max(0.001)).round() as usize;
-        let samples = self.last(wanted.max(1));
-        if columns == 0 || samples.is_empty() {
-            return Vec::new();
+        let wanted = ((secs as f64 / interval.as_secs_f64().max(0.001)).round() as usize).max(1);
+        if wanted <= HISTORY_LEN {
+            spread(&self.last(wanted), wanted, columns)
+        } else {
+            // Longer than the samples kept: from the averages.
+            let wanted = wanted.div_ceil(COARSE_FACTOR);
+            let skip = self.coarse.len().saturating_sub(wanted);
+            let points: Vec<f64> = self.coarse.iter().skip(skip).copied().collect();
+            spread(&points, wanted, columns)
         }
-        // The share of the columns that the available samples cover.
-        let shown = (columns as f64 * samples.len() as f64 / wanted.max(1) as f64).round() as usize;
-        let shown = shown.clamp(1, columns);
-        let per_column = samples.len() as f64 / shown as f64;
-        if per_column < 1.0 {
-            // Stretched: a straight line between neighbouring samples.
-            let last = samples.len() - 1;
-            return (0..shown)
-                .map(|i| {
-                    let at = ((i as f64 + 0.5) * per_column - 0.5).clamp(0.0, last as f64);
-                    let (below, frac) = (at.floor() as usize, at.fract());
-                    let above = (below + 1).min(last);
-                    samples[below] * (1.0 - frac) + samples[above] * frac
-                })
-                .collect();
-        }
-        (0..shown)
-            .map(|i| {
-                let end = (((i + 1) as f64 * per_column) as usize).clamp(1, samples.len());
-                let start = ((i as f64 * per_column) as usize).min(end - 1);
-                let part = &samples[start..end];
-                part.iter().sum::<f64>() / part.len() as f64
-            })
-            .collect()
     }
+}
+
+/// `samples` (the newest of `wanted`) spread over `columns`: averaged where
+/// several share a column, interpolated where there are fewer samples than
+/// columns, and over a proportional share of the columns at the right while
+/// fewer than `wanted` exist.
+fn spread(samples: &[f64], wanted: usize, columns: usize) -> Vec<f64> {
+    if columns == 0 || samples.is_empty() {
+        return Vec::new();
+    }
+    // The share of the columns that the available samples cover.
+    let shown = (columns as f64 * samples.len() as f64 / wanted.max(1) as f64).round() as usize;
+    let shown = shown.clamp(1, columns);
+    let per_column = samples.len() as f64 / shown as f64;
+    if per_column < 1.0 {
+        // Stretched: a straight line between neighbouring samples.
+        let last = samples.len() - 1;
+        return (0..shown)
+            .map(|i| {
+                let at = ((i as f64 + 0.5) * per_column - 0.5).clamp(0.0, last as f64);
+                let (below, frac) = (at.floor() as usize, at.fract());
+                let above = (below + 1).min(last);
+                samples[below] * (1.0 - frac) + samples[above] * frac
+            })
+            .collect();
+    }
+    (0..shown)
+        .map(|i| {
+            let end = (((i + 1) as f64 * per_column) as usize).clamp(1, samples.len());
+            let start = ((i as f64 * per_column) as usize).min(end - 1);
+            let part = &samples[start..end];
+            part.iter().sum::<f64>() / part.len() as f64
+        })
+        .collect()
 }
 
 /// How much time the graphs cover.
@@ -100,12 +134,14 @@ pub enum GraphSpan {
 
 impl GraphSpan {
     /// The choices [`GraphSpan::next`] steps through.
-    pub const CHOICES: [GraphSpan; 5] = [
+    pub const CHOICES: [GraphSpan; 7] = [
         GraphSpan::Fit,
         GraphSpan::Secs(60),
         GraphSpan::Secs(5 * 60),
         GraphSpan::Secs(15 * 60),
         GraphSpan::Secs(60 * 60),
+        GraphSpan::Secs(6 * 60 * 60),
+        GraphSpan::Secs(24 * 60 * 60),
     ];
 
     /// The choice after this one, back to the first after the last.
@@ -271,6 +307,107 @@ pub enum Severity {
 pub struct Alert {
     pub severity: Severity,
     pub text: String,
+}
+
+/// Identifies an alert across samples: its severity and text with numbers
+/// masked, so "3 I/O errors" becoming "4 I/O errors" or a temperature
+/// changing does not count as a new alert.
+pub fn alert_key(alert: &Alert) -> String {
+    let mut key = format!("{:?}:", alert.severity);
+    let mut in_number = false;
+    for c in alert.text.chars() {
+        if c.is_ascii_digit() || (in_number && c == '.') {
+            if !in_number {
+                key.push('#');
+            }
+            in_number = true;
+        } else {
+            key.push(c);
+            in_number = false;
+        }
+    }
+    key
+}
+
+/// Whether an [`AlertEvent`] is an alert appearing or going away.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AlertChange {
+    Raised,
+    Cleared,
+}
+
+/// One entry of the [`AlertLog`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AlertEvent {
+    /// When the change was seen, in milliseconds since the Unix epoch.
+    pub at_ms: u64,
+    pub host: String,
+    pub change: AlertChange,
+    /// The alert as raised, or as last seen before it cleared.
+    pub alert: Alert,
+}
+
+/// Events kept by an [`AlertLog`].
+const ALERT_LOG_LEN: usize = 500;
+
+/// The alerts of every host as they appear and clear, so that what
+/// happened while nobody watched can be looked up later.
+#[derive(Debug, Default)]
+pub struct AlertLog {
+    /// Newest last.
+    events: VecDeque<AlertEvent>,
+    /// Each host's alerts at its previous update.
+    active: HashMap<String, Vec<Alert>>,
+    /// Alerts raised since [`AlertLog::mark_read`], and the worst of them.
+    unread: (usize, Option<Severity>),
+}
+
+impl AlertLog {
+    /// Records how the alerts of `host` changed since its previous update.
+    pub fn update(&mut self, host: &str, alerts: &[Alert], at_ms: u64) {
+        let previous = self.active.remove(host).unwrap_or_default();
+        let keys = |list: &[Alert]| -> HashSet<String> { list.iter().map(alert_key).collect() };
+        let (before, now) = (keys(&previous), keys(alerts));
+        let raised = alerts.iter().filter(|a| !before.contains(&alert_key(a)));
+        let cleared = previous.iter().filter(|a| !now.contains(&alert_key(a)));
+        let mut changes: Vec<(AlertChange, &Alert)> = raised
+            .map(|a| (AlertChange::Raised, a))
+            .chain(cleared.map(|a| (AlertChange::Cleared, a)))
+            .collect();
+        // Cleared first, so that a changed alert reads "went away, came back".
+        changes.sort_by_key(|(change, _)| *change == AlertChange::Raised);
+        for (change, alert) in changes {
+            if change == AlertChange::Raised {
+                self.unread.0 += 1;
+                self.unread.1 = self.unread.1.max(Some(alert.severity));
+            }
+            if self.events.len() == ALERT_LOG_LEN {
+                self.events.pop_front();
+            }
+            self.events.push_back(AlertEvent {
+                at_ms,
+                host: host.to_owned(),
+                change,
+                alert: alert.clone(),
+            });
+        }
+        self.active.insert(host.to_owned(), alerts.to_vec());
+    }
+
+    /// All events, oldest first.
+    pub fn events(&self) -> impl DoubleEndedIterator<Item = &AlertEvent> {
+        self.events.iter()
+    }
+
+    /// Alerts raised since the log was last read, and the most severe one.
+    pub fn unread(&self) -> (usize, Option<Severity>) {
+        self.unread
+    }
+
+    /// Marks every event as read.
+    pub fn mark_read(&mut self) {
+        self.unread = (0, None);
+    }
 }
 
 /// [`alerts_with`] the default thresholds.
@@ -619,12 +756,36 @@ mod tests {
     }
 
     #[test]
+    fn long_spans_draw_from_the_averages() {
+        let second = Duration::from_secs(1);
+        let mut history = History::default();
+        // Two hours: the first at 0, the second at 100.
+        for i in 0..7200 {
+            history.push(if i < 3600 { 0.0 } else { 100.0 });
+        }
+        // 6 hours with 2 recorded: the right third, half low and half high.
+        let six = history.graph(90, GraphSpan::Secs(6 * 3600), second);
+        assert_eq!(six.len(), 30);
+        assert_eq!((six[0], six[29]), (0.0, 100.0));
+        // An hour still comes from the samples themselves.
+        let hour = history.graph(60, GraphSpan::Secs(3600), second);
+        assert!(hour.iter().all(|v| *v == 100.0));
+        // The averages stay bounded.
+        for i in 0..(COARSE_LEN * COARSE_FACTOR + 500) {
+            history.push(i as f64);
+        }
+        assert_eq!(history.coarse.len(), COARSE_LEN);
+    }
+
+    #[test]
     fn graph_span_choices_cycle() {
         let labels: Vec<String> = std::iter::successors(Some(GraphSpan::Fit), |s| Some(s.next()))
             .take(6)
             .map(GraphSpan::label)
             .collect();
-        assert_eq!(labels, ["fit", "1m", "5m", "15m", "1h", "fit"]);
+        assert_eq!(labels, ["fit", "1m", "5m", "15m", "1h", "6h"]);
+        assert_eq!(GraphSpan::Secs(86_400).label(), "24h");
+        assert_eq!(GraphSpan::Secs(86_400).next(), GraphSpan::Fit);
         assert_eq!(
             GraphSpan::from_secs(GraphSpan::Secs(300).as_secs()),
             GraphSpan::Secs(300)
@@ -764,6 +925,53 @@ mod tests {
         assert_eq!(alerts[0].severity, Severity::Critical);
         assert_eq!(alerts[2].severity, Severity::Warning);
         assert!(super::alerts(&Snapshot::default()).is_empty());
+    }
+
+    #[test]
+    fn alert_log_records_alerts_appearing_and_clearing() {
+        let alert = |severity, text: &str| Alert {
+            severity,
+            text: text.to_owned(),
+        };
+        let full = alert(Severity::Warning, "/data 91% full");
+        let errors = alert(Severity::Critical, "btrfs /: 2 I/O errors (nvme1n1)");
+        let mut log = AlertLog::default();
+        log.update("nas", std::slice::from_ref(&full), 1_000);
+        // Numbers changing is the same alert.
+        log.update(
+            "nas",
+            &[alert(Severity::Warning, "/data 92% full"), errors.clone()],
+            2_000,
+        );
+        log.update("zefat", &[], 2_000);
+        assert_eq!(log.unread(), (2, Some(Severity::Critical)));
+        log.mark_read();
+        log.update("nas", std::slice::from_ref(&errors), 3_000);
+        assert_eq!(log.unread(), (0, None));
+        let summary: Vec<(u64, AlertChange, &str)> = log
+            .events()
+            .map(|e| (e.at_ms, e.change, e.alert.text.as_str()))
+            .collect();
+        assert_eq!(
+            summary,
+            [
+                (1_000, AlertChange::Raised, "/data 91% full"),
+                (
+                    2_000,
+                    AlertChange::Raised,
+                    "btrfs /: 2 I/O errors (nvme1n1)"
+                ),
+                (3_000, AlertChange::Cleared, "/data 92% full"),
+            ]
+        );
+        for i in 0..(ALERT_LOG_LEN as u64 + 10) {
+            log.update(
+                "flappy",
+                &[alert(Severity::Warning, if i % 2 == 0 { "a" } else { "b" })],
+                i,
+            );
+        }
+        assert_eq!(log.events().count(), ALERT_LOG_LEN);
     }
 
     #[test]

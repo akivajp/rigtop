@@ -128,6 +128,7 @@ fn view_controls(ui: &mut Ui, state: &mut GuiState) {
         if let Some(visible) = state.widgets_visible {
             crate::overview::widgets_button(ui, visible, &mut state.view_actions);
         }
+        crate::alert_log::button(ui, state.alerts_unread, &mut state.view_actions);
     }
 }
 

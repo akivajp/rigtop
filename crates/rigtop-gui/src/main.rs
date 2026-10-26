@@ -8,6 +8,7 @@
 // and errors still reach a terminal.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod alert_log;
 mod app;
 mod console;
 mod hosts_dialog;

@@ -13,11 +13,13 @@ use rigtop_core::demo::DemoSource;
 use rigtop_core::hosts::{HostKind, HostSpec, host_specs};
 use rigtop_core::remote::RemoteSource;
 use rigtop_core::view::{
-    GraphSpan, MetricHistory, ProcessQuery, ProcessRow, SortKey, process_rows, signal_name,
+    AlertLog, GraphSpan, MetricHistory, ProcessQuery, ProcessRow, Severity, SortKey, process_rows,
+    signal_name,
 };
 use rigtop_core::worker::{Command, Event, Worker};
 use rigtop_core::{Config, DataSource, LocalSource, ProcessSignal, Snapshot};
 
+use crate::alert_log;
 use crate::hosts_dialog::{self, HostsDialog};
 use crate::lhm_setup::{self, LhmSetup};
 use crate::notify::{self, Notifier};
@@ -114,6 +116,8 @@ pub enum ViewAction {
     NextGraphSpan,
     /// Open the window for naming and hiding sensors.
     EditSensors,
+    /// Open the history of alerts.
+    ShowAlertLog,
 }
 
 /// Everything the panels read and modify.
@@ -143,6 +147,9 @@ pub struct GuiState {
     /// Whether the widget column is shown, or `None` without widgets (for
     /// the toggle in the CPU panel title in single-host mode).
     pub widgets_visible: Option<bool>,
+    /// Unread alerts of every host (count, worst), for the "alerts" button
+    /// in the CPU panel title in single-host mode.
+    pub alerts_unread: (usize, Option<Severity>),
     /// How much time the graphs cover.
     pub graph_span: GraphSpan,
     /// Collection interval, to turn a time span into samples.
@@ -175,6 +182,7 @@ impl GuiState {
             last_update: None,
             show_zoom: true,
             widgets_visible: None,
+            alerts_unread: (0, None),
             graph_span: GraphSpan::default(),
             interval: Duration::from_secs(1),
             is_local: false,
@@ -333,6 +341,9 @@ pub struct RigtopApp {
     repaint: Option<egui::Context>,
     pub hosts_dialog: HostsDialog,
     pub sensors_dialog: SensorsDialog,
+    /// Alerts of every host as they appeared and cleared.
+    alert_log: AlertLog,
+    alert_log_open: bool,
     /// Desktop notifications for new alerts.
     notifier: Notifier,
     /// The widget column (`[[widgets]]`), empty without any.
@@ -421,6 +432,8 @@ impl RigtopApp {
             repaint: None,
             hosts_dialog: HostsDialog::default(),
             sensors_dialog: SensorsDialog::default(),
+            alert_log: AlertLog::default(),
+            alert_log_open: false,
             notifier,
             widgets: Vec::new(),
             show_widgets: true,
@@ -624,15 +637,20 @@ impl RigtopApp {
                 continue;
             };
             let alerts = rigtop_core::view::alerts_with(snapshot, &host.state.config.alerts);
+            // "local" says little in a notification; use the host name.
+            let name = if host.spec.is_local() {
+                &snapshot.host.hostname
+            } else {
+                &host.spec.name
+            };
+            // This machine's clock, which remote hosts' may not agree with.
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis() as u64);
+            self.alert_log.update(name, &alerts, now_ms);
             for alert in self.notifier.new_alerts(&host.spec.name, &alerts) {
                 // Tests run without workers (and without notifications).
                 if self.repaint.is_some() {
-                    // "local" says little in a notification; use the host name.
-                    let name = if host.spec.is_local() {
-                        &snapshot.host.hostname
-                    } else {
-                        &host.spec.name
-                    };
                     notify::send(name, &alert);
                 }
             }
@@ -708,6 +726,7 @@ impl RigtopApp {
                         host.state.show_zoom = single;
                         host.state.widgets_visible =
                             (!self.widgets.is_empty()).then_some(self.show_widgets);
+                        host.state.alerts_unread = self.alert_log.unread();
                         if host.state.snapshot.is_none() {
                             waiting_screen(ui, host);
                         } else {
@@ -735,6 +754,7 @@ impl RigtopApp {
                 ViewAction::ToggleWidgets => self.show_widgets = !self.show_widgets,
                 ViewAction::NextGraphSpan => self.graph_span = self.graph_span.next(),
                 ViewAction::EditSensors => self.sensors_dialog.open(&self.config.sensors),
+                ViewAction::ShowAlertLog => self.alert_log_open = true,
             }
         }
         let fixed = self.fixed_host_names();
@@ -766,6 +786,7 @@ impl RigtopApp {
         if let Some(sensors) = sensors {
             self.save_sensors(sensors);
         }
+        alert_log::show(&ctx, &mut self.alert_log_open, &mut self.alert_log);
 
         // The host shown in detail sends every process; the others only
         // what an overview card lists.
@@ -816,6 +837,7 @@ impl RigtopApp {
                 if !self.widgets.is_empty() {
                     overview::widgets_button(ui, self.show_widgets, actions);
                 }
+                alert_log::button(ui, self.alert_log.unread(), actions);
             });
         });
         ui.add_space(2.0);
@@ -1472,6 +1494,28 @@ mod tests {
     }
 
     #[test]
+    fn alert_history_window_lists_alerts_and_marks_them_read() {
+        use rigtop_core::view::Alert;
+        let mut harness = harness_with(sample_snapshot());
+        let full = Alert {
+            severity: Severity::Warning,
+            text: "/srv 92% full".to_owned(),
+        };
+        harness
+            .state_mut()
+            .alert_log
+            .update("nas", std::slice::from_ref(&full), 1_000);
+        harness.state_mut().alert_log.update("nas", &[], 2_000);
+        harness.run();
+        harness.get_by_label("alerts 1").click();
+        harness.run();
+        harness.get_by_label("/srv 92% full");
+        harness.get_by_label("cleared: /srv 92% full");
+        assert_eq!(harness.state().alert_log.unread(), (0, None));
+        harness.get_by_label("alerts…");
+    }
+
+    #[test]
     fn sensors_window_names_and_hides_sensors() {
         use egui::accesskit::Role;
         use rigtop_core::snapshot::{Fan, SensorChip, Temperature};
@@ -1585,6 +1629,22 @@ mod tests {
                         .apply(Event::Snapshot(Box::new(snapshot.clone())));
                 }
             }
+        }
+        // The alert history as drain_events would have filled it.
+        let found: Vec<(String, Vec<rigtop_core::view::Alert>)> = app
+            .hosts
+            .iter()
+            .filter_map(|h| {
+                let snapshot = h.state.snapshot.as_ref()?;
+                let alerts = rigtop_core::view::alerts_with(snapshot, &h.state.config.alerts);
+                Some((h.spec.name.clone(), alerts))
+            })
+            .collect();
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as u64);
+        for (name, alerts) in found {
+            app.alert_log.update(&name, &alerts, now_ms);
         }
         if std::env::var("RIGTOP_GUI_WIDGETS").is_ok() {
             app.widgets = sample_widgets();

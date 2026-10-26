@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet};
 use std::thread;
 
 use rigtop_core::config::NotifyLevel;
-use rigtop_core::view::{Alert, Severity};
+use rigtop_core::view::{Alert, Severity, alert_key as key};
 
 /// Remembers each host's alerts to announce only new ones.
 pub struct Notifier {
@@ -49,26 +49,6 @@ impl Notifier {
         self.seen.insert(host.to_owned(), current);
         fresh
     }
-}
-
-/// Identifies an alert across samples: its severity and text with numbers
-/// masked, so "3 I/O errors" becoming "4 I/O errors" or a temperature
-/// changing does not count as a new alert.
-fn key(alert: &Alert) -> String {
-    let mut key = format!("{:?}:", alert.severity);
-    let mut in_number = false;
-    for c in alert.text.chars() {
-        if c.is_ascii_digit() || (in_number && c == '.') {
-            if !in_number {
-                key.push('#');
-            }
-            in_number = true;
-        } else {
-            key.push(c);
-            in_number = false;
-        }
-    }
-    key
 }
 
 /// The notification `--test-notification` shows.

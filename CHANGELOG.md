@@ -7,6 +7,14 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Added
+- Graph time spans of 6 and 24 hours, drawn from per-minute averages kept
+  beside the samples (a day at the default interval, about 12 KB per graph).
+- GUI: alert history. "alerts…" (in the tab bar, or the CPU panel title with
+  one host) lists the alerts of every host as they appeared and cleared,
+  with times; until opened it shows the number of new alerts in the color of
+  the worst. Useful where desktop notifications are off (Windows).
+
 ## [0.9.0] - 2026-10-26
 
 ### Added
