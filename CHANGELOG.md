@@ -7,6 +7,13 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Added
+- Process table: a Disk column with each process's reads plus writes per
+  second, sortable (in the GUI, hovering shows reads and writes apart).
+  Blank when idle, and for other users' processes on Linux, whose counters
+  only root can read; on Windows the counters include all of a process's
+  I/O, not only disks. Narrow tables give up Thr before it.
+
 ## [0.10.1] - 2026-10-28
 
 ### Added

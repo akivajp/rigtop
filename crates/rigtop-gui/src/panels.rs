@@ -10,7 +10,9 @@ use rigtop_core::format;
 use rigtop_core::snapshot::{
     BtrfsFilesystem, GpuStats, NetworkStats, SmartDevice, Snapshot, device_matches_disk,
 };
-use rigtop_core::view::{LHM_HINT, SortKey, is_virtual_interface, lhm_help, signal_name};
+use rigtop_core::view::{
+    LHM_HINT, SortKey, disk_rate_text, is_virtual_interface, lhm_help, signal_name,
+};
 use rigtop_core::worker::Command;
 
 use crate::app::{GuiState, Pane, ViewAction};
@@ -983,7 +985,7 @@ fn network(ui: &mut Ui, state: &mut GuiState) {
 // ---------------------------------------------------------------- processes
 
 /// Columns of the process table: header, sort key, width (None = remainder).
-const PROC_COLUMNS: [(&str, Option<SortKey>, Option<f32>); 9] = [
+const PROC_COLUMNS: [(&str, Option<SortKey>, Option<f32>); 10] = [
     ("Pid", Some(SortKey::Pid), Some(70.0)),
     ("Program", Some(SortKey::Name), Some(130.0)),
     ("Command", None, None),
@@ -991,6 +993,7 @@ const PROC_COLUMNS: [(&str, Option<SortKey>, Option<f32>); 9] = [
     ("User", Some(SortKey::User), Some(80.0)),
     ("Mem", Some(SortKey::Memory), Some(64.0)),
     ("Cpu%", Some(SortKey::Cpu), Some(56.0)),
+    ("Disk", Some(SortKey::Disk), Some(64.0)),
     ("Gpu%", Some(SortKey::Gpu), Some(48.0)),
     ("VRAM", Some(SortKey::Vram), Some(64.0)),
 ];
@@ -999,7 +1002,7 @@ const PROC_COLUMNS: [(&str, Option<SortKey>, Option<f32>); 9] = [
 const COMMAND_MIN_WIDTH: f32 = 120.0;
 /// Columns given up first when the table is too narrow; Pid, Program, Mem
 /// and Cpu% always stay.
-const DROP_ORDER: [&str; 5] = ["Command", "Thr", "User", "VRAM", "Gpu%"];
+const DROP_ORDER: [&str; 6] = ["Command", "Thr", "Disk", "User", "VRAM", "Gpu%"];
 
 /// Removes columns in [`DROP_ORDER`] until the rest fit in `width`.
 fn fit_columns(
@@ -1120,6 +1123,11 @@ fn processes(ui: &mut Ui, state: &mut GuiState) {
                                 let color = if cpu > 0.0 { percent_color(cpu) } else { DIM };
                                 ui.label(colored(format!("{cpu:.1}"), color))
                             }
+                            "Disk" => ui.label(disk_rate_text(p)).on_hover_text(format!(
+                                "read {}, write {}",
+                                format::rate(p.read_bytes_per_sec),
+                                format::rate(p.write_bytes_per_sec)
+                            )),
                             "Gpu%" => ui.label(
                                 process
                                     .gpu_percent

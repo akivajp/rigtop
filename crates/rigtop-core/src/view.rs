@@ -7,6 +7,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Duration;
 
 use crate::config::AlertsConfig;
+use crate::format;
 use crate::snapshot::{ProcessInfo, Snapshot};
 use crate::source::ProcessSignal;
 
@@ -190,19 +191,22 @@ pub enum SortKey {
     User,
     Memory,
     Cpu,
+    /// Disk reads plus writes.
+    Disk,
     Gpu,
     Vram,
 }
 
 impl SortKey {
     /// Sort keys in column order, used to step left/right.
-    pub const ALL: [SortKey; 8] = [
+    pub const ALL: [SortKey; 9] = [
         SortKey::Pid,
         SortKey::Name,
         SortKey::Threads,
         SortKey::User,
         SortKey::Memory,
         SortKey::Cpu,
+        SortKey::Disk,
         SortKey::Gpu,
         SortKey::Vram,
     ];
@@ -644,6 +648,7 @@ pub fn process_rows<'a>(snapshot: &'a Snapshot, query: &ProcessQuery<'_>) -> Vec
             SortKey::User => a.info.user.cmp(&b.info.user),
             SortKey::Memory => a.info.memory_bytes.cmp(&b.info.memory_bytes),
             SortKey::Cpu => a.info.cpu_percent.total_cmp(&b.info.cpu_percent),
+            SortKey::Disk => disk_rate(a.info).total_cmp(&disk_rate(b.info)),
             SortKey::Gpu => a
                 .gpu_percent
                 .unwrap_or(-1.0)
@@ -659,6 +664,22 @@ pub fn process_rows<'a>(snapshot: &'a Snapshot, query: &ProcessQuery<'_>) -> Vec
         }
     });
     rows
+}
+
+/// Disk reads plus writes of a process (bytes/s), the Disk column.
+pub fn disk_rate(process: &ProcessInfo) -> f64 {
+    process.read_bytes_per_sec + process.write_bytes_per_sec
+}
+
+/// The Disk column's text: the total rate, blank when idle (also where the
+/// counters cannot be read, e.g. other users' processes on Linux).
+pub fn disk_rate_text(process: &ProcessInfo) -> String {
+    let rate = disk_rate(process);
+    if rate > 0.0 {
+        format::rate(rate)
+    } else {
+        String::new()
+    }
 }
 
 /// Shown where the CPU temperatures go when LibreHardwareMonitor cannot be
@@ -856,6 +877,31 @@ mod tests {
         let rows = process_rows(&snapshot, &query(SortKey::Pid));
         assert_eq!(rows[1].vram_bytes, Some(1 << 30));
         assert_eq!(rows[1].gpu_percent, Some(70.0));
+    }
+
+    #[test]
+    fn disk_column_sums_reads_and_writes() {
+        let reader = ProcessInfo {
+            read_bytes_per_sec: 3.0 * 1024.0 * 1024.0,
+            ..process(10, "reader", 0.0, false)
+        };
+        let writer = ProcessInfo {
+            read_bytes_per_sec: 1024.0 * 1024.0,
+            write_bytes_per_sec: 4.0 * 1024.0 * 1024.0,
+            ..process(20, "writer", 0.0, false)
+        };
+        let idle = process(30, "idle", 0.0, false);
+        assert_eq!(disk_rate_text(&writer), "5.0M/s");
+        assert_eq!(disk_rate_text(&idle), "");
+        let snapshot = Snapshot {
+            processes: vec![idle, reader, writer],
+            ..Default::default()
+        };
+        let pids: Vec<u32> = process_rows(&snapshot, &query(SortKey::Disk))
+            .iter()
+            .map(|r| r.info.pid)
+            .collect();
+        assert_eq!(pids, vec![20, 10, 30]);
     }
 
     #[test]

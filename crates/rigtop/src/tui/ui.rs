@@ -26,7 +26,9 @@ use rigtop_core::snapshot::{
 use super::app::{App, ProcTableHit};
 use super::graph::{self, BrailleGraph};
 use rigtop_core::format;
-use rigtop_core::view::{GraphSpan, LHM_HINT, SortKey, is_virtual_interface, signal_name};
+use rigtop_core::view::{
+    GraphSpan, LHM_HINT, SortKey, disk_rate_text, is_virtual_interface, signal_name,
+};
 
 /// Box border color.
 pub(super) const BORDER: Color = Color::Rgb(85, 85, 100);
@@ -1151,6 +1153,7 @@ fn draw_processes(
                     format!("{cpu:.1}"),
                     Style::default().fg(if cpu > 0.0 { percent_color(cpu) } else { DIM }),
                 )),
+                ProcColumn::Disk => Cell::from(disk_rate_text(p)),
                 ProcColumn::Gpu => {
                     Cell::from(row.gpu_percent.map_or(String::new(), |g| format!("{g:.0}")))
                 }
@@ -1219,13 +1222,14 @@ enum ProcColumn {
     User,
     Memory,
     Cpu,
+    Disk,
     Gpu,
     Vram,
 }
 
 impl ProcColumn {
     /// Display order.
-    const ORDER: [ProcColumn; 9] = [
+    const ORDER: [ProcColumn; 10] = [
         ProcColumn::Pid,
         ProcColumn::Program,
         ProcColumn::Command,
@@ -1233,6 +1237,7 @@ impl ProcColumn {
         ProcColumn::User,
         ProcColumn::Memory,
         ProcColumn::Cpu,
+        ProcColumn::Disk,
         ProcColumn::Gpu,
         ProcColumn::Vram,
     ];
@@ -1246,6 +1251,7 @@ impl ProcColumn {
             ProcColumn::User => "User",
             ProcColumn::Memory => "Mem",
             ProcColumn::Cpu => "Cpu%",
+            ProcColumn::Disk => "Disk",
             ProcColumn::Gpu => "Gpu%",
             ProcColumn::Vram => "VRAM",
         }
@@ -1260,6 +1266,7 @@ impl ProcColumn {
             ProcColumn::User => Some(SortKey::User),
             ProcColumn::Memory => Some(SortKey::Memory),
             ProcColumn::Cpu => Some(SortKey::Cpu),
+            ProcColumn::Disk => Some(SortKey::Disk),
             ProcColumn::Gpu => Some(SortKey::Gpu),
             ProcColumn::Vram => Some(SortKey::Vram),
         }
@@ -1275,6 +1282,8 @@ impl ProcColumn {
             ProcColumn::User => 9,
             ProcColumn::Memory => 6,
             ProcColumn::Cpu => 6,
+            // "1023M/s"
+            ProcColumn::Disk => 7,
             ProcColumn::Gpu => 5,
             ProcColumn::Vram => 6,
         }
@@ -1290,7 +1299,7 @@ impl ProcColumn {
 }
 
 /// Columns that fit in `width`: Pid, Program, Mem and Cpu% always, then
-/// User, Thr, Gpu%, VRAM and Command as space allows (GPU columns only on
+/// User, Gpu%, VRAM, Disk, Thr and Command as space allows (GPU columns only on
 /// hosts with GPUs, Thr only where thread counts exist). Returned in
 /// display order.
 fn process_columns(width: u16, has_gpus: bool, has_threads: bool) -> Vec<ProcColumn> {
@@ -1302,9 +1311,10 @@ fn process_columns(width: u16, has_gpus: bool, has_threads: bool) -> Vec<ProcCol
     ];
     let optional = [
         ProcColumn::User,
-        ProcColumn::Threads,
         ProcColumn::Gpu,
         ProcColumn::Vram,
+        ProcColumn::Disk,
+        ProcColumn::Threads,
         ProcColumn::Command,
     ];
     // Every column is followed by one space of column spacing.

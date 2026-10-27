@@ -455,7 +455,9 @@ mod tests {
         let python = rows.iter().find(|r| r.info.pid == 30).unwrap();
         assert_eq!(python.vram_bytes, Some(4 << 30));
         assert_eq!(python.gpu_percent, Some(80.0));
-        // Step from "cpu" to "gpu" sorting: the GPU user comes first.
+        // Step from "cpu" past "disk" to "gpu" sorting: the GPU user comes first.
+        app.handle_key(key(KeyCode::Right));
+        assert_eq!(app.sort_key, SortKey::Disk);
         app.handle_key(key(KeyCode::Right));
         assert_eq!(app.sort_key, SortKey::Gpu);
         assert_eq!(pids(&app), vec![30, 10]);

@@ -213,6 +213,15 @@ fn process(
     }
 }
 
+/// Gives a process disk throughput (bytes/s).
+fn with_io(process: ProcessInfo, read: f64, write: f64) -> ProcessInfo {
+    ProcessInfo {
+        read_bytes_per_sec: read.max(0.0),
+        write_bytes_per_sec: write.max(0.0),
+        ..process
+    }
+}
+
 fn workstation(t: f64) -> Snapshot {
     // A build every two minutes on top of a steady training run.
     let build = duty(t, 120.0, 45.0);
@@ -232,17 +241,23 @@ fn workstation(t: f64) -> Snapshot {
     let k10 = "k10temp:0000:00:18.3";
     let nct = "nct6686:nct6683.2592";
     let train_pid = 48_211;
+    // The training run reads its dataset, less while evaluating.
+    let train_read = (45e6 + 15e6 * wobble(9, t, 3.0)) * (1.0 - 0.8 * eval);
     let ollama_pid = 2_204;
     let mut processes = vec![
-        process(
-            train_pid,
-            "python",
-            "python train.py --config configs/vit-large.yaml",
-            "demo",
-            160.0 + 40.0 * wobble(6, t, 3.0) - 80.0 * eval,
-            18 * GIB + GIB / 3,
-            64,
-            5 * 3600 + t as u64,
+        with_io(
+            process(
+                train_pid,
+                "python",
+                "python train.py --config configs/vit-large.yaml",
+                "demo",
+                160.0 + 40.0 * wobble(6, t, 3.0) - 80.0 * eval,
+                18 * GIB + GIB / 3,
+                64,
+                5 * 3600 + t as u64,
+            ),
+            train_read,
+            0.2e6,
         ),
         process(
             ollama_pid,
@@ -264,15 +279,20 @@ fn workstation(t: f64) -> Snapshot {
             28,
             9 * 86_400,
         ),
-        process(
-            5_310,
-            "firefox",
-            "/usr/lib/firefox/firefox",
-            "demo",
-            2.0 + 6.0 * wobble(8, t, 5.0),
-            2 * GIB + GIB / 2,
-            112,
-            2 * 86_400,
+        // Saves the download the network panel shows.
+        with_io(
+            process(
+                5_310,
+                "firefox",
+                "/usr/lib/firefox/firefox",
+                "demo",
+                2.0 + 6.0 * wobble(8, t, 5.0),
+                2 * GIB + GIB / 2,
+                112,
+                2 * 86_400,
+            ),
+            0.0,
+            40e6 * download,
         ),
         process(
             6_002,
@@ -477,15 +497,19 @@ fn workstation(t: f64) -> Snapshot {
             40,
         ));
         for i in 0..6 {
-            processes.push(process(
-                60_120 + i,
-                "rustc",
-                "rustc --crate-name rigtop_core --edition=2024",
-                "demo",
-                (90.0 + 10.0 * wobble(10 + i as u64, t, 2.0)) * build,
-                (600 + 100 * i as u64) << 20,
-                2,
-                20,
+            processes.push(with_io(
+                process(
+                    60_120 + i,
+                    "rustc",
+                    "rustc --crate-name rigtop_core --edition=2024",
+                    "demo",
+                    (90.0 + 10.0 * wobble(10 + i as u64, t, 2.0)) * build,
+                    (600 + 100 * i as u64) << 20,
+                    2,
+                    20,
+                ),
+                3e6 * build,
+                12e6 * build * wobble(40 + i as u64, t, 2.0),
             ));
         }
     }
@@ -496,13 +520,15 @@ fn workstation(t: f64) -> Snapshot {
         fans: Vec::new(),
     };
     let drive_temp = |i: u32| 44.0 + 4.0 * i as f64 + 5.0 * build;
+    // The processes' reads and writes, spread over the three drives of the
+    // RAID0 (the build also reads sources and writes objects).
     let disk_io = |i: u64| {
         let busy = build * (0.5 + 0.5 * wobble(20 + i, t, 2.0));
         DiskIo {
             name: format!("nvme{i}n1"),
-            read_bytes_per_sec: 180e6 * busy + 2e6 * wobble(30 + i, t, 3.0),
-            write_bytes_per_sec: 90e6 * busy + 40e6 * download,
-            busy_percent: Some((35.0 * busy + 3.0 * download) as f32),
+            read_bytes_per_sec: train_read / 3.0 + 30e6 * busy + 1e6 * wobble(30 + i, t, 3.0),
+            write_bytes_per_sec: 40e6 * busy + 40e6 / 3.0 * download,
+            busy_percent: Some((25.0 * busy + 3.0 * download + 4.0 * train_read / 60e6) as f32),
             temperature_c: Some(drive_temp(i as u32) as f32),
         }
     };
@@ -974,26 +1000,36 @@ fn nas(t: f64) -> Snapshot {
             ..Default::default()
         }],
         processes: vec![
+            // The kernel's resync thread is not counted per process.
             process(812, "md0_resync", "", "root", 9.0, 0, 1, 3 * 3600),
-            process(
-                1_204,
-                "smbd",
-                "/usr/sbin/smbd --foreground --no-process-group",
-                "root",
-                6.0 + 20.0 * wobble(72, t, 10.0),
-                120 << 20,
-                4,
-                41 * 86_400,
+            // Serves the files the network panel sends.
+            with_io(
+                process(
+                    1_204,
+                    "smbd",
+                    "/usr/sbin/smbd --foreground --no-process-group",
+                    "root",
+                    6.0 + 20.0 * wobble(72, t, 10.0),
+                    120 << 20,
+                    4,
+                    41 * 86_400,
+                ),
+                95e6 * ((wobble(71, t, 10.0) - 0.3).max(0.0) / 0.7),
+                1e6 * wobble(74, t, 5.0),
             ),
-            process(
-                1_330,
-                "jellyfin",
-                "/usr/lib/jellyfin/bin/jellyfin",
-                "jellyfin",
-                3.0 + 4.0 * wobble(73, t, 7.0),
-                700 << 20,
-                30,
-                41 * 86_400,
+            with_io(
+                process(
+                    1_330,
+                    "jellyfin",
+                    "/usr/lib/jellyfin/bin/jellyfin",
+                    "jellyfin",
+                    3.0 + 4.0 * wobble(73, t, 7.0),
+                    700 << 20,
+                    30,
+                    41 * 86_400,
+                ),
+                4e6 + 4e6 * wobble(75, t, 7.0),
+                0.0,
             ),
             process(
                 1_002,
