@@ -7,6 +7,8 @@ include breaking changes).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-27
+
 ### Added
 - Graph time spans of 6 and 24 hours, drawn from per-minute averages kept
   beside the samples (a day at the default interval, about 12 KB per graph).
@@ -250,7 +252,8 @@ First release.
 - Windows support (CPU, memory, processes, network with link speeds, drives,
   NVIDIA GPUs; temperatures, fans and CPU power are not available yet)
 
-[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/akivajp/rigtop/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/akivajp/rigtop/compare/v0.8.2...v0.9.0
 [0.8.2]: https://github.com/akivajp/rigtop/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/akivajp/rigtop/compare/v0.8.0...v0.8.1
