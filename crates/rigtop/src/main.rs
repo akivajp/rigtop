@@ -1,4 +1,4 @@
-//! rigtop: btop-inspired system monitor (terminal UI).
+//! rigtop: system monitor (terminal UI).
 //!
 //! Without options it starts the TUI for this machine; `--host` (and
 //! `[[hosts]]` in the configuration) adds remote machines over SSH, where
@@ -24,7 +24,7 @@ use rigtop_core::{Config, DataSource, LocalSource, MIN_POLL_INTERVAL};
 #[derive(Debug, Parser)]
 #[command(
     version,
-    about = "btop-inspired system monitor with storage health and multi-host support"
+    about = "System monitor for workstations, laptops and NAS (terminal UI), many hosts over SSH"
 )]
 struct Cli {
     /// Print one snapshot of this machine as JSON and exit.

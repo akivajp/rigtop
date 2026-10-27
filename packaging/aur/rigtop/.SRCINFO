@@ -1,5 +1,5 @@
 pkgbase = rigtop
-	pkgdesc = btop-inspired system monitor (TUI and native GUI) with storage health, GPU usage and multi-host monitoring over SSH
+	pkgdesc = System monitor for workstations, laptops and NAS (TUI and native GUI), a btop alternative with storage health, GPU usage and many hosts over SSH
 	pkgver = 0.10.0
 	pkgrel = 1
 	url = https://github.com/akivajp/rigtop

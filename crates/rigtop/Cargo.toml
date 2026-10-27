@@ -7,7 +7,7 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 rust-version.workspace = true
-description = "btop-inspired terminal system monitor with storage health (SMART, btrfs RAID, mdadm), per-process GPU usage and power draw"
+description = "System monitor for workstations, laptops and NAS, a btop alternative: terminal UI with storage health (SMART, btrfs RAID, mdadm), per-process GPU usage, power draw and many hosts over SSH"
 readme = "../../README.md"
 keywords = ["monitor", "tui", "btop", "system", "gpu"]
 categories = ["command-line-utilities", "os"]
@@ -31,8 +31,8 @@ name = "rigtop"
 maintainer = "Akiva Miura <akiva.miura@gmail.com>"
 copyright = "2026, Akiva Miura"
 extended-description = """\
-A btop-inspired system monitor with a terminal UI (rigtop) and a native GUI \
-(rigtop-gui): CPU, every GPU with per-process usage, memory, storage health \
+A system monitor for workstations, laptops and NAS, an alternative to btop, \
+with a terminal UI (rigtop) and a native GUI (rigtop-gui): CPU, every GPU with per-process usage, memory, storage health \
 (SMART, btrfs RAID, mdadm), network and power draw, also of remote hosts \
 over SSH."""
 section = "admin"

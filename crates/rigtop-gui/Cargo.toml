@@ -7,9 +7,9 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 rust-version.workspace = true
-description = "btop-inspired native GUI system monitor (egui) with resizable panels, storage health and per-process GPU usage"
+description = "Native GUI system monitor for workstations, laptops and NAS, a btop alternative: resizable panels, storage health, per-process GPU usage and many hosts over SSH"
 readme = "../../README.md"
-keywords = ["monitor", "gui", "egui", "system", "gpu"]
+keywords = ["monitor", "gui", "btop", "egui", "gpu"]
 categories = ["gui", "os"]
 
 [dependencies]

@@ -6,7 +6,7 @@
 
 > **Early development.** The TUI and GUI work on Linux and Windows and monitor several hosts over SSH with an overview.
 
-A btop-inspired system monitor with two front-ends that share one data-collection core:
+A system monitor for workstations, laptops and NAS — an alternative to btop that also shows storage health, per-process GPU usage and many hosts over SSH. Two front-ends share one data-collection core:
 
 - **`rigtop`** — terminal UI
 - **`rigtop-gui`** — native GUI (no web view) with a btop-like layout and resizable panels

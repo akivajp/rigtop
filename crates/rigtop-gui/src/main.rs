@@ -1,4 +1,4 @@
-//! rigtop-gui: btop-inspired native system monitor (egui).
+//! rigtop-gui: native GUI system monitor (egui).
 //!
 //! Panels can be resized by dragging their borders and rearranged by
 //! dragging their titles.
@@ -31,7 +31,7 @@ use rigtop_core::{Config, MIN_POLL_INTERVAL};
 #[derive(Debug, Parser)]
 #[command(
     version,
-    about = "btop-inspired native GUI system monitor with storage health"
+    about = "System monitor for workstations, laptops and NAS (native GUI), many hosts over SSH"
 )]
 struct Cli {
     /// Sampling interval in milliseconds.

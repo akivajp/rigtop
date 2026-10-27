@@ -1,6 +1,6 @@
 {
     "version": "0.10.0",
-    "description": "btop-inspired system monitor (terminal UI and native GUI) with storage health, GPU usage and multi-host monitoring over SSH",
+    "description": "System monitor for workstations, laptops and NAS (terminal UI and native GUI), a btop alternative with storage health, GPU usage and many hosts over SSH",
     "homepage": "https://github.com/akivajp/rigtop",
     "license": "MIT|Apache-2.0",
     "notes": "Temperatures, fans and CPU power come from LibreHardwareMonitor; rigtop-gui's \"set up...\" button installs and configures it.",
