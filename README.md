@@ -93,6 +93,7 @@ cargo run --release -p rigtop -- --help  # options (--interval-ms, --config, --d
 | `↑` `↓` `PgUp` `PgDn` `Home` `End` | select a process |
 | `←` `→` / `r` | change the sort column / reverse the order |
 | `/` | filter by name, command, user or pid (`Enter` keeps it, `Esc` clears it) |
+| `e` | tree view: processes under their parents, siblings in the sort order (a filter keeps the parents of what it finds) |
 | `t` | show or hide kernel threads |
 | `k` / `K` | send SIGTERM / SIGKILL to the selected process (asks first) |
 | `n` | switch the network interface |
@@ -110,7 +111,7 @@ cargo run --release -p rigtop -- --help  # options (--interval-ms, --config, --d
 cargo run --release -p rigtop-gui            # same options: --interval-ms, --config
 ```
 
-Drag panel borders to resize and panel titles to rearrange. Click a column header to sort, right-click a process to terminate or kill it (asks first), and pick the network interface from the list.
+Drag panel borders to resize and panel titles to rearrange. Click a column header to sort, tick "tree" to show processes under their parents, right-click a process to terminate or kill it (asks first), and pick the network interface from the list.
 
 Zoom with Ctrl + mouse wheel, Ctrl + `+` / `-` / `0`, or the `A-` / `A+` buttons in the CPU panel title. The zoom level and panel layout are restored on the next start; "reset layout" brings back the default arrangement. The "graph" button next to them sets the time the graphs cover (fit to the width, or the last 1, 5, 15 minutes, 1, 6 or 24 hours), also restored on the next start. "alerts…" lists the alerts of every host as they appeared and cleared since rigtop started; it shows the number of new ones, in their color, until you look. "sensors…" under the CPU cores (or a click on a sensor's name) opens a window listing every temperature and fan, to name or hide them; it saves `[sensors]` in the [configuration](#configuration) file.
 

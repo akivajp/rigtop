@@ -513,6 +513,25 @@ fn workstation(t: f64) -> Snapshot {
             ));
         }
     }
+    // Who started whom, for the tree view; the rest are systemd's children.
+    let parents = [
+        (60_100, 3_420),
+        (train_pid, 3_420),
+        (2_388, 3_420),
+        (3_610, 3_420),
+        (3_420, 3_401),
+        (3_520, 6_002),
+        (3_044, 3_120),
+        (3_150, 3_120),
+        (3_180, 3_120),
+    ];
+    for process in &mut processes {
+        if process.name == "rustc" {
+            process.parent_pid = Some(60_100);
+        } else if let Some(&(_, parent)) = parents.iter().find(|(pid, _)| *pid == process.pid) {
+            process.parent_pid = Some(parent);
+        }
+    }
     let nvme = |i: u32, celsius: f64| SensorChip {
         key: format!("nvme:nvme{i}"),
         name: "nvme".to_owned(),

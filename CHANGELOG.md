@@ -17,6 +17,9 @@ include breaking changes).
   they appeared and cleared, with times. Until opened, the tab bar (or the
   CPU box title with one host) shows the number of new alerts in the color
   of the worst.
+- Process tree: `e` in the TUI, "tree" in the GUI. Processes go under
+  their parents, siblings in the sort order; a filter keeps the parents of
+  the processes it finds.
 
 ## [0.10.1] - 2026-10-28
 

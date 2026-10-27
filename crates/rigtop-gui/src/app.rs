@@ -129,6 +129,8 @@ pub struct GuiState {
     pub sort_descending: bool,
     pub filter: String,
     pub show_kernel_threads: bool,
+    /// Processes under their parents.
+    pub tree: bool,
     /// Selected process, tracked by pid so it survives re-sorting.
     pub selected_pid: Option<u32>,
     pub confirm: Option<ConfirmSignal>,
@@ -173,6 +175,7 @@ impl GuiState {
             sort_descending: true,
             filter: String::new(),
             show_kernel_threads: false,
+            tree: false,
             selected_pid: None,
             confirm: None,
             commands: Vec::new(),
@@ -227,6 +230,7 @@ impl GuiState {
                 descending: self.sort_descending,
                 filter: &self.filter,
                 show_kernel_threads: self.show_kernel_threads,
+                tree: self.tree,
             },
         )
     }

@@ -50,6 +50,8 @@ pub struct App {
     pub sort_key: SortKey,
     pub sort_descending: bool,
     pub show_kernel_threads: bool,
+    /// Processes under their parents (`e`).
+    pub tree: bool,
     pub filter: String,
     /// Whether keystrokes currently edit the filter.
     pub editing_filter: bool,
@@ -86,6 +88,7 @@ impl App {
             sort_key: SortKey::Cpu,
             sort_descending: true,
             show_kernel_threads: false,
+            tree: false,
             filter: String::new(),
             editing_filter: false,
             selected_pid: None,
@@ -156,6 +159,7 @@ impl App {
                 descending: self.sort_descending,
                 filter: &self.filter,
                 show_kernel_threads: self.show_kernel_threads,
+                tree: self.tree,
             },
         )
     }
@@ -235,6 +239,10 @@ impl App {
                     "hidden"
                 };
                 self.set_status(format!("kernel threads {state}"));
+            }
+            KeyCode::Char('e') => {
+                self.tree = !self.tree;
+                self.set_status(if self.tree { "tree view" } else { "list view" }.to_owned());
             }
             KeyCode::Char('n') => self.cycle_interface(),
             KeyCode::Char('g') => {

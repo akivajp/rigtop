@@ -1035,6 +1035,8 @@ fn processes(ui: &mut Ui, state: &mut GuiState) {
                 .hint_text("name, command, user or pid")
                 .desired_width((panel_width * 0.35).clamp(80.0, 220.0)),
         );
+        ui.checkbox(&mut state.tree, "tree")
+            .on_hover_text("show processes under their parents");
         ui.checkbox(&mut state.show_kernel_threads, "kernel threads");
         let note = match state.status() {
             Some(status) => colored(status, WARN),
@@ -1054,6 +1056,11 @@ fn processes(ui: &mut Ui, state: &mut GuiState) {
         .filter(|(_, key, _)| has_gpus || !matches!(key, Some(SortKey::Gpu | SortKey::Vram)))
         .filter(|(_, key, _)| has_threads || *key != Some(SortKey::Threads))
         .copied()
+        .map(|(name, key, width)| match name {
+            // Room for the lines before the names.
+            "Program" if state.tree => (name, key, Some(210.0)),
+            _ => (name, key, width),
+        })
         .collect();
     fit_columns(&mut columns, panel_width, ui.spacing().item_spacing.x);
     // Without the command column, the last one takes the spare width.
@@ -1063,6 +1070,8 @@ fn processes(ui: &mut Ui, state: &mut GuiState) {
         .unwrap_or(columns.len() - 1);
 
     let mut table = TableBuilder::new(ui)
+        // Separate column widths for the list and the tree.
+        .id_salt(if state.tree { "proc_tree" } else { "proc" })
         .striped(true)
         .resizable(true)
         .sense(Sense::click())
@@ -1113,7 +1122,13 @@ fn processes(ui: &mut Ui, state: &mut GuiState) {
                     row.col(|ui| {
                         match *name {
                             "Pid" => ui.label(p.pid.to_string()),
-                            "Program" => ui.label(&p.name),
+                            "Program" => {
+                                ui.spacing_mut().item_spacing.x = 0.0;
+                                if !process.tree_prefix.is_empty() {
+                                    ui.label(dim(&process.tree_prefix));
+                                }
+                                ui.label(&p.name)
+                            }
                             "Command" => ui.label(dim(&p.command)),
                             "Thr" => ui.label(p.threads.map_or(String::new(), |t| t.to_string())),
                             "User" => ui.label(&p.user),
