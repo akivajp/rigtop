@@ -375,8 +375,16 @@ fn draw_cpu(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect, layou
                     app.alerts_unread
                         .and_then(super::alert_log::unread_badge)
                         .map(|badge| Span::styled(format!(" {} ", badge.content), badge.style)),
-                    rigtop_core::view::version_note(snapshot)
-                        .map(|note| colored(format!(" {note}"), WARN)),
+                    rigtop_core::view::version_note(snapshot).map(|note| {
+                        // Older agents can be updated from here.
+                        let key =
+                            if rigtop_core::update::agent_is_older(&snapshot.host.rigtop_version) {
+                                " (u: update)"
+                            } else {
+                                ""
+                            };
+                        colored(format!(" {note}{key}"), WARN)
+                    }),
                     Some(dim(" ")),
                     Some(colored(host.hostname.clone(), Color::White)),
                     Some(dim(format!(" up {} ", format::duration(host.uptime_secs)))),

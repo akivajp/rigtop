@@ -5,6 +5,7 @@ mod app;
 mod graph;
 mod overview;
 mod ui;
+mod update;
 mod widget_panel;
 
 use std::io::stdout;
@@ -23,6 +24,7 @@ use rigtop_core::config::ConfigWatcher;
 use rigtop_core::demo::DemoSource;
 use rigtop_core::hosts::{HostKind, HostSpec};
 use rigtop_core::remote::RemoteSource;
+use rigtop_core::update::UpdateJob;
 use rigtop_core::widget::{Widget, start_widgets};
 use rigtop_core::worker::{Command, Worker};
 use rigtop_core::{Config, DataSource, LocalSource};
@@ -30,6 +32,7 @@ use rigtop_core::{Config, DataSource, LocalSource};
 use alert_log::AlertLogView;
 use app::App;
 use overview::View;
+use update::UpdateWindow;
 
 /// How often to check for input while idle. Drawing only happens when
 /// something changed, so this mainly bounds input latency.
@@ -126,6 +129,7 @@ pub fn run(
         quit: false,
         show_widgets: true,
         alert_log: AlertLogView::default(),
+        update: None,
     };
     let mut reload = Reload {
         watcher: config_path.map(ConfigWatcher::new),
@@ -170,6 +174,8 @@ struct Screen {
     show_widgets: bool,
     /// Every host's alerts as they came and went (`a`).
     alert_log: AlertLogView,
+    /// Updating rigtop on a remote host (`u`).
+    update: Option<UpdateWindow>,
 }
 
 impl Screen {
@@ -240,6 +246,9 @@ fn event_loop(
             }
             dirty = true;
         }
+        if finish_update(screen, hosts) {
+            dirty = true;
+        }
         let multi = hosts.len() > 1;
         for host in hosts.iter_mut() {
             let mut received = false;
@@ -298,6 +307,9 @@ fn event_loop(
                 }
                 if screen.alert_log.open {
                     screen.alert_log.draw(frame, body);
+                }
+                if let Some(window) = &screen.update {
+                    window.draw(frame, body);
                 }
             })?;
             dirty = false;
@@ -416,6 +428,68 @@ fn apply_config(
     };
 }
 
+/// Opens the update window for the host at `index`, or says why it does
+/// not apply.
+fn ask_update(screen: &mut Screen, host: &mut HostTui, index: usize) {
+    let (agent_version, os) = host
+        .app
+        .snapshot
+        .as_ref()
+        .map(|s| (s.host.rigtop_version.clone(), s.host.os.clone()))
+        .unwrap_or_default();
+    if !matches!(host.spec.kind, HostKind::Remote(_)) {
+        host.app
+            .set_status("u updates rigtop on remote hosts".to_owned());
+    } else if !rigtop_core::update::agent_is_older(&agent_version) {
+        host.app.set_status(format!(
+            "{} already runs rigtop {} or newer",
+            host.spec.name,
+            rigtop_core::update::target_version()
+        ));
+    } else if let Some(reason) = rigtop_core::update::unsupported_reason(&os) {
+        host.app.set_status(reason);
+    } else {
+        screen.update = Some(UpdateWindow::Confirm {
+            host: index,
+            text: rigtop_core::update::describe(&host.spec.name, &agent_version),
+        });
+    }
+}
+
+/// Starts updating the host at `index` (a remote one).
+fn start_update(hosts: &[HostTui], index: usize) -> Option<UpdateWindow> {
+    let host = hosts.get(index)?;
+    let HostKind::Remote(target) = &host.spec.kind else {
+        return None;
+    };
+    Some(UpdateWindow::Running {
+        host: index,
+        name: host.spec.name.clone(),
+        job: UpdateJob::start(target),
+    })
+}
+
+/// Shows the outcome of a finished update; after a successful one, the
+/// host reconnects so that the new agent runs. Returns whether anything
+/// changed.
+fn finish_update(screen: &mut Screen, hosts: &mut [HostTui]) -> bool {
+    let Some(UpdateWindow::Running { host, job, .. }) = &screen.update else {
+        return false;
+    };
+    let Some(result) = job.poll() else {
+        return false;
+    };
+    if result.is_ok()
+        && let Some(entry) = hosts.get_mut(*host)
+    {
+        let worker = spawn_worker(&entry.spec, &entry.app.config, entry.app.interval);
+        stop_workers(vec![std::mem::replace(&mut entry.worker, worker)]);
+        entry.sent_limit = None;
+    }
+    screen.update = Some(UpdateWindow::Done { result });
+    true
+}
+
 /// Routes a key: view switching first (unless the active host is typing a
 /// filter or confirming a signal), then the active host's own keys.
 /// Draws the widget column on the right when there are widgets, they are
@@ -451,12 +525,30 @@ fn handle_key(
         screen.alert_log.handle_key(key);
         return;
     }
+    if let Some(window) = screen.update.take() {
+        screen.update = match window {
+            UpdateWindow::Confirm { host, .. } if key.code == KeyCode::Char('y') => {
+                start_update(hosts, host)
+            }
+            // Runs on; the outcome shows when it is done.
+            running @ UpdateWindow::Running { .. } => Some(running),
+            _ => None,
+        };
+        return;
+    }
     let busy = match screen.view {
         View::Host(i) => hosts[i].app.editing_filter || hosts[i].app.confirm.is_some(),
         View::Overview => false,
     };
     if !busy && key.code == KeyCode::Char('a') {
         screen.alert_log.show();
+        return;
+    }
+    if !busy
+        && key.code == KeyCode::Char('u')
+        && let View::Host(i) = screen.view
+    {
+        ask_update(screen, &mut hosts[i], i);
         return;
     }
     if has_widgets && !busy && key.code == KeyCode::Char('w') {
@@ -491,6 +583,7 @@ mod tests {
             quit: false,
             show_widgets: true,
             alert_log: AlertLogView::default(),
+            update: None,
         }
     }
 

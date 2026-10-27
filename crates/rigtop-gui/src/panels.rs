@@ -61,13 +61,25 @@ pub fn title_extras(ui: &mut Ui, pane: Pane, state: &mut GuiState) {
             let hostname = host.hostname.clone();
             let version = rigtop_core::view::version_note(snapshot)
                 .map(|note| (note, rigtop_core::view::version_hint(snapshot)));
+            // Remote hosts with an older rigtop can be updated from here.
+            let updatable =
+                state.remote && rigtop_core::update::agent_is_older(&snapshot.host.rigtop_version);
             let title_end = ui.cursor().left();
             let controls_start = ui
                 .with_layout(Layout::right_to_left(Align::Center), |ui| {
                     ui.label(dim(uptime));
                     ui.label(colored(hostname, TEXT));
                     if let Some((note, hint)) = version {
-                        ui.label(colored(note, WARN)).on_hover_text(hint);
+                        if updatable {
+                            let button =
+                                egui::Button::new(colored(format!("{note} · update…"), WARN))
+                                    .frame(false);
+                            if ui.add(button).on_hover_text(hint).clicked() {
+                                state.view_actions.push(ViewAction::UpdateAgent);
+                            }
+                        } else {
+                            ui.label(colored(note, WARN)).on_hover_text(hint);
+                        }
                     }
                     ui.add_space(12.0);
                     view_controls(ui, state);

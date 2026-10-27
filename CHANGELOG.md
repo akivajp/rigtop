@@ -15,6 +15,12 @@ include breaking changes).
   and this machine's collector for `[smart]`, `[btrfs]` and `[lhm]`,
   restart. A file that cannot be read is reported and the settings in use
   are kept.
+- Updating rigtop on remote hosts that run an older version: `u` in the
+  TUI, or a click on the "agent 0.10.1 · update…" note in the GUI. After
+  you confirm, the release's `install.sh` of your version runs over SSH and
+  replaces the rigtop the agent runs, then the host reconnects. Copies from
+  `cargo install` or a package manager, and Windows hosts, get directions
+  instead.
 
 ## [0.11.0] - 2026-10-28
 

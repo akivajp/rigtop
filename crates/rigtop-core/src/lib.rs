@@ -27,6 +27,7 @@ pub mod smart;
 pub mod snapshot;
 pub mod source;
 pub mod system;
+pub mod update;
 pub mod view;
 pub mod widget;
 #[cfg(windows)]

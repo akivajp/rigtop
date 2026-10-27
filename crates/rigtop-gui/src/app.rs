@@ -26,6 +26,7 @@ use crate::notify::{self, Notifier};
 use crate::overview;
 use crate::panels;
 use crate::sensors_dialog::{self, SensorsDialog};
+use crate::update_dialog::UpdateDialog;
 use crate::widget_panel;
 use crate::widgets::{self, BACKGROUND, BORDER, DIM, TEXT};
 
@@ -118,6 +119,8 @@ pub enum ViewAction {
     EditSensors,
     /// Open the history of alerts.
     ShowAlertLog,
+    /// Offer to update rigtop on this (remote) host.
+    UpdateAgent,
 }
 
 /// Everything the panels read and modify.
@@ -159,6 +162,8 @@ pub struct GuiState {
     /// Whether this is the machine rigtop runs on (setup offers apply only
     /// to it).
     pub is_local: bool,
+    /// Whether this host is reached over SSH (and can be updated from here).
+    pub remote: bool,
     /// The LibreHardwareMonitor setup window (Windows).
     pub lhm_setup: LhmSetup,
     status: Option<(String, Instant)>,
@@ -189,6 +194,7 @@ impl GuiState {
             graph_span: GraphSpan::default(),
             interval: Duration::from_secs(1),
             is_local: false,
+            remote: false,
             lhm_setup: LhmSetup::default(),
             status: None,
         }
@@ -347,6 +353,7 @@ pub struct RigtopApp {
     repaint: Option<egui::Context>,
     pub hosts_dialog: HostsDialog,
     pub sensors_dialog: SensorsDialog,
+    update_dialog: UpdateDialog,
     /// Alerts of every host as they appeared and cleared.
     alert_log: AlertLog,
     alert_log_open: bool,
@@ -440,6 +447,7 @@ impl RigtopApp {
             repaint: None,
             hosts_dialog: HostsDialog::default(),
             sensors_dialog: SensorsDialog::default(),
+            update_dialog: UpdateDialog::default(),
             alert_log: AlertLog::default(),
             alert_log_open: false,
             notifier,
@@ -472,6 +480,7 @@ impl RigtopApp {
         });
         let mut state = GuiState::new(self.config.clone());
         state.is_local = spec.is_local();
+        state.remote = matches!(spec.kind, HostKind::Remote(_));
         HostEntry {
             spec,
             worker,
@@ -568,10 +577,7 @@ impl RigtopApp {
         {
             for index in 0..self.hosts.len() {
                 if self.hosts[index].spec.is_local() {
-                    let fresh = self.start_host(self.hosts[index].spec.clone());
-                    let host = &mut self.hosts[index];
-                    stopped.extend(std::mem::replace(&mut host.worker, fresh.worker));
-                    host.sent_limit = None;
+                    stopped.extend(self.replace_worker(index));
                 }
             }
         }
@@ -597,6 +603,25 @@ impl RigtopApp {
             self.overview.include_local = self.config.overview.include_local;
         }
         self.overview_processes = self.config.overview.processes;
+    }
+
+    /// Gives the host at `index` a new collector (keeping its history) and
+    /// returns the old one, which the caller stops.
+    fn replace_worker(&mut self, index: usize) -> Option<Worker> {
+        let fresh = self.start_host(self.hosts[index].spec.clone());
+        let host = &mut self.hosts[index];
+        host.sent_limit = None;
+        std::mem::replace(&mut host.worker, fresh.worker)
+    }
+
+    /// Reconnects the host at `index`, e.g. to run an updated agent.
+    fn restart_worker(&mut self, index: usize) {
+        if index < self.hosts.len()
+            && let Some(old) = self.replace_worker(index)
+        {
+            // Joining could freeze the UI; see `update_hosts`.
+            thread::spawn(move || drop(old));
+        }
     }
 
     /// Writes `hosts` to the configuration file and applies them.
@@ -830,6 +855,11 @@ impl RigtopApp {
                 ViewAction::NextGraphSpan => self.graph_span = self.graph_span.next(),
                 ViewAction::EditSensors => self.sensors_dialog.open(&self.config.sensors),
                 ViewAction::ShowAlertLog => self.alert_log_open = true,
+                ViewAction::UpdateAgent => {
+                    if let View::Host(index) = self.view {
+                        self.update_dialog.ask(index, &self.hosts[index].spec.name);
+                    }
+                }
             }
         }
         let fixed = self.fixed_host_names();
@@ -862,6 +892,10 @@ impl RigtopApp {
             self.save_sensors(sensors);
         }
         alert_log::show(&ctx, &mut self.alert_log_open, &mut self.alert_log);
+        if let Some(index) = self.update_dialog.show(&ctx, &self.hosts) {
+            // The new agent runs from the next connection on.
+            self.restart_worker(index);
+        }
 
         // The host shown in detail sends every process; the others only
         // what an overview card lists.
@@ -1513,6 +1547,31 @@ mod tests {
                 "missing {label:?}"
             );
         }
+    }
+
+    #[test]
+    fn older_remote_agents_offer_an_update() {
+        let mut snapshot = sample_snapshot();
+        snapshot.host.rigtop_version = "0.0.1".to_owned();
+        let mut harness = harness_with(snapshot);
+        harness.state_mut().primary_mut().remote = true;
+        harness.run();
+        harness.get_by_label("agent 0.0.1 · update…").click();
+        harness.run();
+        assert!(
+            harness
+                .query_all_by_label_contains("Update rigtop on")
+                .next()
+                .is_some()
+        );
+        harness.get_by_label("cancel").click();
+        harness.run();
+        assert!(
+            harness
+                .query_all_by_label_contains("Update rigtop on")
+                .next()
+                .is_none()
+        );
     }
 
     #[test]

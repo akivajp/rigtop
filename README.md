@@ -98,6 +98,7 @@ cargo run --release -p rigtop -- --help  # options (--interval-ms, --config, --d
 | `k` / `K` | send SIGTERM / SIGKILL to the selected process (asks first) |
 | `n` | switch the network interface |
 | `+` / `-` | slower / faster updates |
+| `u` | update rigtop on this remote host to your version, when it runs an older one (asks first) |
 | `a` | alert history: the alerts of every host as they appeared and cleared since rigtop started (`↑` `↓` scroll, `a` or `Esc` closes). New ones are counted in the tab bar, or in the CPU box title with one host |
 | `g` | time the graphs cover: fit to the width (one sample per dot), or the last 1, 5, 15 minutes, 1, 6 or 24 hours (beyond an hour from per-minute averages) |
 | `q` | quit |
@@ -181,7 +182,7 @@ rigtop starts `rigtop --agent` on each remote host through your system's `ssh` (
 - Authentication must work without a prompt (key or agent), and the host key must already be known: connect once with `ssh <host>` first.
 - Non-interactive SSH sessions often lack `~/.cargo/bin` on their `PATH` (zsh reads only `~/.zshenv` for them, bash usually nothing). When `rigtop` is not found there, rigtop tries `~/.cargo/bin/rigtop --agent` by itself. For other locations, set `command` for the host (or `--remote-command` for `--host`).
 - Killing processes on a remote host uses the SSH user's permissions.
-- A host whose rigtop is another version than yours says so in its title (`agent 0.8.2`); newer readings appear once it is updated.
+- A host whose rigtop is another version than yours says so in its title (`agent 0.8.2`); newer readings appear once it is updated. When it is older, `u` in the TUI or a click on that note in the GUI updates it to your version: after you confirm, rigtop runs the release's install script over SSH (Linux and macOS hosts with curl or wget) and replaces the rigtop the agent runs, then reconnects. Copies from `cargo install` or a package manager are left alone, with the command to update them; Windows hosts update with Scoop.
 
 ## Linux
 

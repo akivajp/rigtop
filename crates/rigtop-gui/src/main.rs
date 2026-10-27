@@ -17,6 +17,7 @@ mod notify;
 mod overview;
 mod panels;
 mod sensors_dialog;
+mod update_dialog;
 mod widget_panel;
 mod widgets;
 
