@@ -30,19 +30,27 @@ impl NvmlCollector {
     /// Initializes NVML. Never fails; check [`NvmlCollector::init_error`] for the reason
     /// when no GPUs are reported.
     pub fn new() -> Self {
+        let (nvml, init_error) = Self::init();
+        Self {
+            nvml,
+            init_error,
+            last_sample_ts: HashMap::new(),
+            process_utilization: true,
+        }
+    }
+
+    /// NVIDIA ships no NVML for macOS (nvml-wrapper would look for `nvml.dll`
+    /// there), so it is not tried, and having no GPUs is not worth a note.
+    #[cfg(target_os = "macos")]
+    fn init() -> (Option<Nvml>, Option<String>) {
+        (None, None)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn init() -> (Option<Nvml>, Option<String>) {
         match Nvml::init() {
-            Ok(nvml) => Self {
-                nvml: Some(nvml),
-                init_error: None,
-                last_sample_ts: HashMap::new(),
-                process_utilization: true,
-            },
-            Err(err) => Self {
-                nvml: None,
-                init_error: Some(err.to_string()),
-                last_sample_ts: HashMap::new(),
-                process_utilization: true,
-            },
+            Ok(nvml) => (Some(nvml), None),
+            Err(err) => (None, Some(err.to_string())),
         }
     }
 
