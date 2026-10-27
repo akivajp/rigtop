@@ -13,7 +13,7 @@
 
 [English README](README.md)
 
-![rigtop の TUI: CPU の各コア、メモリ、GPU 2枚、SMART と btrfs RAID を含むストレージの状態、ネットワーク、プロセスごとの VRAM を出すプロセス一覧](docs/images/rigtop-tui.png)
+![rigtop の TUI: CPU の各コア、メモリ、GPU 2枚、SMART と btrfs RAID を含むストレージの状態、ネットワーク、プロセスごとのディスク I/O と VRAM を出すプロセス一覧](docs/images/rigtop-tui.png)
 
 ## 目標
 
@@ -105,7 +105,7 @@ cargo run --release -p rigtop -- --help  # オプション（--interval-ms、--c
 
 ### GUI
 
-![rigtop-gui: 同じパネル構成のネイティブウィンドウ。滑らかなグラフとバーで、パネルはリサイズ・並べ替えできる](docs/images/rigtop-gui.png)
+![rigtop-gui: 同じパネル構成のネイティブウィンドウ。滑らかなグラフとバーで、パネルはリサイズ・並べ替えできる。プロセスはツリー表示](docs/images/rigtop-gui.png)
 
 ```sh
 cargo run --release -p rigtop-gui            # オプションは TUI と同じ（--interval-ms、--config）

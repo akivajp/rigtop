@@ -13,7 +13,7 @@ A system monitor for workstations, laptops and NAS — an alternative to btop th
 
 [日本語版 README](README.ja.md)
 
-![rigtop TUI: CPU cores, memory, two GPUs, storage health with SMART and btrfs RAID, network, and a process list with per-process VRAM](docs/images/rigtop-tui.png)
+![rigtop TUI: CPU cores, memory, two GPUs, storage health with SMART and btrfs RAID, network, and a process list with per-process disk I/O and VRAM](docs/images/rigtop-tui.png)
 
 ## Goals
 
@@ -105,7 +105,7 @@ cargo run --release -p rigtop -- --help  # options (--interval-ms, --config, --d
 
 ### GUI
 
-![rigtop-gui: the same panels in a native window, with smooth graphs and meters, resizable and rearrangeable](docs/images/rigtop-gui.png)
+![rigtop-gui: the same panels in a native window, with smooth graphs and meters, resizable and rearrangeable, here with the process tree](docs/images/rigtop-gui.png)
 
 ```sh
 cargo run --release -p rigtop-gui            # same options: --interval-ms, --config

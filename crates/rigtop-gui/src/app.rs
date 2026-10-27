@@ -1672,6 +1672,9 @@ mod tests {
                 harness.get_by_label(label).click();
                 harness.run();
             }
+            // Otherwise the last click's pointer and hover stay in the picture.
+            harness.remove_cursor();
+            harness.run();
         }
         harness
             .render()
