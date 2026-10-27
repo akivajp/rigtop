@@ -9,7 +9,7 @@ use ratatui::crossterm::event::{
 use ratatui::layout::{Position, Rect};
 use ratatui::widgets::TableState;
 use rigtop_core::view::{
-    self, GraphSpan, MetricHistory, ProcessQuery, ProcessRow, SortKey, signal_name,
+    self, GraphSpan, MetricHistory, ProcessQuery, ProcessRow, Severity, SortKey, signal_name,
 };
 use rigtop_core::worker::{Command, Event};
 use rigtop_core::{Config, ProcessSignal, Snapshot};
@@ -71,6 +71,9 @@ pub struct App {
     pub connection_error: Option<String>,
     /// When the latest snapshot arrived.
     pub last_update: Option<Instant>,
+    /// Unread alerts of every host, shown in the CPU box title (`None`
+    /// where the tab bar shows them instead).
+    pub alerts_unread: Option<(usize, Option<Severity>)>,
 }
 
 impl App {
@@ -96,6 +99,7 @@ impl App {
             waiting_message: "collecting…".to_owned(),
             connection_error: None,
             last_update: None,
+            alerts_unread: None,
         }
     }
 

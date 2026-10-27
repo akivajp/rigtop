@@ -97,6 +97,7 @@ cargo run --release -p rigtop -- --help  # options (--interval-ms, --config, --d
 | `k` / `K` | send SIGTERM / SIGKILL to the selected process (asks first) |
 | `n` | switch the network interface |
 | `+` / `-` | slower / faster updates |
+| `a` | alert history: the alerts of every host as they appeared and cleared since rigtop started (`↑` `↓` scroll, `a` or `Esc` closes). New ones are counted in the tab bar, or in the CPU box title with one host |
 | `g` | time the graphs cover: fit to the width (one sample per dot), or the last 1, 5, 15 minutes, 1, 6 or 24 hours (beyond an hour from per-minute averages) |
 | `q` | quit |
 | mouse | click a process to select it, click a column header to sort (again to reverse), wheel to scroll |

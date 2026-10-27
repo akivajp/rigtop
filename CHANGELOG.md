@@ -13,6 +13,10 @@ include breaking changes).
   Blank when idle, and for other users' processes on Linux, whose counters
   only root can read; on Windows the counters include all of a process's
   I/O, not only disks. Narrow tables give up Thr before it.
+- TUI: alert history (`a`), like the GUI's: the alerts of every host as
+  they appeared and cleared, with times. Until opened, the tab bar (or the
+  CPU box title with one host) shows the number of new alerts in the color
+  of the worst.
 
 ## [0.10.1] - 2026-10-28
 
