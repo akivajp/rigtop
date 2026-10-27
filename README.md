@@ -32,7 +32,20 @@ A system monitor for workstations, laptops and NAS — an alternative to btop th
 
 ## Installation
 
-Download an archive for your platform from the [Releases](https://github.com/akivajp/rigtop/releases) page and put the binaries on your `PATH`:
+On Linux (x86_64 and aarch64, glibc 2.35 or newer) and macOS (Apple Silicon), the install script puts the binaries in `~/.local/bin` (no `sudo`). Run it again to update:
+
+```sh
+curl -fsSL https://github.com/akivajp/rigtop/releases/latest/download/install.sh | sh
+```
+
+It picks the archive for your machine from the latest release and checks it against `SHA256SUMS`. Add `-s -- --help` after `sh` for the options (another version, another directory, the terminal UI only). To read the script first:
+
+```sh
+curl -fsSLO https://github.com/akivajp/rigtop/releases/latest/download/install.sh
+less install.sh && sh install.sh
+```
+
+Or download an archive for your platform from the [Releases](https://github.com/akivajp/rigtop/releases) page and put the binaries on your `PATH`:
 
 | Archive | Contents |
 |---|---|

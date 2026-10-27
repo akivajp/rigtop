@@ -32,7 +32,20 @@
 
 ## インストール
 
-[Releases](https://github.com/akivajp/rigtop/releases) のページから環境に合ったアーカイブを取得し、中のバイナリを `PATH` の通った場所に置いてください。
+Linux（x86_64・aarch64、glibc 2.35 以降）と macOS（Apple Silicon）では、インストールスクリプトで `~/.local/bin` に入れられます（`sudo` は不要）。もう一度実行すると更新できます。
+
+```sh
+curl -fsSL https://github.com/akivajp/rigtop/releases/latest/download/install.sh | sh
+```
+
+最新のリリースから環境に合ったアーカイブを選び、`SHA256SUMS` と照合してから入れます。オプション（別の版、別の置き場所、端末 UI のみ）は `sh` の後ろに `-s -- --help` を付けると表示されます。先にスクリプトの中身を確認するなら:
+
+```sh
+curl -fsSLO https://github.com/akivajp/rigtop/releases/latest/download/install.sh
+less install.sh && sh install.sh
+```
+
+または、[Releases](https://github.com/akivajp/rigtop/releases) のページから環境に合ったアーカイブを取得し、中のバイナリを `PATH` の通った場所に置いてください。
 
 | アーカイブ | 中身 |
 |---|---|

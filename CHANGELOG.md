@@ -7,6 +7,12 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Added
+- An install script for Linux and macOS, attached to each release:
+  `curl -fsSL https://github.com/akivajp/rigtop/releases/latest/download/install.sh | sh`
+  puts the binaries in `~/.local/bin` after checking them against
+  `SHA256SUMS` (`--version`, `--bin-dir`, `--tui-only`).
+
 ### Fixed
 - macOS: no more "NVIDIA GPUs unavailable" note about `nvml.dll`; NVML,
   which NVIDIA does not ship for macOS, is no longer loaded there (#2).

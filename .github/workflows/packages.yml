@@ -1,8 +1,8 @@
 name: Package checks
 
-# Installs the published packages the way users do and runs them, and
-# renders the GUI on Windows. Run by hand, e.g. after a release (the Scoop
-# manifest and the .deb files point at published release assets).
+# Installs the published packages the way users do (Scoop, .deb, the
+# install script) and runs them, and renders the GUI on Windows. Run by
+# hand, e.g. after a release (they point at published release assets).
 on:
   workflow_dispatch:
     inputs:
@@ -65,6 +65,54 @@ jobs:
             rigtop --version
             rigtop --dump-json | head -c 300; echo
             if [ -x /usr/bin/rigtop-gui ]; then rigtop-gui --help | head -n 3; fi
+          '
+
+  install-script:
+    name: install.sh (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # `image` runs the script in a container; `fetch` is the tool the
+          # container gets (the script uses curl, or wget without it).
+          - { name: "ubuntu:22.04, wget", runner: ubuntu-latest, image: "ubuntu:22.04", fetch: wget }
+          - { name: "debian:12, curl", runner: ubuntu-latest, image: "debian:12", fetch: curl }
+          - { name: "archlinux", runner: ubuntu-latest, image: "archlinux", fetch: "" }
+          - { name: "Linux aarch64", runner: ubuntu-24.04-arm, image: "", fetch: "" }
+          - { name: "macOS", runner: macos-latest, image: "", fetch: "" }
+    steps:
+      - uses: actions/checkout@v7
+      - name: Get the published script, or this commit's before its first release
+        run: |
+          url="https://github.com/$GITHUB_REPOSITORY/releases/latest/download/install.sh"
+          if curl -fsSL "$url" -o published.sh; then
+            echo "testing $url"
+            mv published.sh test-install.sh
+          else
+            echo "::notice::no install.sh in the latest release; testing this commit's"
+            cp install.sh test-install.sh
+          fi
+      - name: Install with the one-liner and run it
+        if: matrix.image == ''
+        run: |
+          cat test-install.sh | sh
+          ~/.local/bin/rigtop --version
+          ~/.local/bin/rigtop --dump-json | head -c 300; echo
+          if [ -x ~/.local/bin/rigtop-gui ]; then ~/.local/bin/rigtop-gui --help | head -n 3; fi
+      - name: Install with the one-liner in a container and run it
+        if: matrix.image != ''
+        run: |
+          docker run --rm -v "$PWD/test-install.sh:/install.sh:ro" -e FETCH="${{ matrix.fetch }}" ${{ matrix.image }} sh -euc '
+            if [ -n "$FETCH" ]; then
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update -qq
+              apt-get install -y -qq "$FETCH" ca-certificates > /dev/null
+            fi
+            cat /install.sh | sh
+            ~/.local/bin/rigtop --version
+            ~/.local/bin/rigtop --dump-json | head -c 300; echo
+            if [ -x ~/.local/bin/rigtop-gui ]; then ~/.local/bin/rigtop-gui --help | head -n 3; fi
           '
 
   windows-gui:
