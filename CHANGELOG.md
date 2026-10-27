@@ -7,6 +7,10 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Fixed
+- macOS: no more "NVIDIA GPUs unavailable" note about `nvml.dll`; NVML,
+  which NVIDIA does not ship for macOS, is no longer loaded there (#2).
+
 ## [0.10.0] - 2026-10-27
 
 ### Added
