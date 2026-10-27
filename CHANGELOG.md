@@ -7,6 +7,8 @@ include breaking changes).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-28
+
 ### Added
 - Process table: a Disk column with each process's reads plus writes per
   second, sortable (in the GUI, hovering shows reads and writes apart).
@@ -283,7 +285,8 @@ First release.
 - Windows support (CPU, memory, processes, network with link speeds, drives,
   NVIDIA GPUs; temperatures, fans and CPU power are not available yet)
 
-[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.10.1...HEAD
+[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/akivajp/rigtop/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/akivajp/rigtop/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/akivajp/rigtop/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/akivajp/rigtop/compare/v0.8.2...v0.9.0
