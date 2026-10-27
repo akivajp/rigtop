@@ -8,7 +8,7 @@ use egui::{
     Color32, CornerRadius, FontId, Id, Margin, RichText, Sense, Stroke, TextStyle, Ui, Visuals,
 };
 use egui_tiles::{Container, SimplificationOptions, Tile, TileId, Tiles, Tree, UiResponse};
-use rigtop_core::config::{HostConfig, OverviewSection, SensorConfig};
+use rigtop_core::config::{ConfigWatcher, HostConfig, OverviewSection, SensorConfig};
 use rigtop_core::demo::DemoSource;
 use rigtop_core::hosts::{HostKind, HostSpec, host_specs};
 use rigtop_core::remote::RemoteSource;
@@ -336,6 +336,8 @@ pub struct RigtopApp {
     /// Made-up hosts instead of real ones (`--demo`).
     demo: bool,
     config_path: Option<PathBuf>,
+    /// Notices edits to the configuration file (`None` without one).
+    config_watcher: Option<ConfigWatcher>,
     /// Hosts given with `--host`, which are not saved.
     cli_hosts: Vec<String>,
     remote_command: Option<String>,
@@ -394,6 +396,7 @@ impl RigtopApp {
             .and_then(|s| eframe::get_value::<OverviewSettings>(s, OVERVIEW_KEY))
             .unwrap_or_else(|| OverviewSettings::from_config(&config));
         let mut app = Self::assemble(config, tree, overview, initial_zoom);
+        app.config_watcher = config_path.clone().map(ConfigWatcher::new);
         app.config_path = config_path;
         app.cli_hosts = extra_hosts.to_vec();
         app.remote_command = remote_command.map(str::to_owned);
@@ -429,6 +432,7 @@ impl RigtopApp {
             overview_processes: config.overview.processes,
             config,
             config_path: None,
+            config_watcher: None,
             demo: false,
             cli_hosts: Vec::new(),
             remote_command: None,
@@ -526,6 +530,73 @@ impl RigtopApp {
             _ if multi => View::Overview,
             _ => View::Host(0),
         };
+    }
+
+    /// Applies edits to the configuration file, if any (checked at most once
+    /// a second; the clock redraws the window that often anyway).
+    fn reload_config(&mut self) {
+        let Some(result) = self.config_watcher.as_mut().and_then(ConfigWatcher::poll) else {
+            return;
+        };
+        match result {
+            Ok(config) => self.apply_config(config),
+            Err(err) => {
+                // The first line names the file and the problem.
+                let reason = err.to_string();
+                let reason = reason.lines().next().unwrap_or_default().to_owned();
+                for host in &mut self.hosts {
+                    host.state
+                        .set_status(format!("configuration not applied: {reason}"));
+                }
+            }
+        }
+    }
+
+    /// Applies an edited configuration: sensor names, alert thresholds,
+    /// notifications and the overview take effect at once; hosts added to
+    /// or removed from `[[hosts]]` start or stop (the others keep their
+    /// connection and history); widgets and this machine's collector
+    /// restart when their settings changed.
+    fn apply_config(&mut self, config: Config) {
+        let old = std::mem::replace(&mut self.config, config);
+        self.update_hosts();
+        let mut stopped = Vec::new();
+        // This machine's collector reads these settings when it starts.
+        if old.smart != self.config.smart
+            || old.btrfs != self.config.btrfs
+            || old.lhm != self.config.lhm
+        {
+            for index in 0..self.hosts.len() {
+                if self.hosts[index].spec.is_local() {
+                    let fresh = self.start_host(self.hosts[index].spec.clone());
+                    let host = &mut self.hosts[index];
+                    stopped.extend(std::mem::replace(&mut host.worker, fresh.worker));
+                    host.sent_limit = None;
+                }
+            }
+        }
+        if !stopped.is_empty() {
+            thread::spawn(move || drop(stopped));
+        }
+        for host in &mut self.hosts {
+            host.state.config = self.config.clone();
+            host.state.set_status("configuration reloaded".to_owned());
+        }
+        if old.widgets != self.config.widgets
+            && let Some(repaint) = self.repaint.clone()
+        {
+            self.widgets = rigtop_core::widget::start_widgets(&self.config.widgets, move || {
+                repaint.request_repaint()
+            });
+        }
+        if old.notifications.level != self.config.notifications.level {
+            self.notifier = Notifier::new(self.config.notifications.level);
+        }
+        // The GUI's own overview choices stay unless the file changed them.
+        if old.overview.include_local != self.config.overview.include_local {
+            self.overview.include_local = self.config.overview.include_local;
+        }
+        self.overview_processes = self.config.overview.processes;
     }
 
     /// Writes `hosts` to the configuration file and applies them.
@@ -894,6 +965,7 @@ impl eframe::App for RigtopApp {
     /// (minimized, screen locked), when `ui` is not called. Draining here
     /// keeps the graphs' history going and the event queues short.
     fn logic(&mut self, _ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.reload_config();
         self.drain_events();
     }
 
@@ -1441,6 +1513,35 @@ mod tests {
                 "missing {label:?}"
             );
         }
+    }
+
+    #[test]
+    fn edited_configuration_applies_to_running_hosts() {
+        let mut harness = harness_with(sample_snapshot());
+        harness.run();
+        let mut config = Config::default();
+        config.hosts.push(HostConfig {
+            name: "nas".to_owned(),
+            ssh: None,
+            command: None,
+            sections: None,
+        });
+        config.alerts.cpu_warning_celsius = 80.0;
+        harness.state_mut().apply_config(config);
+        harness.run();
+        let app = harness.state();
+        let names: Vec<&str> = app.hosts.iter().map(|h| h.spec.name.as_str()).collect();
+        assert_eq!(names, vec!["local", "nas"]);
+        assert!(
+            app.hosts
+                .iter()
+                .all(|h| h.state.config.alerts.cpu_warning_celsius == 80.0)
+        );
+        assert_eq!(app.hosts[0].state.status(), Some("configuration reloaded"));
+        assert!(
+            app.hosts[0].state.snapshot.is_some(),
+            "a host that stays keeps its data"
+        );
     }
 
     #[test]

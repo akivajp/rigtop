@@ -143,7 +143,7 @@ impl App {
             .map(|(msg, _)| msg.as_str())
     }
 
-    fn set_status(&mut self, message: String) {
+    pub(super) fn set_status(&mut self, message: String) {
         self.status = Some((message, Instant::now()));
     }
 

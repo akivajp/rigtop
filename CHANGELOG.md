@@ -7,6 +7,15 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Added
+- Edits to the configuration file apply while rigtop runs (TUI and GUI),
+  checked every second: sensor names, alert thresholds, notifications and
+  the overview at once; hosts added to `[[hosts]]` connect and removed ones
+  disconnect, while the others keep their connection and history; widgets,
+  and this machine's collector for `[smart]`, `[btrfs]` and `[lhm]`,
+  restart. A file that cannot be read is reported and the settings in use
+  are kept.
+
 ## [0.11.0] - 2026-10-28
 
 ### Added

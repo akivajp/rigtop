@@ -100,9 +100,10 @@ fn main() -> Result<()> {
         bail!("the collector is for Linux (SMART data comes from smartctl run by systemd)");
     }
 
-    let config = match &cli.config {
+    let config_path = cli.config.clone().or_else(Config::default_path);
+    let config = match &config_path {
         Some(path) => Config::load(path),
-        None => Config::load_default(),
+        None => Ok(Config::default()),
     }
     .context("failed to load the configuration")?;
 
@@ -114,12 +115,13 @@ fn main() -> Result<()> {
         let stdin = io::BufReader::new(io::stdin());
         return run_agent(source, interval, stdin, io::stdout().lock()).context("agent failed");
     }
-    let specs = if cli.demo {
-        rigtop_core::demo::host_specs(&config)
+    let specs: tui::HostSpecs = if cli.demo {
+        Box::new(rigtop_core::demo::host_specs)
     } else {
-        host_specs(&config, &cli.hosts, cli.remote_command.as_deref())
+        let (hosts, remote_command) = (cli.hosts, cli.remote_command);
+        Box::new(move |config| host_specs(config, &hosts, remote_command.as_deref()))
     };
-    tui::run(config, interval, specs)
+    tui::run(config, config_path, interval, specs)
 }
 
 /// Takes a warm-up sample, waits one interval, and prints the second sample.

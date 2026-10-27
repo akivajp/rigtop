@@ -8,6 +8,8 @@ mod ui;
 mod widget_panel;
 
 use std::io::stdout;
+use std::path::PathBuf;
+use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
@@ -17,6 +19,7 @@ use ratatui::crossterm::event::{
 };
 use ratatui::crossterm::execute;
 use ratatui::layout::{Constraint, Layout, Position, Rect};
+use rigtop_core::config::ConfigWatcher;
 use rigtop_core::demo::DemoSource;
 use rigtop_core::hosts::{HostKind, HostSpec};
 use rigtop_core::remote::RemoteSource;
@@ -41,38 +44,76 @@ pub struct HostTui {
     sent_limit: Option<Option<usize>>,
 }
 
+impl HostTui {
+    /// Starts collecting from `spec`.
+    fn start(spec: HostSpec, config: &Config, interval: Duration) -> Self {
+        let worker = spawn_worker(&spec, config, interval);
+        let mut app = App::new(config.clone(), interval);
+        if !spec.is_local() {
+            app.waiting_message = format!("connecting to {}…", spec.name);
+        }
+        HostTui {
+            spec,
+            worker,
+            app,
+            sent_limit: None,
+        }
+    }
+}
+
+/// A collector thread for `spec`.
+fn spawn_worker(spec: &HostSpec, config: &Config, interval: Duration) -> Worker {
+    let source_config = config.clone();
+    let kind = spec.kind.clone();
+    Worker::spawn(
+        move || -> Box<dyn DataSource> {
+            match kind {
+                HostKind::Remote(target) => Box::new(RemoteSource::new(target)),
+                HostKind::Local => Box::new(LocalSource::with_config(&source_config)),
+                HostKind::Demo(host) => Box::new(DemoSource::new(host)),
+            }
+        },
+        interval,
+    )
+}
+
+/// Stops workers without waiting: joining one that is still connecting
+/// would freeze the screen.
+fn stop_workers(workers: Vec<Worker>) {
+    if !workers.is_empty() {
+        thread::spawn(move || drop(workers));
+    }
+}
+
+/// The hosts to monitor under a configuration (`[[hosts]]` plus the
+/// command line, or the demo hosts).
+pub type HostSpecs = Box<dyn Fn(&Config) -> Vec<HostSpec>>;
+
+/// What applying an edited configuration file needs.
+struct Reload {
+    /// `None` without a configuration file (e.g. no config directory).
+    watcher: Option<ConfigWatcher>,
+    /// The configuration in use.
+    config: Config,
+    host_specs: HostSpecs,
+    interval: Duration,
+}
+
 /// Runs the TUI until the user quits. With several hosts (this machine plus
-/// remote ones) it starts on the overview, with a tab per host.
-pub fn run(config: Config, interval: Duration, specs: Vec<HostSpec>) -> Result<()> {
-    let mut hosts: Vec<HostTui> = specs
+/// remote ones) it starts on the overview, with a tab per host. Edits to
+/// `config_path` are applied while running.
+pub fn run(
+    config: Config,
+    config_path: Option<PathBuf>,
+    interval: Duration,
+    host_specs: HostSpecs,
+) -> Result<()> {
+    let mut hosts: Vec<HostTui> = host_specs(&config)
         .into_iter()
-        .map(|spec| {
-            let source_config = config.clone();
-            let kind = spec.kind.clone();
-            let worker = Worker::spawn(
-                move || -> Box<dyn DataSource> {
-                    match kind {
-                        HostKind::Remote(target) => Box::new(RemoteSource::new(target)),
-                        HostKind::Local => Box::new(LocalSource::with_config(&source_config)),
-                        HostKind::Demo(host) => Box::new(DemoSource::new(host)),
-                    }
-                },
-                interval,
-            );
-            let mut app = App::new(config.clone(), interval);
-            if !spec.is_local() {
-                app.waiting_message = format!("connecting to {}…", spec.name);
-            }
-            HostTui {
-                spec,
-                worker,
-                app,
-                sent_limit: None,
-            }
-        })
+        .map(|spec| HostTui::start(spec, &config, interval))
         .collect();
     // The TUI redraws every second anyway, which shows new widget content.
-    let widgets = start_widgets(&config.widgets, || {});
+    let mut widgets = start_widgets(&config.widgets, || {});
     let mut screen = Screen {
         view: if hosts.len() > 1 {
             View::Overview
@@ -86,6 +127,12 @@ pub fn run(config: Config, interval: Duration, specs: Vec<HostSpec>) -> Result<(
         show_widgets: true,
         alert_log: AlertLogView::default(),
     };
+    let mut reload = Reload {
+        watcher: config_path.map(ConfigWatcher::new),
+        config,
+        host_specs,
+        interval,
+    };
 
     // ratatui::init installs a panic hook that restores the terminal; mouse
     // capture is ours to undo, also when panicking.
@@ -97,7 +144,13 @@ pub fn run(config: Config, interval: Duration, specs: Vec<HostSpec>) -> Result<(
         previous_hook(info);
     }));
 
-    let result = event_loop(&mut terminal, &mut hosts, &mut screen, &widgets);
+    let result = event_loop(
+        &mut terminal,
+        &mut hosts,
+        &mut screen,
+        &mut widgets,
+        &mut reload,
+    );
     let _ = execute!(stdout(), DisableMouseCapture);
     ratatui::restore();
     result
@@ -163,15 +216,31 @@ impl Screen {
 
 fn event_loop(
     terminal: &mut ratatui::DefaultTerminal,
-    hosts: &mut [HostTui],
+    hosts: &mut Vec<HostTui>,
     screen: &mut Screen,
-    widgets: &[Widget],
+    widgets: &mut Vec<Widget>,
+    reload: &mut Reload,
 ) -> Result<()> {
-    let multi = hosts.len() > 1;
     let mut dirty = true;
     let mut status_visible = false;
     let mut drawn_second = 0;
     while !screen.quit {
+        if let Some(result) = reload.watcher.as_mut().and_then(ConfigWatcher::poll) {
+            match result {
+                Ok(config) => apply_config(config, reload, hosts, screen, widgets),
+                Err(err) => {
+                    // The first line names the file and the problem.
+                    let reason = err.to_string();
+                    let reason = reason.lines().next().unwrap_or_default();
+                    for host in hosts.iter_mut() {
+                        host.app
+                            .set_status(format!("configuration not applied: {reason}"));
+                    }
+                }
+            }
+            dirty = true;
+        }
+        let multi = hosts.len() > 1;
         for host in hosts.iter_mut() {
             let mut received = false;
             while let Some(event) = host.worker.try_recv() {
@@ -277,6 +346,74 @@ fn event_loop(
         }
     }
     Ok(())
+}
+
+/// Applies an edited configuration: host names, sensor names, alert
+/// thresholds and the overview take effect at once; hosts added to or
+/// removed from `[[hosts]]` start or stop (the others keep their connection
+/// and history); widgets and this machine's collector restart when their
+/// settings changed.
+fn apply_config(
+    config: Config,
+    reload: &mut Reload,
+    hosts: &mut Vec<HostTui>,
+    screen: &mut Screen,
+    widgets: &mut Vec<Widget>,
+) {
+    let specs = (reload.host_specs)(&config);
+    if specs.is_empty() {
+        return;
+    }
+    let old = std::mem::replace(&mut reload.config, config);
+    let config = &reload.config;
+
+    let shown = match screen.view {
+        View::Host(index) => hosts.get(index).map(|h| h.spec.name.clone()),
+        View::Overview => None,
+    };
+    let mut previous = std::mem::take(hosts);
+    for spec in specs {
+        match previous
+            .iter()
+            .position(|h| h.spec.name == spec.name && h.spec.kind == spec.kind)
+        {
+            Some(position) => {
+                let mut host = previous.swap_remove(position);
+                host.spec = spec;
+                hosts.push(host);
+            }
+            None => hosts.push(HostTui::start(spec, config, reload.interval)),
+        }
+    }
+    let mut stopped: Vec<Worker> = previous.into_iter().map(|h| h.worker).collect();
+    // This machine's collector reads these settings when it starts.
+    if old.smart != config.smart || old.btrfs != config.btrfs || old.lhm != config.lhm {
+        for host in hosts.iter_mut().filter(|h| h.spec.is_local()) {
+            let worker = spawn_worker(&host.spec, config, host.app.interval);
+            stopped.push(std::mem::replace(&mut host.worker, worker));
+            host.sent_limit = None;
+        }
+    }
+    stop_workers(stopped);
+    for host in hosts.iter_mut() {
+        host.app.config = config.clone();
+        host.app.set_status("configuration reloaded".to_owned());
+    }
+    if old.widgets != config.widgets {
+        *widgets = start_widgets(&config.widgets, || {});
+    }
+    if old.overview.include_local != config.overview.include_local {
+        screen.include_local = config.overview.include_local;
+    }
+    screen.processes = config.overview.processes;
+
+    // Stay on the same host if it is still there.
+    let position = shown.and_then(|name| hosts.iter().position(|h| h.spec.name == name));
+    screen.view = match position {
+        Some(index) => View::Host(index),
+        None if hosts.len() > 1 => View::Overview,
+        None => View::Host(0),
+    };
 }
 
 /// Routes a key: view switching first (unless the active host is typing a

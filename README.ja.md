@@ -260,7 +260,7 @@ SMART のファイルにはドライブのシリアル番号が含まれます�
 
 ## 設定
 
-`~/.config/rigtop/config.toml`（Windows は `%APPDATA%\rigtop\config.toml`）。どの項目も省略できます。
+`~/.config/rigtop/config.toml`（Windows は `%APPDATA%\rigtop\config.toml`）。どの項目も省略できます。rigtop の起動中に書き換えても、1秒ほどで反映されます。`[[hosts]]` に足したホストにはつなぎ、消したホストからは切断します（残ったホストの履歴はそのまま）。ウィジェットは作り直します。ファイルが読めないときは、その旨を表示して今の設定のまま動きます。
 
 ```toml
 [sensors]

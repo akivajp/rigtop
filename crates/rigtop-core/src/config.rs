@@ -68,6 +68,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant, SystemTime};
 
 use serde::{Deserialize, Serialize};
 
@@ -590,9 +591,93 @@ fn edit_file(
     fs::rename(&tmp, path).map_err(io_err)
 }
 
+/// How often [`ConfigWatcher::poll`] looks at the file.
+const WATCH_INTERVAL: Duration = Duration::from_secs(1);
+
+/// Notices when the configuration file changes, so a running rigtop can
+/// apply the edits without a restart.
+pub struct ConfigWatcher {
+    path: PathBuf,
+    /// Modification time and size when last seen (`None`: no file).
+    stamp: Option<(Option<SystemTime>, u64)>,
+    last_check: Instant,
+    interval: Duration,
+}
+
+impl ConfigWatcher {
+    /// Watches `path`, taking its current state as already loaded.
+    pub fn new(path: PathBuf) -> Self {
+        Self {
+            stamp: file_stamp(&path),
+            path,
+            last_check: Instant::now(),
+            interval: WATCH_INTERVAL,
+        }
+    }
+
+    /// The file being watched.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// When the file changed since the previous call, its new contents (or
+    /// why they cannot be used, e.g. a file saved half-way). `None` when
+    /// unchanged, checked less than a second ago, or removed: a missing
+    /// file keeps the configuration in use rather than resetting it.
+    pub fn poll(&mut self) -> Option<Result<Config, ConfigError>> {
+        if self.last_check.elapsed() < self.interval {
+            return None;
+        }
+        self.last_check = Instant::now();
+        let stamp = file_stamp(&self.path);
+        if stamp == self.stamp {
+            return None;
+        }
+        self.stamp = stamp;
+        stamp?;
+        Some(Config::load(&self.path))
+    }
+}
+
+/// Modification time and size of `path`, if it exists.
+fn file_stamp(path: &Path) -> Option<(Option<SystemTime>, u64)> {
+    let metadata = fs::metadata(path).ok()?;
+    Some((metadata.modified().ok(), metadata.len()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn watcher_reports_edits_once() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("config.toml");
+        fs::write(&path, "[alerts]\ncpu_warning_celsius = 90\n").unwrap();
+        let mut watcher = ConfigWatcher::new(path.clone());
+        watcher.interval = Duration::ZERO;
+        assert!(
+            watcher.poll().is_none(),
+            "the initial file counts as loaded"
+        );
+
+        // A different size, so the change shows even where file times are coarse.
+        fs::write(&path, "[alerts]\ncpu_warning_celsius = 100\n").unwrap();
+        let config = watcher.poll().unwrap().unwrap();
+        assert_eq!(config.alerts.cpu_warning_celsius, 100.0);
+        assert!(watcher.poll().is_none(), "reported once");
+
+        fs::write(&path, "[alerts\n").unwrap();
+        assert!(
+            watcher.poll().unwrap().is_err(),
+            "a broken file is an error"
+        );
+        fs::remove_file(&path).unwrap();
+        assert!(
+            watcher.poll().is_none(),
+            "removing the file changes nothing"
+        );
+    }
 
     #[test]
     fn missing_file_gives_defaults() {

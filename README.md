@@ -260,7 +260,7 @@ The SMART files include drive serial numbers.
 
 ## Configuration
 
-`~/.config/rigtop/config.toml` (`%APPDATA%\rigtop\config.toml` on Windows). Every setting is optional.
+`~/.config/rigtop/config.toml` (`%APPDATA%\rigtop\config.toml` on Windows). Every setting is optional. Edits apply while rigtop runs, within a second: hosts added to `[[hosts]]` connect and removed ones disconnect (the others keep their history), and widgets restart. If the file cannot be read, rigtop says so and keeps the settings it has.
 
 ```toml
 [sensors]
