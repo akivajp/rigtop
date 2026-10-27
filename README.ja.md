@@ -1,5 +1,7 @@
 # rigtop
 
+<img src="crates/rigtop-gui/assets/rigtop.svg" alt="rigtop のアイコン" width="96" align="right">
+
 [![crates.io](https://img.shields.io/crates/v/rigtop.svg)](https://crates.io/crates/rigtop) [![CI](https://github.com/akivajp/rigtop/actions/workflows/ci.yml/badge.svg)](https://github.com/akivajp/rigtop/actions/workflows/ci.yml)
 
 > **開発の初期段階です。** TUI と GUI は Linux と Windows で動き、SSH で複数のホストをオーバービューでまとめて監視できます。
