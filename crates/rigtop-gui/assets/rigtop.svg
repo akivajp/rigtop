@@ -1,17 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
-  <defs>
-    <!-- Green at the bottom to red at the top, like rigtop's graphs. -->
-    <linearGradient id="heat" x1="0" y1="1" x2="0" y2="0">
-      <stop offset="0" stop-color="#3ddc84"/>
-      <stop offset="0.55" stop-color="#f4d03f"/>
-      <stop offset="1" stop-color="#ff5c5c"/>
-    </linearGradient>
-  </defs>
+  <!-- rigtop: an "r" and three rising bars, green to red like its meters. -->
   <rect x="8" y="8" width="240" height="240" rx="52" fill="#171923"/>
-  <rect x="8" y="8" width="240" height="240" rx="52" fill="none" stroke="#2f3446" stroke-width="6"/>
-  <path d="M40 204 L40 168 L70 150 L94 166 L122 108 L148 132 L176 64 L202 98 L216 82 L216 204 Z"
-        fill="url(#heat)"/>
-  <path d="M40 168 L70 150 L94 166 L122 108 L148 132 L176 64 L202 98 L216 82"
-        fill="none" stroke="#ffffff" stroke-opacity="0.85" stroke-width="7"
-        stroke-linejoin="round" stroke-linecap="round"/>
+  <rect x="46" y="62" width="36" height="138" rx="7.9" fill="#e9ecf4"/>
+  <path d="M46 132 A70 70 0 0 1 116 62 L122 62 L122 94 L116 94 A38 38 0 0 0 78 132 Z" fill="#e9ecf4"/>
+  <rect x="132" y="144" width="22" height="56" rx="5.5" fill="#3ddc84"/>
+  <rect x="164" y="104" width="22" height="96" rx="5.5" fill="#f4d03f"/>
+  <rect x="196" y="62" width="22" height="138" rx="5.5" fill="#ff5c5c"/>
 </svg>
