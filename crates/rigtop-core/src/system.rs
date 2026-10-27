@@ -126,15 +126,28 @@ impl SystemCollector {
         }
     }
 
-    /// Memory and swap. `cached_bytes` is filled in by the caller where available.
+    /// Memory and swap. On Linux `cached_bytes` is filled in by the caller.
     pub fn memory(&self) -> MemoryStats {
         let s = &self.system;
+        // On macOS sysinfo's available memory is the kernel's memory-pressure
+        // headroom (active + inactive + free pages), which overlaps "used"
+        // (Activity Monitor's Memory Used). Show what is left of the total
+        // instead, as Activity Monitor does.
+        let available_bytes = if cfg!(target_os = "macos") {
+            s.total_memory().saturating_sub(s.used_memory())
+        } else {
+            s.available_memory()
+        };
+        #[cfg(target_os = "macos")]
+        let cached_bytes = macos_cached_bytes();
+        #[cfg(not(target_os = "macos"))]
+        let cached_bytes = None;
         MemoryStats {
             total_bytes: s.total_memory(),
             used_bytes: s.used_memory(),
-            available_bytes: s.available_memory(),
+            available_bytes,
             free_bytes: s.free_memory(),
-            cached_bytes: None,
+            cached_bytes,
             swap_total_bytes: s.total_swap(),
             swap_used_bytes: s.used_swap(),
         }
@@ -346,6 +359,40 @@ fn is_cpu_sensor_label(label: &str) -> bool {
         .any(|word| label.contains(word))
 }
 
+/// File-backed pages on macOS (Activity Monitor's "Cached Files"), the
+/// counterpart of Linux's page cache; `None` if the kernel does not answer.
+#[cfg(target_os = "macos")]
+fn macos_cached_bytes() -> Option<u64> {
+    use std::sync::OnceLock;
+
+    // Every mach_host_self() call adds a reference to the port, so keep one.
+    static HOST: OnceLock<libc::mach_port_t> = OnceLock::new();
+    // SAFETY: mach_host_self takes no arguments and returns a port name.
+    #[allow(deprecated)]
+    let host = *HOST.get_or_init(|| unsafe { libc::mach_host_self() });
+
+    // SAFETY: an all-zero vm_statistics64 is valid (plain integers).
+    let mut stats: libc::vm_statistics64 = unsafe { std::mem::zeroed() };
+    let mut count = libc::HOST_VM_INFO64_COUNT;
+    // SAFETY: `stats` is a vm_statistics64 and `count` its size in integers,
+    // as HOST_VM_INFO64 requires.
+    let result = unsafe {
+        libc::host_statistics64(
+            host,
+            libc::HOST_VM_INFO64,
+            (&mut stats as *mut libc::vm_statistics64).cast(),
+            &mut count,
+        )
+    };
+    if result != libc::KERN_SUCCESS {
+        return None;
+    }
+    // SAFETY: sysconf has no preconditions.
+    let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+    let page_size = u64::try_from(page_size).ok().filter(|&size| size > 0)?;
+    Some(u64::from(stats.external_page_count) * page_size)
+}
+
 /// Converts a byte count accumulated over `elapsed_secs` into bytes per second.
 fn rate(bytes: u64, elapsed_secs: Option<f64>) -> f64 {
     match elapsed_secs {
@@ -372,5 +419,15 @@ mod tests {
         for label in ["GPU", "nvme Composite", "acpitz"] {
             assert!(!is_cpu_sensor_label(label), "{label}");
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_memory_adds_up() {
+        let memory = SystemCollector::new().memory();
+        assert!(memory.total_bytes > 0);
+        assert!(memory.used_bytes + memory.available_bytes <= memory.total_bytes);
+        let cached = memory.cached_bytes.expect("host_statistics64 answers");
+        assert!(cached > 0 && cached < memory.total_bytes, "{cached}");
     }
 }

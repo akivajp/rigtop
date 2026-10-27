@@ -27,7 +27,7 @@
 
 1. ~~収集部分と TUI（Linux）~~（v0.1）
 2. ~~ネイティブ GUI（Linux）~~（v0.1）
-3. ~~Windows 対応~~（v0.1。温度・ファン・CPU 電力は v0.4 から LibreHardwareMonitor 経由。macOS はビルドのみ、実機検証なし）
+3. ~~Windows 対応~~（v0.1。温度・ファン・CPU 電力は v0.4 から LibreHardwareMonitor 経由。macOS は v0.11 から Apple Silicon の実機での確認あり（利用者による））
 4. ~~SSH による遠隔監視~~: ホスト1台（v0.2）、複数ホストのオーバービュー（v0.3）
 
 ## インストール
@@ -52,7 +52,7 @@ less install.sh && sh install.sh
 | `x86_64-unknown-linux-gnu` | `rigtop`、`rigtop-gui`（glibc 2.35 以降） |
 | `aarch64-unknown-linux-gnu` | `rigtop` |
 | `x86_64-pc-windows-msvc` | `rigtop.exe`、`rigtop-gui.exe` |
-| `aarch64-apple-darwin` | `rigtop`、`rigtop-gui`（未検証・署名なし） |
+| `aarch64-apple-darwin` | `rigtop`、`rigtop-gui`（署名なし） |
 
 チェックサムは `SHA256SUMS` にあります。Rust の環境（1.95 以降）があれば、[crates.io](https://crates.io/crates/rigtop) から入れることもできます。
 

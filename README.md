@@ -27,7 +27,7 @@ A system monitor for workstations, laptops and NAS — an alternative to btop th
 
 1. ~~Collection core and the TUI on Linux~~ (v0.1)
 2. ~~Native GUI on Linux~~ (v0.1)
-3. ~~Windows support~~ (v0.1; temperatures, fans and CPU power through LibreHardwareMonitor since v0.4; macOS builds without hardware testing)
+3. ~~Windows support~~ (v0.1; temperatures, fans and CPU power through LibreHardwareMonitor since v0.4; macOS on Apple Silicon checked by a user since v0.11)
 4. ~~Remote monitoring over SSH~~: one host (v0.2), several hosts with an overview (v0.3)
 
 ## Installation
@@ -52,7 +52,7 @@ Or download an archive for your platform from the [Releases](https://github.com/
 | `x86_64-unknown-linux-gnu` | `rigtop`, `rigtop-gui` (glibc 2.35 or newer) |
 | `aarch64-unknown-linux-gnu` | `rigtop` |
 | `x86_64-pc-windows-msvc` | `rigtop.exe`, `rigtop-gui.exe` |
-| `aarch64-apple-darwin` | `rigtop`, `rigtop-gui` (untested, unsigned) |
+| `aarch64-apple-darwin` | `rigtop`, `rigtop-gui` (unsigned) |
 
 `SHA256SUMS` lists the checksums. With a Rust toolchain (1.95 or newer) you can also install from [crates.io](https://crates.io/crates/rigtop):
 

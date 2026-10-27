@@ -21,6 +21,11 @@ include breaking changes).
   their parents, siblings in the sort order; a filter keeps the parents of
   the processes it finds.
 
+### Fixed
+- macOS: the memory panel's Avail no longer overlaps Used (their sum was
+  more than the total). Avail is now what Used leaves of the total, as in
+  Activity Monitor, and Cached shows the file-backed pages (#1).
+
 ## [0.10.1] - 2026-10-28
 
 ### Added
