@@ -7,6 +7,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Duration;
 
 use crate::config::AlertsConfig;
+use crate::format;
 use crate::snapshot::{ProcessInfo, Snapshot};
 use crate::source::ProcessSignal;
 
@@ -190,19 +191,22 @@ pub enum SortKey {
     User,
     Memory,
     Cpu,
+    /// Disk reads plus writes.
+    Disk,
     Gpu,
     Vram,
 }
 
 impl SortKey {
     /// Sort keys in column order, used to step left/right.
-    pub const ALL: [SortKey; 8] = [
+    pub const ALL: [SortKey; 9] = [
         SortKey::Pid,
         SortKey::Name,
         SortKey::Threads,
         SortKey::User,
         SortKey::Memory,
         SortKey::Cpu,
+        SortKey::Disk,
         SortKey::Gpu,
         SortKey::Vram,
     ];
@@ -221,6 +225,9 @@ pub struct ProcessRow<'a> {
     pub gpu_percent: Option<f32>,
     /// VRAM used by the process across all GPUs.
     pub vram_bytes: Option<u64>,
+    /// In the tree view, the lines leading to the process ("│ ├ "), to be
+    /// put before its name; empty otherwise.
+    pub tree_prefix: String,
 }
 
 /// Graph histories of one host, updated from each snapshot.
@@ -595,6 +602,9 @@ pub struct ProcessQuery<'q> {
     pub filter: &'q str,
     /// Include kernel threads (`kworker` and friends).
     pub show_kernel_threads: bool,
+    /// Children under their parents, siblings sorted by `sort_key`. A
+    /// filter keeps the ancestors of what it matches.
+    pub tree: bool,
 }
 
 /// Processes of `snapshot` after filtering and sorting, joined with GPU usage.
@@ -614,23 +624,31 @@ pub fn process_rows<'a>(snapshot: &'a Snapshot, query: &ProcessQuery<'_>) -> Vec
     }
 
     let filter = query.filter.to_lowercase();
-    let mut rows: Vec<ProcessRow<'a>> = snapshot
+    let matches = |p: &ProcessInfo| {
+        filter.is_empty()
+            || p.name.to_lowercase().contains(&filter)
+            || p.command.to_lowercase().contains(&filter)
+            || p.user.to_lowercase().contains(&filter)
+            || p.pid.to_string() == filter
+    };
+    let candidates = snapshot
         .processes
         .iter()
-        .filter(|p| query.show_kernel_threads || !p.kernel_thread)
-        .filter(|p| {
-            filter.is_empty()
-                || p.name.to_lowercase().contains(&filter)
-                || p.command.to_lowercase().contains(&filter)
-                || p.user.to_lowercase().contains(&filter)
-                || p.pid.to_string() == filter
-        })
+        .filter(|p| query.show_kernel_threads || !p.kernel_thread);
+    let shown: Vec<&ProcessInfo> = if query.tree && !filter.is_empty() {
+        with_ancestors(candidates.collect(), matches)
+    } else {
+        candidates.filter(|p| matches(p)).collect()
+    };
+    let mut rows: Vec<ProcessRow<'a>> = shown
+        .into_iter()
         .map(|info| {
             let (gpu_percent, vram_bytes) = gpu_usage.get(&info.pid).copied().unwrap_or_default();
             ProcessRow {
                 info,
                 gpu_percent,
                 vram_bytes,
+                tree_prefix: String::new(),
             }
         })
         .collect();
@@ -644,6 +662,7 @@ pub fn process_rows<'a>(snapshot: &'a Snapshot, query: &ProcessQuery<'_>) -> Vec
             SortKey::User => a.info.user.cmp(&b.info.user),
             SortKey::Memory => a.info.memory_bytes.cmp(&b.info.memory_bytes),
             SortKey::Cpu => a.info.cpu_percent.total_cmp(&b.info.cpu_percent),
+            SortKey::Disk => disk_rate(a.info).total_cmp(&disk_rate(b.info)),
             SortKey::Gpu => a
                 .gpu_percent
                 .unwrap_or(-1.0)
@@ -658,7 +677,97 @@ pub fn process_rows<'a>(snapshot: &'a Snapshot, query: &ProcessQuery<'_>) -> Vec
             ordering
         }
     });
-    rows
+    if query.tree { into_tree(rows) } else { rows }
+}
+
+/// The processes `matches` accepts, plus their ancestors among `processes`
+/// (so a filtered tree keeps its shape), in the order of `processes`.
+fn with_ancestors(
+    processes: Vec<&ProcessInfo>,
+    matches: impl Fn(&ProcessInfo) -> bool,
+) -> Vec<&ProcessInfo> {
+    let by_pid: HashMap<u32, &ProcessInfo> = processes.iter().map(|p| (p.pid, *p)).collect();
+    let mut keep: HashSet<u32> = HashSet::new();
+    for process in processes.iter().filter(|p| matches(p)) {
+        let mut current = Some(*process);
+        // Stops at a process already kept, which also ends parent loops.
+        while let Some(p) = current
+            && keep.insert(p.pid)
+        {
+            current = p.parent_pid.and_then(|pid| by_pid.get(&pid).copied());
+        }
+    }
+    processes
+        .into_iter()
+        .filter(|p| keep.contains(&p.pid))
+        .collect()
+}
+
+/// Reorders sorted `rows` depth-first under their parents, keeping the
+/// sorted order among siblings, and fills in [`ProcessRow::tree_prefix`].
+/// Processes whose parent is not among the rows are roots.
+fn into_tree(rows: Vec<ProcessRow<'_>>) -> Vec<ProcessRow<'_>> {
+    let index: HashMap<u32, usize> = rows
+        .iter()
+        .enumerate()
+        .map(|(i, row)| (row.info.pid, i))
+        .collect();
+    let mut children: Vec<Vec<usize>> = vec![Vec::new(); rows.len()];
+    let mut roots = Vec::new();
+    for (i, row) in rows.iter().enumerate() {
+        match row.info.parent_pid.and_then(|pid| index.get(&pid)) {
+            Some(&parent) if parent != i => children[parent].push(i),
+            _ => roots.push(i),
+        }
+    }
+    let mut order: Vec<(usize, String)> = Vec::with_capacity(rows.len());
+    let mut visited = vec![false; rows.len()];
+    // Processes in a parent loop have no root; they start trees of their own.
+    let starts: Vec<usize> = roots.into_iter().chain(0..rows.len()).collect();
+    for start in starts {
+        // (row, lines of the ancestors, whether it is its parent's last child)
+        let mut stack: Vec<(usize, String, Option<bool>)> = vec![(start, String::new(), None)];
+        while let Some((i, lead, last)) = stack.pop() {
+            if std::mem::replace(&mut visited[i], true) {
+                continue;
+            }
+            let (prefix, child_lead) = match last {
+                None => (String::new(), String::new()),
+                Some(true) => (format!("{lead}└ "), format!("{lead}  ")),
+                Some(false) => (format!("{lead}├ "), format!("{lead}│ ")),
+            };
+            order.push((i, prefix));
+            let kids = &children[i];
+            for (k, &child) in kids.iter().enumerate().rev() {
+                stack.push((child, child_lead.clone(), Some(k + 1 == kids.len())));
+            }
+        }
+    }
+    let mut rows: Vec<Option<ProcessRow<'_>>> = rows.into_iter().map(Some).collect();
+    order
+        .into_iter()
+        .filter_map(|(i, prefix)| {
+            let mut row = rows[i].take()?;
+            row.tree_prefix = prefix;
+            Some(row)
+        })
+        .collect()
+}
+
+/// Disk reads plus writes of a process (bytes/s), the Disk column.
+pub fn disk_rate(process: &ProcessInfo) -> f64 {
+    process.read_bytes_per_sec + process.write_bytes_per_sec
+}
+
+/// The Disk column's text: the total rate, blank when idle (also where the
+/// counters cannot be read, e.g. other users' processes on Linux).
+pub fn disk_rate_text(process: &ProcessInfo) -> String {
+    let rate = disk_rate(process);
+    if rate > 0.0 {
+        format::rate(rate)
+    } else {
+        String::new()
+    }
 }
 
 /// Shown where the CPU temperatures go when LibreHardwareMonitor cannot be
@@ -721,6 +830,7 @@ mod tests {
             descending: sort_key.descending_by_default(),
             filter: "",
             show_kernel_threads: false,
+            tree: false,
         }
     }
 
@@ -856,6 +966,86 @@ mod tests {
         let rows = process_rows(&snapshot, &query(SortKey::Pid));
         assert_eq!(rows[1].vram_bytes, Some(1 << 30));
         assert_eq!(rows[1].gpu_percent, Some(70.0));
+    }
+
+    #[test]
+    fn tree_puts_children_under_parents() {
+        let child = |pid: u32, parent: u32, name: &str, cpu: f32| ProcessInfo {
+            parent_pid: Some(parent),
+            ..process(pid, name, cpu, false)
+        };
+        let snapshot = Snapshot {
+            processes: vec![
+                process(1, "init", 0.0, false),
+                child(10, 1, "sshd", 1.0),
+                child(11, 10, "bash", 2.0),
+                child(12, 11, "python", 50.0),
+                child(20, 1, "cron", 3.0),
+                // Parent not listed (e.g. not readable): a root of its own.
+                child(30, 999, "orphan", 4.0),
+                // A parent loop must not hang or drop the processes.
+                child(40, 41, "loop-a", 0.0),
+                child(41, 40, "loop-b", 0.0),
+            ],
+            ..Default::default()
+        };
+        let tree = |filter| {
+            process_rows(
+                &snapshot,
+                &ProcessQuery {
+                    filter,
+                    tree: true,
+                    ..query(SortKey::Cpu)
+                },
+            )
+            .iter()
+            .map(|r| format!("{}{}", r.tree_prefix, r.info.name))
+            .collect::<Vec<_>>()
+        };
+        // Roots and siblings by CPU, largest first (ties: higher pid first).
+        assert_eq!(
+            tree(""),
+            vec![
+                "orphan",
+                "init",
+                "├ cron",
+                "└ sshd",
+                "  └ bash",
+                "    └ python",
+                "loop-b",
+                "└ loop-a",
+            ]
+        );
+        // A filter keeps the ancestors of what it matches.
+        assert_eq!(
+            tree("pyth"),
+            vec!["init", "└ sshd", "  └ bash", "    └ python"]
+        );
+    }
+
+    #[test]
+    fn disk_column_sums_reads_and_writes() {
+        let reader = ProcessInfo {
+            read_bytes_per_sec: 3.0 * 1024.0 * 1024.0,
+            ..process(10, "reader", 0.0, false)
+        };
+        let writer = ProcessInfo {
+            read_bytes_per_sec: 1024.0 * 1024.0,
+            write_bytes_per_sec: 4.0 * 1024.0 * 1024.0,
+            ..process(20, "writer", 0.0, false)
+        };
+        let idle = process(30, "idle", 0.0, false);
+        assert_eq!(disk_rate_text(&writer), "5.0M/s");
+        assert_eq!(disk_rate_text(&idle), "");
+        let snapshot = Snapshot {
+            processes: vec![idle, reader, writer],
+            ..Default::default()
+        };
+        let pids: Vec<u32> = process_rows(&snapshot, &query(SortKey::Disk))
+            .iter()
+            .map(|r| r.info.pid)
+            .collect();
+        assert_eq!(pids, vec![20, 10, 30]);
     }
 
     #[test]

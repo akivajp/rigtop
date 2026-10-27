@@ -10,7 +10,9 @@ use rigtop_core::format;
 use rigtop_core::snapshot::{
     BtrfsFilesystem, GpuStats, NetworkStats, SmartDevice, Snapshot, device_matches_disk,
 };
-use rigtop_core::view::{LHM_HINT, SortKey, is_virtual_interface, lhm_help, signal_name};
+use rigtop_core::view::{
+    LHM_HINT, SortKey, disk_rate_text, is_virtual_interface, lhm_help, signal_name,
+};
 use rigtop_core::worker::Command;
 
 use crate::app::{GuiState, Pane, ViewAction};
@@ -983,7 +985,7 @@ fn network(ui: &mut Ui, state: &mut GuiState) {
 // ---------------------------------------------------------------- processes
 
 /// Columns of the process table: header, sort key, width (None = remainder).
-const PROC_COLUMNS: [(&str, Option<SortKey>, Option<f32>); 9] = [
+const PROC_COLUMNS: [(&str, Option<SortKey>, Option<f32>); 10] = [
     ("Pid", Some(SortKey::Pid), Some(70.0)),
     ("Program", Some(SortKey::Name), Some(130.0)),
     ("Command", None, None),
@@ -991,6 +993,7 @@ const PROC_COLUMNS: [(&str, Option<SortKey>, Option<f32>); 9] = [
     ("User", Some(SortKey::User), Some(80.0)),
     ("Mem", Some(SortKey::Memory), Some(64.0)),
     ("Cpu%", Some(SortKey::Cpu), Some(56.0)),
+    ("Disk", Some(SortKey::Disk), Some(64.0)),
     ("Gpu%", Some(SortKey::Gpu), Some(48.0)),
     ("VRAM", Some(SortKey::Vram), Some(64.0)),
 ];
@@ -999,7 +1002,7 @@ const PROC_COLUMNS: [(&str, Option<SortKey>, Option<f32>); 9] = [
 const COMMAND_MIN_WIDTH: f32 = 120.0;
 /// Columns given up first when the table is too narrow; Pid, Program, Mem
 /// and Cpu% always stay.
-const DROP_ORDER: [&str; 5] = ["Command", "Thr", "User", "VRAM", "Gpu%"];
+const DROP_ORDER: [&str; 6] = ["Command", "Thr", "Disk", "User", "VRAM", "Gpu%"];
 
 /// Removes columns in [`DROP_ORDER`] until the rest fit in `width`.
 fn fit_columns(
@@ -1032,6 +1035,8 @@ fn processes(ui: &mut Ui, state: &mut GuiState) {
                 .hint_text("name, command, user or pid")
                 .desired_width((panel_width * 0.35).clamp(80.0, 220.0)),
         );
+        ui.checkbox(&mut state.tree, "tree")
+            .on_hover_text("show processes under their parents");
         ui.checkbox(&mut state.show_kernel_threads, "kernel threads");
         let note = match state.status() {
             Some(status) => colored(status, WARN),
@@ -1051,6 +1056,11 @@ fn processes(ui: &mut Ui, state: &mut GuiState) {
         .filter(|(_, key, _)| has_gpus || !matches!(key, Some(SortKey::Gpu | SortKey::Vram)))
         .filter(|(_, key, _)| has_threads || *key != Some(SortKey::Threads))
         .copied()
+        .map(|(name, key, width)| match name {
+            // Room for the lines before the names.
+            "Program" if state.tree => (name, key, Some(210.0)),
+            _ => (name, key, width),
+        })
         .collect();
     fit_columns(&mut columns, panel_width, ui.spacing().item_spacing.x);
     // Without the command column, the last one takes the spare width.
@@ -1060,6 +1070,8 @@ fn processes(ui: &mut Ui, state: &mut GuiState) {
         .unwrap_or(columns.len() - 1);
 
     let mut table = TableBuilder::new(ui)
+        // Separate column widths for the list and the tree.
+        .id_salt(if state.tree { "proc_tree" } else { "proc" })
         .striped(true)
         .resizable(true)
         .sense(Sense::click())
@@ -1110,7 +1122,13 @@ fn processes(ui: &mut Ui, state: &mut GuiState) {
                     row.col(|ui| {
                         match *name {
                             "Pid" => ui.label(p.pid.to_string()),
-                            "Program" => ui.label(&p.name),
+                            "Program" => {
+                                ui.spacing_mut().item_spacing.x = 0.0;
+                                if !process.tree_prefix.is_empty() {
+                                    ui.label(dim(&process.tree_prefix));
+                                }
+                                ui.label(&p.name)
+                            }
                             "Command" => ui.label(dim(&p.command)),
                             "Thr" => ui.label(p.threads.map_or(String::new(), |t| t.to_string())),
                             "User" => ui.label(&p.user),
@@ -1120,6 +1138,11 @@ fn processes(ui: &mut Ui, state: &mut GuiState) {
                                 let color = if cpu > 0.0 { percent_color(cpu) } else { DIM };
                                 ui.label(colored(format!("{cpu:.1}"), color))
                             }
+                            "Disk" => ui.label(disk_rate_text(p)).on_hover_text(format!(
+                                "read {}, write {}",
+                                format::rate(p.read_bytes_per_sec),
+                                format::rate(p.write_bytes_per_sec)
+                            )),
                             "Gpu%" => ui.label(
                                 process
                                     .gpu_percent

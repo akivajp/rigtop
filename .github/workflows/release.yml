@@ -126,6 +126,9 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      - name: Add the install script
+        # Served at releases/latest/download/install.sh for the one-liner.
+        run: cp install.sh dist/
       - name: Checksums
         run: cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS
       - name: Release notes from CHANGELOG.md

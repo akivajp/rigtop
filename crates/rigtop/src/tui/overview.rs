@@ -69,6 +69,7 @@ pub fn draw_tabs(
     area: Rect,
     hosts: &[HostTui],
     view: View,
+    unread: (usize, Option<Severity>),
 ) -> Vec<(Rect, View)> {
     let mut spans = Vec::new();
     let mut regions = Vec::new();
@@ -116,7 +117,11 @@ pub fn draw_tabs(
             &mut x,
         );
     }
-    spans.push(dim("Tab/0-9: switch"));
+    if let Some(badge) = super::alert_log::unread_badge(unread) {
+        spans.push(badge);
+        spans.push(Span::raw("  "));
+    }
+    spans.push(dim("Tab/0-9: switch  a: alerts"));
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
     regions
 }

@@ -26,7 +26,9 @@ use rigtop_core::snapshot::{
 use super::app::{App, ProcTableHit};
 use super::graph::{self, BrailleGraph};
 use rigtop_core::format;
-use rigtop_core::view::{GraphSpan, LHM_HINT, SortKey, is_virtual_interface, signal_name};
+use rigtop_core::view::{
+    GraphSpan, LHM_HINT, SortKey, disk_rate_text, is_virtual_interface, signal_name,
+};
 
 /// Box border color.
 pub(super) const BORDER: Color = Color::Rgb(85, 85, 100);
@@ -370,6 +372,9 @@ fn draw_cpu(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect, layou
         .title_top(
             Line::from(
                 [
+                    app.alerts_unread
+                        .and_then(super::alert_log::unread_badge)
+                        .map(|badge| Span::styled(format!(" {} ", badge.content), badge.style)),
                     rigtop_core::view::version_note(snapshot)
                         .map(|note| colored(format!(" {note}"), WARN)),
                     Some(dim(" ")),
@@ -1108,7 +1113,7 @@ fn draw_processes(
     let footer = match app.status() {
         Some(status) => Line::from(colored(format!(" {status} "), WARN)),
         None => Line::from(dim(
-            " ↑↓ select  ←→ sort  r reverse  / filter  t kthreads  k term  K kill  +- interval  g graph span  q quit ",
+            " ↑↓ select  ←→ sort  r reverse  / filter  e tree  t kthreads  k term  K kill  +- interval  g graph span  a alerts  q quit ",
         )),
     };
     let block = panel("proc", PROC_TITLE)
@@ -1123,7 +1128,12 @@ fn draw_processes(
     let has_gpus = !snapshot.gpus.is_empty();
     // Thread counts are not available everywhere (e.g. Windows).
     let has_threads = snapshot.processes.iter().any(|p| p.threads.is_some());
-    let columns = process_columns(area.width.saturating_sub(2), has_gpus, has_threads);
+    let columns = process_columns(
+        area.width.saturating_sub(2),
+        has_gpus,
+        has_threads,
+        app.tree,
+    );
     let header = Row::new(
         columns
             .iter()
@@ -1138,7 +1148,10 @@ fn draw_processes(
             let cpu = p.cpu_percent as f64;
             Row::new(columns.iter().map(|column| match column {
                 ProcColumn::Pid => Cell::from(p.pid.to_string()),
-                ProcColumn::Program => Cell::from(p.name.clone()),
+                ProcColumn::Program => Cell::from(Line::from(vec![
+                    dim(row.tree_prefix.clone()),
+                    Span::raw(p.name.clone()),
+                ])),
                 ProcColumn::Command => {
                     Cell::from(Span::styled(p.command.clone(), Style::default().fg(DIM)))
                 }
@@ -1151,6 +1164,7 @@ fn draw_processes(
                     format!("{cpu:.1}"),
                     Style::default().fg(if cpu > 0.0 { percent_color(cpu) } else { DIM }),
                 )),
+                ProcColumn::Disk => Cell::from(disk_rate_text(p)),
                 ProcColumn::Gpu => {
                     Cell::from(row.gpu_percent.map_or(String::new(), |g| format!("{g:.0}")))
                 }
@@ -1162,7 +1176,7 @@ fn draw_processes(
         })
         .collect();
 
-    let widths: Vec<Constraint> = columns.iter().map(|c| c.constraint()).collect();
+    let widths: Vec<Constraint> = columns.iter().map(|c| c.constraint(app.tree)).collect();
     let table = Table::new(table_rows, widths.clone())
         .header(header)
         .block(block)
@@ -1219,13 +1233,14 @@ enum ProcColumn {
     User,
     Memory,
     Cpu,
+    Disk,
     Gpu,
     Vram,
 }
 
 impl ProcColumn {
     /// Display order.
-    const ORDER: [ProcColumn; 9] = [
+    const ORDER: [ProcColumn; 10] = [
         ProcColumn::Pid,
         ProcColumn::Program,
         ProcColumn::Command,
@@ -1233,6 +1248,7 @@ impl ProcColumn {
         ProcColumn::User,
         ProcColumn::Memory,
         ProcColumn::Cpu,
+        ProcColumn::Disk,
         ProcColumn::Gpu,
         ProcColumn::Vram,
     ];
@@ -1246,6 +1262,7 @@ impl ProcColumn {
             ProcColumn::User => "User",
             ProcColumn::Memory => "Mem",
             ProcColumn::Cpu => "Cpu%",
+            ProcColumn::Disk => "Disk",
             ProcColumn::Gpu => "Gpu%",
             ProcColumn::Vram => "VRAM",
         }
@@ -1260,40 +1277,45 @@ impl ProcColumn {
             ProcColumn::User => Some(SortKey::User),
             ProcColumn::Memory => Some(SortKey::Memory),
             ProcColumn::Cpu => Some(SortKey::Cpu),
+            ProcColumn::Disk => Some(SortKey::Disk),
             ProcColumn::Gpu => Some(SortKey::Gpu),
             ProcColumn::Vram => Some(SortKey::Vram),
         }
     }
 
     /// Width used to decide whether the column fits (Command: its minimum).
-    fn width(self) -> u16 {
+    /// The tree view widens Program for the lines before the names.
+    fn width(self, tree: bool) -> u16 {
         match self {
             ProcColumn::Pid => 7,
+            ProcColumn::Program if tree => 25,
             ProcColumn::Program => 15,
             ProcColumn::Command => 12,
             ProcColumn::Threads => 4,
             ProcColumn::User => 9,
             ProcColumn::Memory => 6,
             ProcColumn::Cpu => 6,
+            // "1023M/s"
+            ProcColumn::Disk => 7,
             ProcColumn::Gpu => 5,
             ProcColumn::Vram => 6,
         }
     }
 
-    fn constraint(self) -> Constraint {
+    fn constraint(self, tree: bool) -> Constraint {
         match self {
             // The command line takes all remaining width.
             ProcColumn::Command => Constraint::Fill(1),
-            other => Constraint::Length(other.width()),
+            other => Constraint::Length(other.width(tree)),
         }
     }
 }
 
 /// Columns that fit in `width`: Pid, Program, Mem and Cpu% always, then
-/// User, Thr, Gpu%, VRAM and Command as space allows (GPU columns only on
+/// User, Gpu%, VRAM, Disk, Thr and Command as space allows (GPU columns only on
 /// hosts with GPUs, Thr only where thread counts exist). Returned in
 /// display order.
-fn process_columns(width: u16, has_gpus: bool, has_threads: bool) -> Vec<ProcColumn> {
+fn process_columns(width: u16, has_gpus: bool, has_threads: bool, tree: bool) -> Vec<ProcColumn> {
     let mut chosen = vec![
         ProcColumn::Pid,
         ProcColumn::Program,
@@ -1302,13 +1324,14 @@ fn process_columns(width: u16, has_gpus: bool, has_threads: bool) -> Vec<ProcCol
     ];
     let optional = [
         ProcColumn::User,
-        ProcColumn::Threads,
         ProcColumn::Gpu,
         ProcColumn::Vram,
+        ProcColumn::Disk,
+        ProcColumn::Threads,
         ProcColumn::Command,
     ];
     // Every column is followed by one space of column spacing.
-    let used = |cols: &[ProcColumn]| cols.iter().map(|c| c.width() + 1).sum::<u16>();
+    let used = |cols: &[ProcColumn]| cols.iter().map(|c| c.width(tree) + 1).sum::<u16>();
     for column in optional {
         if !has_gpus && matches!(column, ProcColumn::Gpu | ProcColumn::Vram) {
             continue;
@@ -1569,7 +1592,7 @@ mod tests {
 
     #[test]
     fn process_columns_keep_essentials_when_narrow() {
-        let narrow = process_columns(36, true, true);
+        let narrow = process_columns(36, true, true, false);
         assert_eq!(
             narrow,
             vec![
@@ -1579,12 +1602,12 @@ mod tests {
                 ProcColumn::Cpu
             ]
         );
-        let wide = process_columns(120, true, true);
+        let wide = process_columns(120, true, true, false);
         assert_eq!(wide, ProcColumn::ORDER.to_vec());
         // No GPU columns on hosts without GPUs.
-        assert!(!process_columns(120, false, true).contains(&ProcColumn::Vram));
+        assert!(!process_columns(120, false, true, false).contains(&ProcColumn::Vram));
         // No Thr column where thread counts are unknown (Windows).
-        assert!(!process_columns(120, true, false).contains(&ProcColumn::Threads));
+        assert!(!process_columns(120, true, false, false).contains(&ProcColumn::Threads));
     }
 
     #[test]

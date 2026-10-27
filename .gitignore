@@ -6,6 +6,9 @@
 *~
 .DS_Store
 
+# Python のキャッシュ
+__pycache__/
+
 # 実行ログ
 *.log
 

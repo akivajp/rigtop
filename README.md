@@ -13,13 +13,13 @@ A system monitor for workstations, laptops and NAS — an alternative to btop th
 
 [日本語版 README](README.ja.md)
 
-![rigtop TUI: CPU cores, memory, two GPUs, storage health with SMART and btrfs RAID, network, and a process list with per-process VRAM](docs/images/rigtop-tui.png)
+![rigtop TUI: CPU cores, memory, two GPUs, storage health with SMART and btrfs RAID, network, and a process list with per-process disk I/O and VRAM](docs/images/rigtop-tui.png)
 
 ## Goals
 
 - The btop overview on one screen: CPU (total, per core, temperatures), every GPU, memory, storage, network, and a process list with kill / force kill.
 - **Storage health**, which existing monitors mostly skip: btrfs RAID profiles and per-device error counters, mdadm array state, NVMe temperatures, and SMART health.
-- Per-process GPU usage and VRAM (NVIDIA, via NVML).
+- Per-process GPU usage and VRAM (NVIDIA, via NVML), and per-process disk I/O.
 - Combined CPU + GPU power draw and fan speeds (with your own labels for fan channels).
 - **Multiple hosts over plain SSH**: `rigtop --agent` streams snapshots over stdin/stdout, so there is no daemon to run and no port to open.
 
@@ -32,7 +32,20 @@ A system monitor for workstations, laptops and NAS — an alternative to btop th
 
 ## Installation
 
-Download an archive for your platform from the [Releases](https://github.com/akivajp/rigtop/releases) page and put the binaries on your `PATH`:
+On Linux (x86_64 and aarch64, glibc 2.35 or newer) and macOS (Apple Silicon), the install script puts the binaries in `~/.local/bin` (no `sudo`). Run it again to update:
+
+```sh
+curl -fsSL https://github.com/akivajp/rigtop/releases/latest/download/install.sh | sh
+```
+
+It picks the archive for your machine from the latest release and checks it against `SHA256SUMS`. Add `-s -- --help` after `sh` for the options (another version, another directory, the terminal UI only). To read the script first:
+
+```sh
+curl -fsSLO https://github.com/akivajp/rigtop/releases/latest/download/install.sh
+less install.sh && sh install.sh
+```
+
+Or download an archive for your platform from the [Releases](https://github.com/akivajp/rigtop/releases) page and put the binaries on your `PATH`:
 
 | Archive | Contents |
 |---|---|
@@ -80,23 +93,25 @@ cargo run --release -p rigtop -- --help  # options (--interval-ms, --config, --d
 | `↑` `↓` `PgUp` `PgDn` `Home` `End` | select a process |
 | `←` `→` / `r` | change the sort column / reverse the order |
 | `/` | filter by name, command, user or pid (`Enter` keeps it, `Esc` clears it) |
+| `e` | tree view: processes under their parents, siblings in the sort order (a filter keeps the parents of what it finds) |
 | `t` | show or hide kernel threads |
 | `k` / `K` | send SIGTERM / SIGKILL to the selected process (asks first) |
 | `n` | switch the network interface |
 | `+` / `-` | slower / faster updates |
+| `a` | alert history: the alerts of every host as they appeared and cleared since rigtop started (`↑` `↓` scroll, `a` or `Esc` closes). New ones are counted in the tab bar, or in the CPU box title with one host |
 | `g` | time the graphs cover: fit to the width (one sample per dot), or the last 1, 5, 15 minutes, 1, 6 or 24 hours (beyond an hour from per-minute averages) |
 | `q` | quit |
 | mouse | click a process to select it, click a column header to sort (again to reverse), wheel to scroll |
 
 ### GUI
 
-![rigtop-gui: the same panels in a native window, with smooth graphs and meters, resizable and rearrangeable](docs/images/rigtop-gui.png)
+![rigtop-gui: the same panels in a native window, with smooth graphs and meters, resizable and rearrangeable, here with the process tree](docs/images/rigtop-gui.png)
 
 ```sh
 cargo run --release -p rigtop-gui            # same options: --interval-ms, --config
 ```
 
-Drag panel borders to resize and panel titles to rearrange. Click a column header to sort, right-click a process to terminate or kill it (asks first), and pick the network interface from the list.
+Drag panel borders to resize and panel titles to rearrange. Click a column header to sort, tick "tree" to show processes under their parents, right-click a process to terminate or kill it (asks first), and pick the network interface from the list.
 
 Zoom with Ctrl + mouse wheel, Ctrl + `+` / `-` / `0`, or the `A-` / `A+` buttons in the CPU panel title. The zoom level and panel layout are restored on the next start; "reset layout" brings back the default arrangement. The "graph" button next to them sets the time the graphs cover (fit to the width, or the last 1, 5, 15 minutes, 1, 6 or 24 hours), also restored on the next start. "alerts…" lists the alerts of every host as they appeared and cleared since rigtop started; it shows the number of new ones, in their color, until you look. "sensors…" under the CPU cores (or a click on a sensor's name) opens a window listing every temperature and fan, to name or hide them; it saves `[sensors]` in the [configuration](#configuration) file.
 

@@ -7,6 +7,28 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Added
+- Process table: a Disk column with each process's reads plus writes per
+  second, sortable (in the GUI, hovering shows reads and writes apart).
+  Blank when idle, and for other users' processes on Linux, whose counters
+  only root can read; on Windows the counters include all of a process's
+  I/O, not only disks. Narrow tables give up Thr before it.
+- TUI: alert history (`a`), like the GUI's: the alerts of every host as
+  they appeared and cleared, with times. Until opened, the tab bar (or the
+  CPU box title with one host) shows the number of new alerts in the color
+  of the worst.
+- Process tree: `e` in the TUI, "tree" in the GUI. Processes go under
+  their parents, siblings in the sort order; a filter keeps the parents of
+  the processes it finds.
+
+## [0.10.1] - 2026-10-28
+
+### Added
+- An install script for Linux and macOS, attached to each release:
+  `curl -fsSL https://github.com/akivajp/rigtop/releases/latest/download/install.sh | sh`
+  puts the binaries in `~/.local/bin` after checking them against
+  `SHA256SUMS` (`--version`, `--bin-dir`, `--tui-only`).
+
 ### Fixed
 - macOS: no more "NVIDIA GPUs unavailable" note about `nvml.dll`; NVML,
   which NVIDIA does not ship for macOS, is no longer loaded there (#2).
@@ -259,7 +281,8 @@ First release.
 - Windows support (CPU, memory, processes, network with link speeds, drives,
   NVIDIA GPUs; temperatures, fans and CPU power are not available yet)
 
-[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.10.1...HEAD
+[0.10.1]: https://github.com/akivajp/rigtop/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/akivajp/rigtop/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/akivajp/rigtop/compare/v0.8.2...v0.9.0
 [0.8.2]: https://github.com/akivajp/rigtop/compare/v0.8.1...v0.8.2

@@ -9,7 +9,7 @@ use ratatui::crossterm::event::{
 use ratatui::layout::{Position, Rect};
 use ratatui::widgets::TableState;
 use rigtop_core::view::{
-    self, GraphSpan, MetricHistory, ProcessQuery, ProcessRow, SortKey, signal_name,
+    self, GraphSpan, MetricHistory, ProcessQuery, ProcessRow, Severity, SortKey, signal_name,
 };
 use rigtop_core::worker::{Command, Event};
 use rigtop_core::{Config, ProcessSignal, Snapshot};
@@ -50,6 +50,8 @@ pub struct App {
     pub sort_key: SortKey,
     pub sort_descending: bool,
     pub show_kernel_threads: bool,
+    /// Processes under their parents (`e`).
+    pub tree: bool,
     pub filter: String,
     /// Whether keystrokes currently edit the filter.
     pub editing_filter: bool,
@@ -71,6 +73,9 @@ pub struct App {
     pub connection_error: Option<String>,
     /// When the latest snapshot arrived.
     pub last_update: Option<Instant>,
+    /// Unread alerts of every host, shown in the CPU box title (`None`
+    /// where the tab bar shows them instead).
+    pub alerts_unread: Option<(usize, Option<Severity>)>,
 }
 
 impl App {
@@ -83,6 +88,7 @@ impl App {
             sort_key: SortKey::Cpu,
             sort_descending: true,
             show_kernel_threads: false,
+            tree: false,
             filter: String::new(),
             editing_filter: false,
             selected_pid: None,
@@ -96,6 +102,7 @@ impl App {
             waiting_message: "collecting…".to_owned(),
             connection_error: None,
             last_update: None,
+            alerts_unread: None,
         }
     }
 
@@ -152,6 +159,7 @@ impl App {
                 descending: self.sort_descending,
                 filter: &self.filter,
                 show_kernel_threads: self.show_kernel_threads,
+                tree: self.tree,
             },
         )
     }
@@ -231,6 +239,10 @@ impl App {
                     "hidden"
                 };
                 self.set_status(format!("kernel threads {state}"));
+            }
+            KeyCode::Char('e') => {
+                self.tree = !self.tree;
+                self.set_status(if self.tree { "tree view" } else { "list view" }.to_owned());
             }
             KeyCode::Char('n') => self.cycle_interface(),
             KeyCode::Char('g') => {
@@ -455,7 +467,9 @@ mod tests {
         let python = rows.iter().find(|r| r.info.pid == 30).unwrap();
         assert_eq!(python.vram_bytes, Some(4 << 30));
         assert_eq!(python.gpu_percent, Some(80.0));
-        // Step from "cpu" to "gpu" sorting: the GPU user comes first.
+        // Step from "cpu" past "disk" to "gpu" sorting: the GPU user comes first.
+        app.handle_key(key(KeyCode::Right));
+        assert_eq!(app.sort_key, SortKey::Disk);
         app.handle_key(key(KeyCode::Right));
         assert_eq!(app.sort_key, SortKey::Gpu);
         assert_eq!(pids(&app), vec![30, 10]);

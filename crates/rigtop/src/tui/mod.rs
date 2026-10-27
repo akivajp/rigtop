@@ -1,5 +1,6 @@
 //! Terminal UI.
 
+mod alert_log;
 mod app;
 mod graph;
 mod overview;
@@ -23,6 +24,7 @@ use rigtop_core::widget::{Widget, start_widgets};
 use rigtop_core::worker::{Command, Worker};
 use rigtop_core::{Config, DataSource, LocalSource};
 
+use alert_log::AlertLogView;
 use app::App;
 use overview::View;
 
@@ -82,6 +84,7 @@ pub fn run(config: Config, interval: Duration, specs: Vec<HostSpec>) -> Result<(
         tabs: Vec::new(),
         quit: false,
         show_widgets: true,
+        alert_log: AlertLogView::default(),
     };
 
     // ratatui::init installs a panic hook that restores the terminal; mouse
@@ -112,6 +115,8 @@ struct Screen {
     quit: bool,
     /// Whether the widget column is shown (`w`).
     show_widgets: bool,
+    /// Every host's alerts as they came and went (`a`).
+    alert_log: AlertLogView,
 }
 
 impl Screen {
@@ -168,10 +173,20 @@ fn event_loop(
     let mut drawn_second = 0;
     while !screen.quit {
         for host in hosts.iter_mut() {
+            let mut received = false;
             while let Some(event) = host.worker.try_recv() {
                 host.app.apply(event);
+                received = true;
+            }
+            if received {
+                screen.alert_log.record(host);
                 dirty = true;
             }
+        }
+        // With one host there is no tab bar; its CPU box shows new alerts.
+        let unread = screen.alert_log.log.unread();
+        if !multi {
+            hosts[0].app.alerts_unread = Some(unread);
         }
         // Keep the clock ticking even with long polling intervals.
         let second = SystemTime::now()
@@ -197,7 +212,7 @@ fn event_loop(
                 let body = if multi {
                     let [bar, body] =
                         Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
-                    screen.tabs = overview::draw_tabs(frame, bar, hosts, screen.view);
+                    screen.tabs = overview::draw_tabs(frame, bar, hosts, screen.view, unread);
                     body
                 } else {
                     area
@@ -211,6 +226,9 @@ fn event_loop(
                         screen.processes,
                     ),
                     View::Host(i) => ui::draw_in(frame, &mut hosts[i].app, body),
+                }
+                if screen.alert_log.open {
+                    screen.alert_log.draw(frame, body);
                 }
             })?;
             dirty = false;
@@ -292,10 +310,18 @@ fn handle_key(
         screen.quit = true;
         return;
     }
+    if screen.alert_log.open {
+        screen.alert_log.handle_key(key);
+        return;
+    }
     let busy = match screen.view {
         View::Host(i) => hosts[i].app.editing_filter || hosts[i].app.confirm.is_some(),
         View::Overview => false,
     };
+    if !busy && key.code == KeyCode::Char('a') {
+        screen.alert_log.show();
+        return;
+    }
     if has_widgets && !busy && key.code == KeyCode::Char('w') {
         screen.show_widgets = !screen.show_widgets;
         return;
@@ -327,6 +353,7 @@ mod tests {
             tabs: Vec::new(),
             quit: false,
             show_widgets: true,
+            alert_log: AlertLogView::default(),
         }
     }
 
