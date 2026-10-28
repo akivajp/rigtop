@@ -156,6 +156,32 @@ jobs:
             --notes-file notes.md \
             --verify-tag
 
+  winget:
+    name: Update the winget package
+    needs: release
+    runs-on: ubuntu-latest
+    # Opens the update pull request on microsoft/winget-pkgs from the
+    # akivajp/winget-pkgs fork. Needs the WINGET_TOKEN secret (a classic
+    # token with public_repo and workflow) and akivajp.rigtop already in
+    # winget-pkgs; skipped without the token, and never fails the release.
+    continue-on-error: true
+    steps:
+      - name: Check for the token
+        id: token
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          if [[ -n "$WINGET_TOKEN" ]]; then present=true; else present=false; fi
+          echo "present=$present" >> "$GITHUB_OUTPUT"
+      # Pinned to a commit of main (2026-10-07): the token can open pull
+      # requests in your name.
+      - uses: vedantmgoyal9/winget-releaser@b7370d4d152efdce803a26cc6ca9eee58cb2ad54
+        if: steps.token.outputs.present == 'true'
+        with:
+          identifier: akivajp.rigtop
+          installers-regex: 'windows-msvc\.zip$'
+          token: ${{ secrets.WINGET_TOKEN }}
+
   crates:
     name: Publish to crates.io
     # Independent of the binary builds: `cargo publish` verifies that every
