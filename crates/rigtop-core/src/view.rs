@@ -4,9 +4,13 @@
 //! Nothing here depends on a UI toolkit.
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::fs::{self, OpenOptions};
+use std::io::Write;
+use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
 use chrono::{DateTime, Local};
+use serde::{Deserialize, Serialize};
 
 use crate::config::AlertsConfig;
 use crate::format;
@@ -303,7 +307,8 @@ impl MetricHistory {
 }
 
 /// How urgent an [`Alert`] is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Severity {
     /// Worth a look (e.g. a filesystem filling up, a RAID resync).
     Warning,
@@ -312,7 +317,7 @@ pub enum Severity {
 }
 
 /// A condition on a host that needs attention, for overviews.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Alert {
     pub severity: Severity,
     pub text: String,
@@ -339,14 +344,15 @@ pub fn alert_key(alert: &Alert) -> String {
 }
 
 /// Whether an [`AlertEvent`] is an alert appearing or going away.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum AlertChange {
     Raised,
     Cleared,
 }
 
 /// One entry of the [`AlertLog`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AlertEvent {
     /// When the change was seen, in milliseconds since the Unix epoch.
     pub at_ms: u64,
@@ -369,9 +375,77 @@ pub struct AlertLog {
     active: HashMap<String, Vec<Alert>>,
     /// Alerts raised since [`AlertLog::mark_read`], and the worst of them.
     unread: (usize, Option<Severity>),
+    /// Where events are kept between runs (JSON lines), if anywhere.
+    file: Option<PathBuf>,
+}
+
+/// Where a front-end ("tui", "gui") keeps its alert history: the state
+/// directory (`~/.local/state/rigtop/` on Linux), else the local data
+/// directory (macOS, Windows).
+pub fn alert_log_path(front_end: &str) -> Option<PathBuf> {
+    dirs::state_dir()
+        .or_else(dirs::data_local_dir)
+        .map(|dir| dir.join("rigtop").join(format!("alerts-{front_end}.jsonl")))
 }
 
 impl AlertLog {
+    /// A log kept in `path`: the events of earlier runs are loaded, alerts
+    /// they left raised count as still present (so a restart does not log
+    /// them again), and new events are appended. A file that cannot be
+    /// read or written leaves the log working in memory.
+    pub fn persistent(path: PathBuf) -> Self {
+        let mut log = Self::default();
+        let loaded: Vec<AlertEvent> = fs::read_to_string(&path)
+            .map(|text| {
+                text.lines()
+                    .filter_map(|line| serde_json::from_str(line).ok())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let keep = loaded.len().saturating_sub(ALERT_LOG_LEN);
+        for event in &loaded {
+            let active = log.active.entry(event.host.clone()).or_default();
+            let key = alert_key(&event.alert);
+            active.retain(|a| alert_key(a) != key);
+            if event.change == AlertChange::Raised {
+                active.push(event.alert.clone());
+            }
+        }
+        log.events = loaded.into_iter().skip(keep).collect();
+        // Rewrite a file grown well past what is shown.
+        if keep > ALERT_LOG_LEN {
+            let text: String = log
+                .events
+                .iter()
+                .filter_map(|e| serde_json::to_string(e).ok())
+                .map(|line| line + "\n")
+                .collect();
+            let tmp = path.with_extension("jsonl.tmp");
+            let _ = fs::write(&tmp, text).and_then(|()| fs::rename(&tmp, &path));
+        }
+        log.file = Some(path);
+        log
+    }
+
+    /// Appends `event` to the file, if the log has one.
+    fn save(&self, event: &AlertEvent) {
+        let Some(path) = &self.file else {
+            return;
+        };
+        let Ok(line) = serde_json::to_string(event) else {
+            return;
+        };
+        if let Some(dir) = path.parent() {
+            let _ = fs::create_dir_all(dir);
+        }
+        // One write per line, so that lines from concurrent runs never mix.
+        let _ = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .and_then(|mut file| file.write_all(format!("{line}\n").as_bytes()));
+    }
+
     /// Records how the alerts of `host` changed since its previous update.
     pub fn update(&mut self, host: &str, alerts: &[Alert], at_ms: u64) {
         let previous = self.active.remove(host).unwrap_or_default();
@@ -393,12 +467,14 @@ impl AlertLog {
             if self.events.len() == ALERT_LOG_LEN {
                 self.events.pop_front();
             }
-            self.events.push_back(AlertEvent {
+            let event = AlertEvent {
                 at_ms,
                 host: host.to_owned(),
                 change,
                 alert: alert.clone(),
-            });
+            };
+            self.save(&event);
+            self.events.push_back(event);
         }
         self.active.insert(host.to_owned(), alerts.to_vec());
     }
@@ -416,6 +492,21 @@ impl AlertLog {
     /// Marks every event as read.
     pub fn mark_read(&mut self) {
         self.unread = (0, None);
+    }
+}
+
+/// When an [`AlertEvent`] happened, as short as is clear: "14:03:12"
+/// today, "Tue 14:03" this week, "Oct 21 14:03" before.
+pub fn event_time(at_ms: u64, now: SystemTime) -> String {
+    let at: DateTime<Local> = (SystemTime::UNIX_EPOCH + Duration::from_millis(at_ms)).into();
+    let today: DateTime<Local> = now.into();
+    let days = (today.date_naive() - at.date_naive()).num_days();
+    if days == 0 {
+        at.format("%H:%M:%S").to_string()
+    } else if (1..6).contains(&days) {
+        at.format("%a %H:%M").to_string()
+    } else {
+        at.format("%b %d %H:%M").to_string()
     }
 }
 
@@ -1205,6 +1296,51 @@ mod tests {
         assert_eq!(alerts[2].severity, Severity::Critical);
         assert_eq!(alerts[3].severity, Severity::Warning);
         assert!(super::alerts(&Snapshot::default()).is_empty());
+    }
+
+    #[test]
+    fn event_times_are_as_short_as_is_clear() {
+        let now = SystemTime::now();
+        let ms = |t: SystemTime| {
+            t.duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64
+        };
+        // "14:03:12" today; a weekday this week; a date before.
+        assert_eq!(event_time(ms(now), now).len(), 8);
+        let week_ago = now - Duration::from_secs(10 * 86_400);
+        assert!(event_time(ms(week_ago), now).contains(' '));
+        assert_ne!(event_time(ms(week_ago), now).len(), 8);
+    }
+
+    #[test]
+    fn alert_history_survives_a_restart() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("state/alerts-tui.jsonl");
+        let degraded = Alert {
+            severity: Severity::Critical,
+            text: "md0 (raid1) degraded".to_owned(),
+        };
+        let full = Alert {
+            severity: Severity::Warning,
+            text: "/srv 92% full".to_owned(),
+        };
+        let mut log = AlertLog::persistent(path.clone());
+        log.update("nas", &[degraded.clone(), full.clone()], 1_000);
+        log.update("nas", std::slice::from_ref(&degraded), 2_000);
+        assert_eq!(log.events().count(), 3);
+
+        // The next run sees the same events, and the alert still present
+        // is not logged again.
+        let mut log = AlertLog::persistent(path.clone());
+        assert_eq!(log.events().count(), 3);
+        assert_eq!(log.unread(), (0, None));
+        log.update("nas", std::slice::from_ref(&degraded), 3_000);
+        assert_eq!(log.events().count(), 3);
+        log.update("nas", &[], 4_000);
+        let last = log.events().last().unwrap();
+        assert_eq!((last.change, last.at_ms), (AlertChange::Cleared, 4_000));
+        assert_eq!(AlertLog::persistent(path).events().count(), 4);
     }
 
     #[test]

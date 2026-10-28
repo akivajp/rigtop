@@ -446,6 +446,10 @@ impl RigtopApp {
         app.remote_command = remote_command.map(str::to_owned);
         app.demo = demo;
         app.interval = interval;
+        // Kept between runs; the made-up alerts of --demo are not.
+        if !demo && let Some(path) = rigtop_core::view::alert_log_path("gui") {
+            app.alert_log = AlertLog::persistent(path);
+        }
         app.release_checker = app
             .config
             .updates

@@ -1,16 +1,15 @@
 //! The alert history (`a`): the alerts of every host as they appeared and
-//! cleared since rigtop started, to see what happened while nobody watched.
+//! cleared (kept between runs), to see what happened while nobody watched.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use chrono::{Local, TimeZone};
 use ratatui::Frame;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph};
-use rigtop_core::view::{AlertChange, AlertLog, Severity, alerts_with};
+use rigtop_core::view::{AlertChange, AlertLog, Severity, alerts_with, event_time};
 
 use super::HostTui;
 use super::ui::{BAD, WARN, colored, dim, panel};
@@ -89,24 +88,14 @@ impl AlertLogView {
         let block = panel("alerts", WARN)
             .title_top(Line::from(dim(format!(" {} events ", events.len()))).right_aligned())
             .title_bottom(Line::from(dim(" ↑↓ scroll  a/Esc close ")));
-        let today = Local::now().date_naive();
+        let now = SystemTime::now();
         let mut lines = vec![Line::from(dim(if events.is_empty() {
-            "No alerts since rigtop started."
+            "No alerts yet."
         } else {
-            "Newest first, since rigtop started."
+            "Newest first."
         }))];
         for event in events.iter().skip(self.scroll) {
-            let when = Local
-                .timestamp_millis_opt(event.at_ms as i64)
-                .single()
-                .map(|t| {
-                    if t.date_naive() == today {
-                        t.format("%H:%M:%S").to_string()
-                    } else {
-                        t.format("%a %H:%M").to_string()
-                    }
-                })
-                .unwrap_or_default();
+            let when = event_time(event.at_ms, now);
             let text = match event.change {
                 AlertChange::Raised => colored(
                     event.alert.text.clone(),
@@ -115,7 +104,7 @@ impl AlertLogView {
                 AlertChange::Cleared => dim(format!("cleared: {}", event.alert.text)),
             };
             lines.push(Line::from(vec![
-                dim(format!("{when:>9}  ")),
+                dim(format!("{when:>12}  ")),
                 Span::styled(
                     format!("{}  ", event.host),
                     Style::default().fg(Color::White),

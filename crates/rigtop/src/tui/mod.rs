@@ -173,6 +173,13 @@ pub fn run(
         update: None,
         releases: Releases::new(&config.updates, exe),
     };
+    // Kept between runs; the made-up alerts of --demo are not.
+    let demo = hosts
+        .iter()
+        .any(|h| matches!(h.spec.kind, HostKind::Demo(_)));
+    if !demo && let Some(path) = rigtop_core::view::alert_log_path("tui") {
+        screen.alert_log.log = rigtop_core::view::AlertLog::persistent(path);
+    }
     let mut reload = Reload {
         watcher: config_path.map(ConfigWatcher::new),
         config,

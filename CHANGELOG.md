@@ -16,6 +16,11 @@ include breaking changes).
   looked up every 30 seconds, raises a warning per unit
   (`systemd: nginx.service failed`); `[alerts] ignored_units` lists units
   not to warn about.
+- The alert history (TUI `a`, GUI "alerts…") is kept between runs, in
+  `~/.local/state/rigtop/alerts-tui.jsonl` / `alerts-gui.jsonl` (the local
+  data directory on macOS and Windows), so what happened overnight is
+  still there after a restart. Alerts still present when rigtop starts
+  are not logged again. Older events show their date.
 
 ## [0.15.0] - 2026-10-29
 
