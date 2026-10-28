@@ -1,6 +1,6 @@
 # Claude Code widget for rigtop
 
-A rigtop [widget](../../../README.md#widgets) showing the subscription usage limits (5-hour and weekly windows, with reset times), the running Claude Code sessions per project, and their active subagents.
+A rigtop [widget](../../../README.md#widgets) showing the subscription usage limits (5-hour and weekly windows, with reset times), the running Claude Code sessions per project, how full each one's context window is, and their active subagents.
 
 ```
 ╭ Claude Code ───────────────────────────╮
@@ -8,14 +8,18 @@ A rigtop [widget](../../../README.md#widgets) showing the subscription usage lim
 │week     ■■■■■■■■■■ 95% left · Sun 15:00│
 │rigtop                                  │
 │busy     7a · 1 agent                   │
+│  ctx    ■■■■■■···· 61% · 606K/1M       │
 │  agent  Explore: find the config loader│
 │idle     06 · waiting on 1 task · 3m    │
+│  ctx    ■■■■■■■■■· 93% · 930K/1M       │
 │my-obsidian-vault                       │
 │idle     d8 · your turn · 12m           │
+│  ctx    ■········· 12% · 24K/200K      │
 ╰────────────────────────────────────────╯
 ```
 
 - Usage windows show what is **left** (100% when unused) and when they reset; `RIGTOP_CLAUDE_QUOTA=used` shows usage instead.
+- `ctx` is how much of the session's context window its conversation fills: yellow from 70%, red from 90%, when compacting it or starting a new session is worth a thought. The window is 1M tokens for current Claude models (Opus 4.6 and later, Sonnet 4.6 and later, Haiku 5.5, Fable) and models chosen with `[1m]`, 200K for older ones; `RIGTOP_CLAUDE_CONTEXT_WINDOW=1000000` sets it for every session. Other models (e.g. through Ollama) show the token count only.
 - Sessions are grouped by project, named without the project prefix. An idle session tells whether its turn ended with work still running in the background (`waiting on 1 task, 2 agents`, green) or it waits for you (`your turn`, greyed after an hour), and for how long.
 
 It reads files Claude Code writes, some of which are internal and may change between versions; it then shows fewer rows rather than failing. Requires Python 3 (standard library only).
@@ -58,6 +62,7 @@ It reads files Claude Code writes, some of which are internal and may change bet
 | Usage limits | `rate_limits` in the JSON Claude Code passes to the status line (documented), saved by `statusline-save-limits`; or claude-spillway's status endpoint when it runs, which reads them from Anthropic's response headers | Pro and Max plans signed in with Claude Code (not API billing); refreshed only while a session talks to the API, so the widget marks old data with "as of". The terminal UI runs the status line; the VS Code extension did not (Claude Code 2.1.310), so sessions used only from VS Code leave the limits empty. |
 | Sessions | `claude agents --json` (documented); `~/.claude/sessions/` when `claude` is not on the PATH | `busy`, `waiting` (needs you, e.g. a permission prompt), `idle`. How long a session is idle comes from `statusUpdatedAt` in `~/.claude/sessions/<pid>.json` (undocumented). |
 | Background tasks | Shells the session's Bash tool started (descendant processes running through `~/.claude/shell-snapshots/`, Linux) | Counted for idle sessions, as `waiting on N tasks`. |
+| Context window use | The token counts of the last reply in the session's transcript, `~/.claude/projects/<project>/<session>.jsonl` (undocumented; only its last 512 KB is read) | Input plus cached input of that reply; right after a compaction, the size it left. |
 | Subagents | `~/.claude/projects/<project>/<session>/subagents/` | Shown while their transcript changed within the last 2 minutes (`RIGTOP_CLAUDE_ACTIVE_SECS`); a subagent waiting on a long command may drop out early. |
 
 The widget does not use undocumented usage endpoints or Claude Code's credentials.

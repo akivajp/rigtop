@@ -10,6 +10,10 @@ standard library. Sources, from most to least stable:
 - subagents: ~/.claude/projects/<project>/<session>/subagents/ (the path is
   documented, the file contents are not); a subagent counts as active while
   its transcript changed in the last ACTIVE_SECS seconds
+- context window use: the token counts of the last reply in the session's
+  transcript, ~/.claude/projects/<project>/<session>.jsonl (undocumented),
+  against the model's context window (1M for current Claude models and
+  "[1m]" ones, 200K for older Claude models)
 - usage limits: the status endpoint of claude-spillway when it runs (a
   proxy that already reads them from Anthropic's responses), else the
   `rate_limits` Claude Code passes to the status line, saved by the
@@ -49,6 +53,19 @@ QUOTA_MODE = os.environ.get("RIGTOP_CLAUDE_QUOTA", "remaining")
 QUIET_SECS = 60 * 60
 
 WINDOWS = (("five_hour", "5h"), ("seven_day", "week"))
+
+# Context windows (tokens). Current models have 1M; older Claude models 200K.
+LARGE_CONTEXT = re.compile(
+    r"\[1m\]|claude-(fable|mythos|opus-(5|4-[678])|sonnet-(5|4-6)|haiku-5)"
+)
+LARGE_WINDOW = 1_000_000
+SMALL_WINDOW = 200_000
+# Forces the window for every session, e.g. 1000000 ("" to infer it).
+CONTEXT_WINDOW = os.environ.get("RIGTOP_CLAUDE_CONTEXT_WINDOW", "")
+# How much of the end of a transcript to read for its last reply.
+TAIL_BYTES = 512 * 1024
+# Context use from which the row turns yellow, then red (fractions).
+CONTEXT_WARN, CONTEXT_FULL = 0.7, 0.9
 
 
 def row(value="", label="", **extra):
@@ -210,6 +227,97 @@ def limit_rows(now):
     return rows or [row("usage: no data yet", label="limits", level="dim")]
 
 
+def context_window(model, used):
+    """The context window of `model` in tokens, or None when unknown (not a
+    Claude model). A window smaller than what is used must be wrong."""
+    if CONTEXT_WINDOW.isdigit():
+        return int(CONTEXT_WINDOW)
+    if LARGE_CONTEXT.search(model):
+        return LARGE_WINDOW
+    if model.startswith("claude-"):
+        return SMALL_WINDOW if used <= SMALL_WINDOW else LARGE_WINDOW
+    return None
+
+
+def context_use(session):
+    """(tokens in the context, model) from the end of the session's
+    transcript: the input of its last reply, or the size left by a
+    compaction after it. None when unknown."""
+    path = os.path.join(
+        CLAUDE_DIR,
+        "projects",
+        project_dir(session.get("cwd", "")),
+        session.get("sessionId", "") + ".jsonl",
+    )
+    try:
+        with open(path, "rb") as f:
+            size = f.seek(0, os.SEEK_END)
+            f.seek(max(0, size - TAIL_BYTES))
+            tail = f.read().decode("utf-8", errors="replace")
+    except OSError:
+        return None
+    lines = tail.splitlines()
+    if size > TAIL_BYTES:
+        lines = lines[1:]  # the first line is cut
+    compacted = None
+    for line in reversed(lines):
+        if '"compact_boundary"' in line and compacted is None:
+            try:
+                compacted = int(json.loads(line)["compactMetadata"]["postTokens"])
+            except (ValueError, KeyError, TypeError):
+                pass
+            continue
+        if '"usage"' not in line:
+            continue
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        message = entry.get("message") or {}
+        model = entry.get("requestedModel") or message.get("model") or ""
+        usage = message.get("usage") or {}
+        if entry.get("type") != "assistant" or entry.get("isSidechain") or model == "<synthetic>":
+            continue
+        used = sum(
+            int(usage.get(key) or 0)
+            for key in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
+        )
+        if used == 0:
+            continue
+        return (compacted if compacted is not None else used), model
+    return None
+
+
+def tokens(count):
+    if count >= 1_000_000 and count % 1_000_000 == 0:
+        return f"{count // 1_000_000}M"
+    if count >= 1_000_000:
+        return f"{count / 1_000_000:.1f}M"
+    if count >= 1000:
+        return f"{count // 1000}K"
+    return str(count)
+
+
+def context_row(session):
+    """How full the session's context window is, as a gauge row."""
+    found = context_use(session)
+    if not found:
+        return None
+    used, model = found
+    window = context_window(model, used)
+    if not window:
+        return row(f"{tokens(used)} tokens", label="  ctx", level="dim")
+    fraction = min(used / window, 1.0)
+    level = "bad" if fraction >= CONTEXT_FULL else "warn" if fraction >= CONTEXT_WARN else "ok"
+    return row(
+        f"{fraction * 100:.0f}% · {tokens(used)}/{tokens(window)}",
+        label="  ctx",
+        gauge=round(fraction, 3),
+        gauge_style="level",
+        level=level,
+    )
+
+
 def duration(secs):
     secs = max(0, int(secs))
     if secs < 60:
@@ -315,6 +423,9 @@ def session_rows(now):
         agents = active_subagents(session, now)
         label, text, level = session_line(session, agents, now)
         rows.append(row(text, label=label, level=level))
+        context = context_row(session)
+        if context:
+            rows.append(context)
         for age, kind, description in agents:
             text = f"{kind}: {description}" if description else kind
             rows.append(row(text, label="  agent", level="normal" if age < 30 else "dim"))
