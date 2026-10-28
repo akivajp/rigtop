@@ -32,9 +32,10 @@
 //! level = "critical"
 //!
 //! [updates]
-//! # Look for new releases on github.com (at startup and every interval_hours).
+//! # Look for new releases on github.com (at startup and every interval:
+//! # "30m", "6h", "1d", "1h30m", ...; at least a minute).
 //! check = true
-//! interval_hours = 1
+//! interval = "1h"
 //! notify = true   # rigtop-gui: desktop notification for a new release
 //!
 //! [lhm]
@@ -364,8 +365,10 @@ pub struct NotificationsConfig {
 pub struct UpdatesConfig {
     /// Look for new releases (contacts github.com); `false` never does.
     pub check: bool,
-    /// Hours between checks (also checked at startup).
-    pub interval_hours: f64,
+    /// Time between checks (also checked at startup), written like "1h",
+    /// "30m", "1d" or "1h30m".
+    #[serde(with = "duration_text")]
+    pub interval: Duration,
     /// Announce a new release with a desktop notification (GUI), besides
     /// the note in the title.
     pub notify: bool,
@@ -375,7 +378,7 @@ impl Default for UpdatesConfig {
     fn default() -> Self {
         Self {
             check: true,
-            interval_hours: 1.0,
+            interval: Duration::from_secs(3600),
             notify: true,
         }
     }
@@ -383,8 +386,73 @@ impl Default for UpdatesConfig {
 
 impl UpdatesConfig {
     /// Time between checks; at least a minute, whatever the file says.
-    pub fn interval(&self) -> std::time::Duration {
-        std::time::Duration::from_secs_f64((self.interval_hours * 3600.0).max(60.0))
+    pub fn check_interval(&self) -> Duration {
+        self.interval.max(Duration::from_secs(60))
+    }
+}
+
+/// Durations written as text: a number and a unit (`s`, `m`, `h` or `d`),
+/// possibly several, as in "1h30m".
+mod duration_text {
+    use std::time::Duration;
+
+    use serde::de::Error;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    const UNITS: [(char, u64); 4] = [('d', 86_400), ('h', 3600), ('m', 60), ('s', 1)];
+
+    pub fn serialize<S: Serializer>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&format(*duration))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Duration, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        parse(&text).ok_or_else(|| {
+            D::Error::custom(format!(
+                "invalid duration {text:?}: write a number and s, m, h or d, \
+                 e.g. \"30m\", \"6h\" or \"1h30m\""
+            ))
+        })
+    }
+
+    /// "1h30m" -> 90 minutes; `None` for anything else.
+    pub fn parse(text: &str) -> Option<Duration> {
+        let text: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+        if text.is_empty() {
+            return None;
+        }
+        let mut total = 0u64;
+        let mut number = String::new();
+        for c in text.chars() {
+            if c.is_ascii_digit() {
+                number.push(c);
+                continue;
+            }
+            let (_, secs) = UNITS
+                .iter()
+                .find(|(unit, _)| *unit == c.to_ascii_lowercase())?;
+            let value: u64 = number.parse().ok()?;
+            total = total.checked_add(value.checked_mul(*secs)?)?;
+            number.clear();
+        }
+        // A number without a unit at the end is ambiguous.
+        number.is_empty().then(|| Duration::from_secs(total))
+    }
+
+    /// 90 minutes -> "1h30m"; whole seconds only.
+    pub fn format(duration: Duration) -> String {
+        let mut secs = duration.as_secs();
+        if secs == 0 {
+            return "0s".to_owned();
+        }
+        let mut text = String::new();
+        for (unit, size) in UNITS {
+            if secs >= size {
+                text.push_str(&format!("{}{unit}", secs / size));
+                secs %= size;
+            }
+        }
+        text
     }
 }
 
@@ -690,18 +758,42 @@ mod tests {
     #[test]
     fn update_checks_can_be_tuned_or_turned_off() {
         let config: Config =
-            toml::from_str("[updates]\ninterval_hours = 6\nnotify = false\n").unwrap();
+            toml::from_str("[updates]\ninterval = \"6h\"\nnotify = false\n").unwrap();
         assert!(config.updates.check);
-        assert_eq!(config.updates.interval(), Duration::from_secs(6 * 3600));
+        assert_eq!(
+            config.updates.check_interval(),
+            Duration::from_secs(6 * 3600)
+        );
         assert!(!config.updates.notify);
         let config: Config =
-            toml::from_str("[updates]\ncheck = false\ninterval_hours = 0\n").unwrap();
+            toml::from_str("[updates]\ncheck = false\ninterval = \"10s\"\n").unwrap();
         assert!(!config.updates.check);
         assert_eq!(
-            config.updates.interval(),
+            config.updates.check_interval(),
             Duration::from_secs(60),
             "at least a minute"
         );
+        let error = toml::from_str::<Config>("[updates]\ninterval = \"6 hours\"\n").unwrap_err();
+        assert!(error.to_string().contains("invalid duration"), "{error}");
+    }
+
+    #[test]
+    fn durations_read_and_write_as_text() {
+        let minutes = |m: u64| Some(Duration::from_secs(m * 60));
+        assert_eq!(duration_text::parse("30m"), minutes(30));
+        assert_eq!(duration_text::parse("1h30m"), minutes(90));
+        assert_eq!(duration_text::parse("1h 30m"), minutes(90));
+        assert_eq!(duration_text::parse("1d"), minutes(24 * 60));
+        assert_eq!(duration_text::parse("2H"), minutes(120));
+        for bad in ["", "6", "h", "1.5h", "1w", "-1h", "6 hours"] {
+            assert_eq!(duration_text::parse(bad), None, "{bad:?}");
+        }
+        assert_eq!(duration_text::format(Duration::from_secs(5400)), "1h30m");
+        assert_eq!(duration_text::format(Duration::from_secs(86_400)), "1d");
+        // The defaults survive saving and loading.
+        let text = toml::to_string(&Config::default()).unwrap();
+        assert!(text.contains("interval = \"1h\""), "{text}");
+        assert_eq!(toml::from_str::<Config>(&text).unwrap(), Config::default());
     }
 
     #[test]

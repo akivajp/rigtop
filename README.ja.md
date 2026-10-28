@@ -292,9 +292,10 @@ drive_warning_celsius = 70  # SMART か NVMe のセンサー
 level = "critical"
 
 [updates]
-# github.com で新しいリリースを確かめる（起動時と interval_hours ごと）
+# github.com で新しいリリースを確かめる（起動時と interval ごと。
+# "30m"・"6h"・"1d"・"1h30m" のように書く。最短1分）
 check = true
-interval_hours = 1
+interval = "1h"
 notify = true   # rigtop-gui: 新しいリリースのデスクトップ通知
 
 [lhm]

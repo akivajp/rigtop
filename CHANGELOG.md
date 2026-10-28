@@ -15,7 +15,8 @@ include breaking changes).
   which the GUI offers. The GUI also announces a new release with a desktop
   notification (Linux and macOS). Copies from `cargo install` or a package
   manager get the command to update them, and Windows gets directions.
-  `[updates]` sets `check`, `interval_hours` and `notify`.
+  `[updates]` sets `check`, `interval` (e.g. `"1h"`, `"30m"`, `"1d"`) and
+  `notify`.
 
 ## [0.12.0] - 2026-10-28
 

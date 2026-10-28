@@ -429,7 +429,7 @@ impl RigtopApp {
             .config
             .updates
             .check
-            .then(|| ReleaseChecker::new(app.config.updates.interval()));
+            .then(|| ReleaseChecker::new(app.config.updates.check_interval()));
         app.repaint = Some(cc.egui_ctx.clone());
         app.graph_span = storage
             .and_then(|s| eframe::get_value::<u64>(s, GRAPH_SPAN_KEY))
@@ -625,7 +625,7 @@ impl RigtopApp {
                 .config
                 .updates
                 .check
-                .then(|| ReleaseChecker::new(self.config.updates.interval()));
+                .then(|| ReleaseChecker::new(self.config.updates.check_interval()));
         }
         if old.notifications.level != self.config.notifications.level {
             self.notifier = Notifier::new(self.config.notifications.level);

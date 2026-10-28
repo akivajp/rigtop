@@ -117,7 +117,9 @@ struct Releases {
 impl Releases {
     fn new(config: &UpdatesConfig, exe: Option<PathBuf>) -> Self {
         Self {
-            checker: config.check.then(|| ReleaseChecker::new(config.interval())),
+            checker: config
+                .check
+                .then(|| ReleaseChecker::new(config.check_interval())),
             exe,
             installed: None,
         }

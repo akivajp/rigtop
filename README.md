@@ -292,9 +292,10 @@ drive_warning_celsius = 70  # SMART or NVMe sensor
 level = "critical"
 
 [updates]
-# Look for new releases on github.com, at startup and every interval_hours.
+# Look for new releases on github.com, at startup and every interval
+# ("30m", "6h", "1d", "1h30m", ...; at least a minute).
 check = true
-interval_hours = 1
+interval = "1h"
 notify = true   # rigtop-gui: desktop notification for a new release
 
 [lhm]
