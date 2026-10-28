@@ -45,6 +45,8 @@ curl -fsSLO https://github.com/akivajp/rigtop/releases/latest/download/install.s
 less install.sh && sh install.sh
 ```
 
+**Updates**: rigtop looks for a new release on github.com at startup and every hour (it only asks which release is the latest; nothing about your machine is sent). When there is one, the title says so (`U` in the TUI, a button in the GUI, which also shows a desktop notification on Linux and macOS) and offers to install it in place of the running program; the new version runs after a restart (the GUI has a restart button). Copies from `cargo install` or a package manager are left alone, with the command to update them; on Windows, quit rigtop and run `scoop update rigtop` or replace it with the new zip. `[updates]` in the [configuration](#configuration) changes the interval or turns the check (`check = false`) or the notification (`notify = false`) off.
+
 Or download an archive for your platform from the [Releases](https://github.com/akivajp/rigtop/releases) page and put the binaries on your `PATH`:
 
 | Archive | Contents |
@@ -98,6 +100,7 @@ cargo run --release -p rigtop -- --help  # options (--interval-ms, --config, --d
 | `k` / `K` | send SIGTERM / SIGKILL to the selected process (asks first) |
 | `n` | switch the network interface |
 | `+` / `-` | slower / faster updates |
+| `U` | update this machine's rigtop to a new release, when the title says one is out (asks first; runs after a restart) |
 | `u` | update rigtop on this remote host to your version, when it runs an older one (asks first) |
 | `a` | alert history: the alerts of every host as they appeared and cleared since rigtop started (`↑` `↓` scroll, `a` or `Esc` closes). New ones are counted in the tab bar, or in the CPU box title with one host |
 | `g` | time the graphs cover: fit to the width (one sample per dot), or the last 1, 5, 15 minutes, 1, 6 or 24 hours (beyond an hour from per-minute averages) |
@@ -287,6 +290,12 @@ drive_warning_celsius = 70  # SMART or NVMe sensor
 [notifications]
 # rigtop-gui: desktop notifications for new alerts ("critical", "warning" or "off").
 level = "critical"
+
+[updates]
+# Look for new releases on github.com, at startup and every interval_hours.
+check = true
+interval_hours = 1
+notify = true   # rigtop-gui: desktop notification for a new release
 
 [lhm]
 # Windows: LibreHardwareMonitor's web server ("" to disable).

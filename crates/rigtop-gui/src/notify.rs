@@ -86,6 +86,22 @@ pub fn send(host: &str, alert: &Alert) {
 #[cfg(windows)]
 pub fn send(_host: &str, _alert: &Alert) {}
 
+/// Announces a new release of rigtop. Does nothing on Windows.
+#[cfg(not(windows))]
+pub fn send_release(version: &str) {
+    let summary = format!("rigtop {version} is out");
+    thread::spawn(move || {
+        let _ = notify_rust::Notification::new()
+            .appname("rigtop")
+            .summary(&summary)
+            .body("Update from the button in rigtop's title bar.")
+            .show();
+    });
+}
+
+#[cfg(windows)]
+pub fn send_release(_version: &str) {}
+
 #[cfg(test)]
 mod tests {
     use super::*;

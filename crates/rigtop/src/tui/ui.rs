@@ -372,6 +372,9 @@ fn draw_cpu(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect, layou
         .title_top(
             Line::from(
                 [
+                    app.release_note
+                        .as_ref()
+                        .map(|note| colored(format!(" {note} "), OK)),
                     app.alerts_unread
                         .and_then(super::alert_log::unread_badge)
                         .map(|badge| Span::styled(format!(" {} ", badge.content), badge.style)),
@@ -1121,7 +1124,7 @@ fn draw_processes(
     let footer = match app.status() {
         Some(status) => Line::from(colored(format!(" {status} "), WARN)),
         None => Line::from(dim(
-            " ↑↓ select  ←→ sort  r reverse  / filter  e tree  t kthreads  k term  K kill  +- interval  g graph span  a alerts  q quit ",
+            " ↑↓ select  ←→ sort  r reverse  / filter  e tree  t kthreads  U update  k term  K kill  +- interval  g graph span  a alerts  q quit ",
         )),
     };
     let block = panel("proc", PROC_TITLE)

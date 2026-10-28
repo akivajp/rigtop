@@ -1,22 +1,28 @@
-//! Updating rigtop on a remote host to this machine's version.
+//! Updating rigtop: this machine's copy to the latest release, and remote
+//! hosts to this machine's version.
 //!
-//! A script is fed to `sh -s` over the host's SSH connection settings. It
-//! finds the rigtop that the agent command runs and, when that sits in a
-//! directory the user can write to, replaces it with the release of this
-//! version through the release's `install.sh` (curl or wget, checksums).
-//! Copies installed by `cargo install` or a package manager are left alone,
-//! with the command to update them instead. No new dependency is needed on
-//! either side.
+//! The latest release is looked up with the system's `curl` (Windows 10 and
+//! later ship one), from where `/releases/latest` redirects to, so no API
+//! rate limit applies. An update feeds a script to `sh -s`, locally or over
+//! the host's SSH connection settings. It finds the rigtop to replace and,
+//! when that sits in a directory the user can write to, installs the
+//! release through its `install.sh` (curl or wget, checksums). Copies
+//! installed by `cargo install` or a package manager are left alone, with
+//! the command to update them instead. No new dependency is needed.
 
 use std::io::Write;
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use crate::remote::RemoteTarget;
 
 /// Where release files are downloaded from.
 const RELEASES_URL: &str = "https://github.com/akivajp/rigtop/releases/download";
+/// Redirects to the page of the latest release (`.../tag/v0.12.0`).
+const LATEST_URL: &str = "https://github.com/akivajp/rigtop/releases/latest";
 
 /// This rigtop's version, the one remote hosts are updated to.
 pub fn target_version() -> &'static str {
@@ -31,6 +37,14 @@ pub fn agent_is_older(agent_version: &str) -> bool {
         parse_version(target_version()),
     ) {
         (Some(agent), Some(ours)) => agent < ours,
+        _ => false,
+    }
+}
+
+/// Whether `version` (e.g. of the latest release) is newer than this rigtop.
+pub fn is_newer(version: &str) -> bool {
+    match (parse_version(version), parse_version(target_version())) {
+        (Some(other), Some(ours)) => other > ours,
         _ => false,
     }
 }
@@ -58,10 +72,21 @@ fn shell_quote(text: &str) -> String {
 /// The script run on the remote host with `sh -s` to update the rigtop
 /// that `agent_command` starts to `version` (e.g. "0.11.0").
 pub fn update_script(version: &str, agent_command: &str) -> String {
+    script(version, agent_binary(agent_command))
+}
+
+/// The script that updates this machine's copy at `exe` (the running
+/// program, `rigtop` or `rigtop-gui`) to `version`.
+pub fn self_update_script(version: &str, exe: &Path) -> String {
+    script(version, Some(&exe.to_string_lossy()))
+}
+
+/// The update script for the program at `binary`, or the `rigtop` on PATH.
+fn script(version: &str, binary: Option<&str>) -> String {
     let tag = shell_quote(&format!("v{version}"));
     let url = shell_quote(&format!("{RELEASES_URL}/v{version}/install.sh"));
     // A leading "~/" is expanded by the remote shell; quoting would stop it.
-    let find = match agent_binary(agent_command) {
+    let find = match binary {
         Some(path) => match path.strip_prefix("~/") {
             Some(rest) => format!("bin=\"$HOME\"/{}", shell_quote(rest)),
             None => format!("bin={}", shell_quote(path)),
@@ -79,8 +104,8 @@ if [ -z "$bin" ] || [ ! -e "$bin" ]; then
     exit 1
 fi
 case "$bin" in
-    */.cargo/bin/rigtop)
-        echo "rigtop update: $bin was installed with cargo; update it with: cargo install rigtop --version {version} --locked" >&2
+    */.cargo/bin/*)
+        echo "rigtop update: $bin was installed with cargo; update it with: cargo install $(basename "$bin") --version {version} --locked" >&2
         exit 1
         ;;
 esac
@@ -117,6 +142,27 @@ pub fn unsupported_reason(os: &str) -> Option<String> {
     })
 }
 
+/// Why this machine's copy cannot update itself, if it cannot: on Windows
+/// a running program cannot be replaced in place (see the README).
+pub fn self_update_unsupported() -> Option<String> {
+    cfg!(windows).then(|| {
+        "on Windows, quit rigtop and run `scoop update rigtop`, or replace it with the \
+         zip from the releases page"
+            .to_owned()
+    })
+}
+
+/// What updating this machine's copy to `version` does, shown before asking.
+pub fn describe_self(version: &str) -> String {
+    format!(
+        "Update rigtop from {ours} to {version}? This downloads the v{version} release \
+         from GitHub, checks it and replaces the rigtop you are running (when it is in a \
+         directory you can write to; copies from cargo or a package manager are left \
+         alone). The new version runs after a restart.",
+        ours = target_version()
+    )
+}
+
 /// One sentence on what an update does, shown before asking.
 pub fn describe(host: &str, agent_version: &str) -> String {
     format!(
@@ -143,7 +189,18 @@ impl UpdateJob {
         if let Some(last) = args.last_mut() {
             *last = "sh -s".to_owned();
         }
-        let program = target.program.clone();
+        Self::spawn(target.program.clone(), args, script)
+    }
+
+    /// Starts updating this machine's copy at `exe` to `version`. `exe`
+    /// must be taken at startup: once replaced, the running program's
+    /// path reads "... (deleted)" on Linux.
+    pub fn start_self(version: &str, exe: &Path) -> Self {
+        let script = self_update_script(version, exe);
+        Self::spawn("sh".to_owned(), vec!["-s".to_owned()], script)
+    }
+
+    fn spawn(program: String, args: Vec<String>, script: String) -> Self {
         let (tx, result) = mpsc::channel();
         thread::Builder::new()
             .name("rigtop-update".to_owned())
@@ -164,6 +221,107 @@ impl UpdateJob {
     pub fn poll(&self) -> Option<Result<String, String>> {
         self.result.try_recv().ok()
     }
+}
+
+/// How often [`ReleaseChecker`] looks for a new release by default.
+pub const DEFAULT_CHECK_INTERVAL: Duration = Duration::from_secs(3600);
+
+/// Looks for new releases now and then, in the background.
+pub struct ReleaseChecker {
+    interval: Duration,
+    next_check: Instant,
+    running: Option<Receiver<Result<String, String>>>,
+    /// Newest version seen that is newer than this rigtop.
+    newer: Option<String>,
+    fetch: fn() -> Result<String, String>,
+}
+
+impl ReleaseChecker {
+    /// Checks right away, then every `interval`.
+    pub fn new(interval: Duration) -> Self {
+        Self::with_fetch(interval, latest_release)
+    }
+
+    fn with_fetch(interval: Duration, fetch: fn() -> Result<String, String>) -> Self {
+        Self {
+            interval,
+            next_check: Instant::now(),
+            running: None,
+            newer: None,
+            fetch,
+        }
+    }
+
+    /// A newer release than this rigtop, once one has been seen (e.g.
+    /// "0.12.1"). Call regularly: it also starts the next check when due.
+    pub fn poll(&mut self) -> Option<&str> {
+        if let Some(running) = &self.running
+            && let Ok(result) = running.try_recv()
+        {
+            self.running = None;
+            // A failed check (offline, no curl) just waits for the next one.
+            if let Ok(version) = result
+                && is_newer(&version)
+            {
+                self.newer = Some(version);
+            }
+        }
+        if self.running.is_none() && Instant::now() >= self.next_check {
+            self.next_check = Instant::now() + self.interval;
+            let (tx, rx) = mpsc::channel();
+            let fetch = self.fetch;
+            let started = thread::Builder::new()
+                .name("rigtop-release-check".to_owned())
+                .spawn(move || {
+                    let _ = tx.send(fetch());
+                });
+            if started.is_ok() {
+                self.running = Some(rx);
+            }
+        }
+        self.newer.as_deref()
+    }
+}
+
+/// The version of the latest release (e.g. "0.12.0"), from where GitHub's
+/// `/releases/latest` redirects to.
+pub fn latest_release() -> Result<String, String> {
+    let null = if cfg!(windows) { "NUL" } else { "/dev/null" };
+    let mut command = Command::new("curl");
+    command
+        .args([
+            "-fsSL",
+            "--max-time",
+            "30",
+            "-o",
+            null,
+            "-w",
+            "%{url_effective}",
+        ])
+        .arg(LATEST_URL)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW: a GUI must not flash a console for curl.exe.
+        command.creation_flags(0x0800_0000);
+    }
+    let output = command
+        .output()
+        .map_err(|err| format!("cannot run curl: {err}"))?;
+    if !output.status.success() {
+        return Err(format!("curl exited with {}", output.status));
+    }
+    version_from_release_url(&String::from_utf8_lossy(&output.stdout))
+        .ok_or_else(|| "no release found".to_owned())
+}
+
+/// ".../releases/tag/v0.12.0" -> "0.12.0".
+fn version_from_release_url(url: &str) -> Option<String> {
+    let tag = url.trim().rsplit_once("/tag/")?.1;
+    let version = tag.strip_prefix('v')?;
+    parse_version(version).map(|_| version.to_owned())
 }
 
 /// Runs `program args` with `script` on its stdin and returns the last
@@ -221,6 +379,54 @@ mod tests {
         assert!(!agent_is_older(target_version()));
         assert!(!agent_is_older("999.0.0"));
         assert!(!agent_is_older(""), "unknown versions are not offered");
+    }
+
+    #[test]
+    fn newer_releases_are_found() {
+        assert_eq!(
+            version_from_release_url("https://github.com/akivajp/rigtop/releases/tag/v0.12.1\n"),
+            Some("0.12.1".to_owned())
+        );
+        assert_eq!(
+            version_from_release_url("https://github.com/akivajp/rigtop/releases"),
+            None
+        );
+        assert!(is_newer("999.0.0"));
+        assert!(!is_newer(target_version()));
+
+        let mut checker =
+            ReleaseChecker::with_fetch(Duration::from_secs(3600), || Ok("999.0.0".to_owned()));
+        // The first call starts the check; the answer comes a moment later.
+        let mut found = None;
+        for _ in 0..100 {
+            if let Some(version) = checker.poll() {
+                found = Some(version.to_owned());
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(found.as_deref(), Some("999.0.0"));
+
+        let mut checker = ReleaseChecker::with_fetch(Duration::from_secs(3600), || {
+            Ok(target_version().to_owned())
+        });
+        checker.poll();
+        thread::sleep(Duration::from_millis(50));
+        assert!(checker.poll().is_none(), "the same version is not news");
+    }
+
+    /// Asks GitHub (network): `cargo test -p rigtop-core -- --ignored latest_release`.
+    #[test]
+    #[ignore]
+    fn latest_release_from_github() {
+        let version = latest_release().unwrap();
+        assert!(parse_version(&version).is_some(), "{version}");
+    }
+
+    #[test]
+    fn self_update_script_targets_the_running_program() {
+        let script = self_update_script("1.2.3", Path::new("/home/me/.local/bin/rigtop-gui"));
+        assert!(script.contains("bin='/home/me/.local/bin/rigtop-gui'"));
     }
 
     #[test]
@@ -305,6 +511,14 @@ mod tests {
         assert!(
             error.contains("cargo install rigtop --version 1.2.3"),
             "{error}"
+        );
+
+        // Updating this machine's copy works the same, for rigtop-gui too.
+        executable(&bin.join("rigtop-gui"), "#!/bin/sh\n");
+        let output = run(&self_update_script("1.2.3", &bin.join("rigtop-gui"))).unwrap();
+        assert_eq!(
+            output,
+            format!("installed --version v1.2.3 --bin-dir {}", bin.display())
         );
 
         let error = run(&update_script("1.2.3", "/nowhere/rigtop --agent")).unwrap_err();

@@ -45,6 +45,8 @@ curl -fsSLO https://github.com/akivajp/rigtop/releases/latest/download/install.s
 less install.sh && sh install.sh
 ```
 
+**更新**: rigtop は起動時と1時間ごとに、github.com で新しいリリースが出ていないかを確かめます（最新のリリースがどれかを問い合わせるだけで、手元の情報は送りません）。新しい版があると見出しに表示し（TUI は `U`、GUI はボタン。GUI は Linux と macOS ではデスクトップ通知も出します）、動いている rigtop をその版に入れ替えられます。新しい版は再起動の後に動きます（GUI には再起動のボタンがあります）。`cargo install` やパッケージマネージャーで入れたものは書き換えず、更新のコマンドを案内します。Windows では rigtop を終了してから `scoop update rigtop` を実行するか、新しい zip で入れ替えてください。[設定](#設定)の `[updates]` で、間隔を変えたり、確認（`check = false`）や通知（`notify = false`）を止めたりできます。
+
 または、[Releases](https://github.com/akivajp/rigtop/releases) のページから環境に合ったアーカイブを取得し、中のバイナリを `PATH` の通った場所に置いてください。
 
 | アーカイブ | 中身 |
@@ -98,6 +100,7 @@ cargo run --release -p rigtop -- --help  # オプション（--interval-ms、--c
 | `k` / `K` | 選んだプロセスに SIGTERM / SIGKILL を送る（送る前に確認する） |
 | `n` | 表示するネットワークインターフェースを切り替える |
 | `+` / `-` | 更新間隔を長く / 短くする |
+| `U` | 見出しに新しいリリースが出ているとき、手元の rigtop をその版に更新する（実行前に確認。再起動の後に有効） |
 | `u` | 遠隔ホストの rigtop が手元より古いとき、手元と同じ版に更新する（実行前に確認） |
 | `a` | 警告の履歴: rigtop の起動後に全ホストで出た警告と、その解消（`↑` `↓` でスクロール、`a` か `Esc` で閉じる）。新しい警告の件数はタブの行に、ホスト1台なら CPU 欄の見出しに出る |
 | `g` | グラフの時間幅: 幅に合わせる（1点 1サンプル）か、直近の 1・5・15 分・1・6・24 時間（1時間を超える分は1分ごとの平均から） |
@@ -287,6 +290,12 @@ drive_warning_celsius = 70  # SMART か NVMe のセンサー
 [notifications]
 # rigtop-gui: 新しい警告のデスクトップ通知（"critical"・"warning"・"off"）
 level = "critical"
+
+[updates]
+# github.com で新しいリリースを確かめる（起動時と interval_hours ごと）
+check = true
+interval_hours = 1
+notify = true   # rigtop-gui: 新しいリリースのデスクトップ通知
 
 [lhm]
 # Windows: LibreHardwareMonitor の Web サーバー（"" で無効）

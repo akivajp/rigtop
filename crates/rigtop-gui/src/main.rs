@@ -79,6 +79,9 @@ fn main() -> std::process::ExitCode {
 }
 
 fn run() -> Result<()> {
+    // Taken first: once an update replaces the program, its path reads
+    // "... (deleted)" on Linux.
+    let exe = std::env::current_exe().ok();
     let cli = Cli::parse();
     let interval = Duration::from_millis(cli.interval_ms);
     if interval < MIN_POLL_INTERVAL {
@@ -119,15 +122,18 @@ fn run() -> Result<()> {
         "rigtop",
         options,
         Box::new(move |cc| {
-            Ok(Box::new(app::RigtopApp::new(
-                cc,
-                config,
-                config_path,
-                interval,
-                &cli.hosts,
-                cli.remote_command.as_deref(),
-                cli.demo,
-            )))
+            Ok(Box::new(
+                app::RigtopApp::new(
+                    cc,
+                    config,
+                    config_path,
+                    interval,
+                    &cli.hosts,
+                    cli.remote_command.as_deref(),
+                    cli.demo,
+                )
+                .with_exe(exe),
+            ))
         }),
     )
     .map_err(|err| anyhow!("failed to start the GUI: {err}"))

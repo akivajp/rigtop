@@ -7,6 +7,16 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Added
+- Update checks: rigtop looks for a new release on github.com at startup
+  and every hour, and says so in the title. `U` in the TUI, or the button
+  in the GUI, installs it in place of the running program after you
+  confirm (through the release's `install.sh`); it runs after a restart,
+  which the GUI offers. The GUI also announces a new release with a desktop
+  notification (Linux and macOS). Copies from `cargo install` or a package
+  manager get the command to update them, and Windows gets directions.
+  `[updates]` sets `check`, `interval_hours` and `notify`.
+
 ## [0.12.0] - 2026-10-28
 
 ### Added

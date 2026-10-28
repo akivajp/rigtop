@@ -70,6 +70,7 @@ pub fn draw_tabs(
     hosts: &[HostTui],
     view: View,
     unread: (usize, Option<Severity>),
+    release_note: Option<&str>,
 ) -> Vec<(Rect, View)> {
     let mut spans = Vec::new();
     let mut regions = Vec::new();
@@ -116,6 +117,10 @@ pub fn draw_tabs(
             View::Host(index),
             &mut x,
         );
+    }
+    if let Some(note) = release_note {
+        spans.push(colored(note.to_owned(), OK));
+        spans.push(Span::raw("  "));
     }
     if let Some(badge) = super::alert_log::unread_badge(unread) {
         spans.push(badge);

@@ -21,10 +21,11 @@ use ratatui::crossterm::event::{
 use ratatui::crossterm::execute;
 use ratatui::layout::{Constraint, Layout, Position, Rect};
 use rigtop_core::config::ConfigWatcher;
+use rigtop_core::config::UpdatesConfig;
 use rigtop_core::demo::DemoSource;
 use rigtop_core::hosts::{HostKind, HostSpec};
 use rigtop_core::remote::RemoteSource;
-use rigtop_core::update::UpdateJob;
+use rigtop_core::update::{ReleaseChecker, UpdateJob};
 use rigtop_core::widget::{Widget, start_widgets};
 use rigtop_core::worker::{Command, Worker};
 use rigtop_core::{Config, DataSource, LocalSource};
@@ -32,7 +33,7 @@ use rigtop_core::{Config, DataSource, LocalSource};
 use alert_log::AlertLogView;
 use app::App;
 use overview::View;
-use update::UpdateWindow;
+use update::{Target, UpdateWindow};
 
 /// How often to check for input while idle. Drawing only happens when
 /// something changed, so this mainly bounds input latency.
@@ -102,14 +103,52 @@ struct Reload {
     interval: Duration,
 }
 
+/// New releases and this machine's copy of rigtop (`U`).
+struct Releases {
+    /// `None` when update checks are off (`[updates] check = false`).
+    checker: Option<ReleaseChecker>,
+    /// The running program, taken at startup (see `UpdateJob::start_self`).
+    exe: Option<PathBuf>,
+    /// A release installed in place of the running program, which runs
+    /// after a restart.
+    installed: Option<String>,
+}
+
+impl Releases {
+    fn new(config: &UpdatesConfig, exe: Option<PathBuf>) -> Self {
+        Self {
+            checker: config.check.then(|| ReleaseChecker::new(config.interval())),
+            exe,
+            installed: None,
+        }
+    }
+
+    /// A newer release than this rigtop, once seen.
+    fn available(&mut self) -> Option<String> {
+        self.checker.as_mut()?.poll().map(str::to_owned)
+    }
+
+    /// What the title says about releases, if anything.
+    fn note(&mut self) -> Option<String> {
+        match &self.installed {
+            Some(version) => Some(format!("restart for rigtop {version}")),
+            None => self
+                .available()
+                .map(|version| format!("rigtop {version} available (U: update)")),
+        }
+    }
+}
+
 /// Runs the TUI until the user quits. With several hosts (this machine plus
 /// remote ones) it starts on the overview, with a tab per host. Edits to
-/// `config_path` are applied while running.
+/// `config_path` are applied while running. `exe` is the running program,
+/// which `U` replaces with a new release.
 pub fn run(
     config: Config,
     config_path: Option<PathBuf>,
     interval: Duration,
     host_specs: HostSpecs,
+    exe: Option<PathBuf>,
 ) -> Result<()> {
     let mut hosts: Vec<HostTui> = host_specs(&config)
         .into_iter()
@@ -130,6 +169,7 @@ pub fn run(
         show_widgets: true,
         alert_log: AlertLogView::default(),
         update: None,
+        releases: Releases::new(&config.updates, exe),
     };
     let mut reload = Reload {
         watcher: config_path.map(ConfigWatcher::new),
@@ -174,8 +214,9 @@ struct Screen {
     show_widgets: bool,
     /// Every host's alerts as they came and went (`a`).
     alert_log: AlertLogView,
-    /// Updating rigtop on a remote host (`u`).
+    /// Updating rigtop here (`U`) or on a remote host (`u`).
     update: Option<UpdateWindow>,
+    releases: Releases,
 }
 
 impl Screen {
@@ -249,6 +290,7 @@ fn event_loop(
         if finish_update(screen, hosts) {
             dirty = true;
         }
+        let release_note = screen.releases.note();
         let multi = hosts.len() > 1;
         for host in hosts.iter_mut() {
             let mut received = false;
@@ -265,6 +307,12 @@ fn event_loop(
         let unread = screen.alert_log.log.unread();
         if !multi {
             hosts[0].app.alerts_unread = Some(unread);
+        }
+        for host in hosts.iter_mut() {
+            if host.app.release_note != release_note {
+                host.app.release_note = release_note.clone();
+                dirty = true;
+            }
         }
         // Keep the clock ticking even with long polling intervals.
         let second = SystemTime::now()
@@ -290,7 +338,14 @@ fn event_loop(
                 let body = if multi {
                     let [bar, body] =
                         Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
-                    screen.tabs = overview::draw_tabs(frame, bar, hosts, screen.view, unread);
+                    screen.tabs = overview::draw_tabs(
+                        frame,
+                        bar,
+                        hosts,
+                        screen.view,
+                        unread,
+                        release_note.as_deref(),
+                    );
                     body
                 } else {
                     area
@@ -414,6 +469,12 @@ fn apply_config(
     if old.widgets != config.widgets {
         *widgets = start_widgets(&config.widgets, || {});
     }
+    if old.updates != config.updates {
+        let exe = screen.releases.exe.take();
+        let installed = screen.releases.installed.take();
+        screen.releases = Releases::new(&config.updates, exe);
+        screen.releases.installed = installed;
+    }
     if old.overview.include_local != config.overview.include_local {
         screen.include_local = config.overview.include_local;
     }
@@ -450,43 +511,90 @@ fn ask_update(screen: &mut Screen, host: &mut HostTui, index: usize) {
         host.app.set_status(reason);
     } else {
         screen.update = Some(UpdateWindow::Confirm {
-            host: index,
+            target: Target::Host(index),
             text: rigtop_core::update::describe(&host.spec.name, &agent_version),
         });
     }
 }
 
-/// Starts updating the host at `index` (a remote one).
-fn start_update(hosts: &[HostTui], index: usize) -> Option<UpdateWindow> {
-    let host = hosts.get(index)?;
-    let HostKind::Remote(target) = &host.spec.kind else {
-        return None;
-    };
-    Some(UpdateWindow::Running {
-        host: index,
-        name: host.spec.name.clone(),
-        job: UpdateJob::start(target),
-    })
+/// Opens the window for updating this machine's copy to a new release, or
+/// says (on `host`'s status line) why it does not apply.
+fn ask_self_update(screen: &mut Screen, host: &mut HostTui) {
+    let available = screen.releases.available();
+    if let Some(version) = &screen.releases.installed {
+        host.app
+            .set_status(format!("quit and start rigtop again to use {version}"));
+    } else if screen.releases.checker.is_none() {
+        host.app
+            .set_status("update checks are off ([updates] check = false)".to_owned());
+    } else if let Some(version) = available {
+        match rigtop_core::update::self_update_unsupported() {
+            Some(reason) => host.app.set_status(reason),
+            None => {
+                screen.update = Some(UpdateWindow::Confirm {
+                    text: rigtop_core::update::describe_self(&version),
+                    target: Target::Local { version },
+                })
+            }
+        }
+    } else {
+        host.app.set_status(format!(
+            "no newer release seen than rigtop {}",
+            rigtop_core::update::target_version()
+        ));
+    }
 }
 
-/// Shows the outcome of a finished update; after a successful one, the
-/// host reconnects so that the new agent runs. Returns whether anything
-/// changed.
+/// Starts the confirmed update of `target`.
+fn start_update(hosts: &[HostTui], releases: &Releases, target: Target) -> Option<UpdateWindow> {
+    let (name, job) = match &target {
+        Target::Host(index) => {
+            let host = hosts.get(*index)?;
+            let HostKind::Remote(remote) = &host.spec.kind else {
+                return None;
+            };
+            (host.spec.name.clone(), UpdateJob::start(remote))
+        }
+        Target::Local { version } => {
+            let Some(exe) = &releases.exe else {
+                return Some(UpdateWindow::Done {
+                    target,
+                    result: Err("the running program was not found".to_owned()),
+                });
+            };
+            (
+                "this machine".to_owned(),
+                UpdateJob::start_self(version, exe),
+            )
+        }
+    };
+    Some(UpdateWindow::Running { target, name, job })
+}
+
+/// Shows the outcome of a finished update. After a successful one, a remote
+/// host reconnects so that the new agent runs, and this machine's title
+/// asks for a restart. Returns whether anything changed.
 fn finish_update(screen: &mut Screen, hosts: &mut [HostTui]) -> bool {
-    let Some(UpdateWindow::Running { host, job, .. }) = &screen.update else {
+    let Some(UpdateWindow::Running { target, job, .. }) = &screen.update else {
         return false;
     };
     let Some(result) = job.poll() else {
         return false;
     };
-    if result.is_ok()
-        && let Some(entry) = hosts.get_mut(*host)
-    {
-        let worker = spawn_worker(&entry.spec, &entry.app.config, entry.app.interval);
-        stop_workers(vec![std::mem::replace(&mut entry.worker, worker)]);
-        entry.sent_limit = None;
+    let target = target.clone();
+    if result.is_ok() {
+        match &target {
+            Target::Host(index) => {
+                if let Some(entry) = hosts.get_mut(*index) {
+                    let worker = spawn_worker(&entry.spec, &entry.app.config, entry.app.interval);
+                    stop_workers(vec![std::mem::replace(&mut entry.worker, worker)]);
+                    entry.sent_limit = None;
+                }
+            }
+            Target::Local { version } => screen.releases.installed = Some(version.clone()),
+        }
     }
-    screen.update = Some(UpdateWindow::Done { result });
+    screen.update = Some(UpdateWindow::Done { target, result });
     true
 }
 
@@ -527,8 +635,8 @@ fn handle_key(
     }
     if let Some(window) = screen.update.take() {
         screen.update = match window {
-            UpdateWindow::Confirm { host, .. } if key.code == KeyCode::Char('y') => {
-                start_update(hosts, host)
+            UpdateWindow::Confirm { target, .. } if key.code == KeyCode::Char('y') => {
+                start_update(hosts, &screen.releases, target)
             }
             // Runs on; the outcome shows when it is done.
             running @ UpdateWindow::Running { .. } => Some(running),
@@ -549,6 +657,15 @@ fn handle_key(
         && let View::Host(i) = screen.view
     {
         ask_update(screen, &mut hosts[i], i);
+        return;
+    }
+    if !busy && key.code == KeyCode::Char('U') {
+        // The overview has no status line; the first host's view shows it.
+        let index = match screen.view {
+            View::Host(i) => i,
+            View::Overview => 0,
+        };
+        ask_self_update(screen, &mut hosts[index]);
         return;
     }
     if has_widgets && !busy && key.code == KeyCode::Char('w') {
@@ -584,6 +701,13 @@ mod tests {
             show_widgets: true,
             alert_log: AlertLogView::default(),
             update: None,
+            releases: Releases::new(
+                &UpdatesConfig {
+                    check: false,
+                    ..Default::default()
+                },
+                None,
+            ),
         }
     }
 

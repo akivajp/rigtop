@@ -31,6 +31,12 @@
 //! # rigtop-gui: desktop notifications for new alerts ("critical", "warning" or "off").
 //! level = "critical"
 //!
+//! [updates]
+//! # Look for new releases on github.com (at startup and every interval_hours).
+//! check = true
+//! interval_hours = 1
+//! notify = true   # rigtop-gui: desktop notification for a new release
+//!
 //! [lhm]
 //! # Windows: LibreHardwareMonitor's web server ("" to disable).
 //! url = "http://127.0.0.1:8085/data.json"
@@ -132,6 +138,8 @@ pub struct Config {
     pub alerts: AlertsConfig,
     /// Desktop notifications for new alerts (GUI).
     pub notifications: NotificationsConfig,
+    /// Looking for new rigtop releases.
+    pub updates: UpdatesConfig,
     /// Remote hosts monitored over SSH (`[[hosts]]` tables).
     pub hosts: Vec<HostConfig>,
     /// Extra panels beside the monitor (`[[widgets]]` tables).
@@ -348,6 +356,36 @@ impl Default for AlertsConfig {
 #[serde(default, deny_unknown_fields)]
 pub struct NotificationsConfig {
     pub level: NotifyLevel,
+}
+
+/// Looking for new rigtop releases on GitHub.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct UpdatesConfig {
+    /// Look for new releases (contacts github.com); `false` never does.
+    pub check: bool,
+    /// Hours between checks (also checked at startup).
+    pub interval_hours: f64,
+    /// Announce a new release with a desktop notification (GUI), besides
+    /// the note in the title.
+    pub notify: bool,
+}
+
+impl Default for UpdatesConfig {
+    fn default() -> Self {
+        Self {
+            check: true,
+            interval_hours: 1.0,
+            notify: true,
+        }
+    }
+}
+
+impl UpdatesConfig {
+    /// Time between checks; at least a minute, whatever the file says.
+    pub fn interval(&self) -> std::time::Duration {
+        std::time::Duration::from_secs_f64((self.interval_hours * 3600.0).max(60.0))
+    }
 }
 
 /// Where to read Windows sensors from.
@@ -648,6 +686,23 @@ fn file_stamp(path: &Path) -> Option<(Option<SystemTime>, u64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn update_checks_can_be_tuned_or_turned_off() {
+        let config: Config =
+            toml::from_str("[updates]\ninterval_hours = 6\nnotify = false\n").unwrap();
+        assert!(config.updates.check);
+        assert_eq!(config.updates.interval(), Duration::from_secs(6 * 3600));
+        assert!(!config.updates.notify);
+        let config: Config =
+            toml::from_str("[updates]\ncheck = false\ninterval_hours = 0\n").unwrap();
+        assert!(!config.updates.check);
+        assert_eq!(
+            config.updates.interval(),
+            Duration::from_secs(60),
+            "at least a minute"
+        );
+    }
 
     #[test]
     fn watcher_reports_edits_once() {

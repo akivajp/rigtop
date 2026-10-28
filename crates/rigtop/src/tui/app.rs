@@ -76,6 +76,9 @@ pub struct App {
     /// Unread alerts of every host, shown in the CPU box title (`None`
     /// where the tab bar shows them instead).
     pub alerts_unread: Option<(usize, Option<Severity>)>,
+    /// A new release of rigtop, or one waiting for a restart, for the CPU
+    /// box title.
+    pub release_note: Option<String>,
 }
 
 impl App {
@@ -103,6 +106,7 @@ impl App {
             connection_error: None,
             last_update: None,
             alerts_unread: None,
+            release_note: None,
         }
     }
 

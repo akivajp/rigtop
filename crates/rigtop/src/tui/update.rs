@@ -1,6 +1,6 @@
-//! Updating rigtop on a remote host that runs an older version (`u`):
-//! asks first, runs the update over SSH in the background, then shows how
-//! it went.
+//! Updating rigtop: this machine's copy to a new release (`U`), or a remote
+//! host that runs an older version (`u`). Asks first, runs the update in
+//! the background, then shows how it went.
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
@@ -10,18 +10,29 @@ use rigtop_core::update::UpdateJob;
 
 use super::ui::{BAD, OK, WARN, colored, dim, panel};
 
+/// What is being updated.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Target {
+    /// The remote host at this index.
+    Host(usize),
+    /// This machine's copy, to this release.
+    Local { version: String },
+}
+
 /// The update window: asking, running, or showing the outcome.
 pub enum UpdateWindow {
     Confirm {
-        host: usize,
+        target: Target,
         text: String,
     },
     Running {
-        host: usize,
+        target: Target,
+        /// Where it runs, for the message ("zefat", "this machine").
         name: String,
         job: UpdateJob,
     },
     Done {
+        target: Target,
         result: Result<String, String>,
     },
 }
@@ -40,9 +51,8 @@ impl UpdateWindow {
             width,
             height,
         };
-        let (title, color, lines) = match self {
+        let (color, lines) = match self {
             UpdateWindow::Confirm { text, .. } => (
-                "update",
                 WARN,
                 vec![
                     Line::from(text.clone()),
@@ -51,17 +61,21 @@ impl UpdateWindow {
                 ],
             ),
             UpdateWindow::Running { name, .. } => (
-                "update",
                 WARN,
                 vec![Line::from(format!("Updating rigtop on {name}…"))],
             ),
-            UpdateWindow::Done { result } => {
-                let (color, text) = match result {
-                    Ok(message) => (OK, format!("Updated: {message}. Reconnecting…")),
-                    Err(error) => (BAD, format!("Not updated: {error}")),
+            UpdateWindow::Done { target, result } => {
+                let (color, text) = match (result, target) {
+                    (Ok(message), Target::Host(_)) => {
+                        (OK, format!("Updated: {message}. Reconnecting…"))
+                    }
+                    (Ok(message), Target::Local { .. }) => (
+                        OK,
+                        format!("Updated: {message}. Quit and start rigtop again to use it."),
+                    ),
+                    (Err(error), _) => (BAD, format!("Not updated: {error}")),
                 };
                 (
-                    "update",
                     color,
                     vec![
                         Line::from(colored(text, color)),
@@ -75,7 +89,7 @@ impl UpdateWindow {
         frame.render_widget(
             Paragraph::new(lines)
                 .wrap(Wrap { trim: true })
-                .block(panel(title, color)),
+                .block(panel("update", color)),
             rect,
         );
     }

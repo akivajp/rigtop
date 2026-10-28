@@ -80,6 +80,9 @@ struct Cli {
 }
 
 fn main() -> Result<()> {
+    // Taken first: once an update replaces the program, its path reads
+    // "... (deleted)" on Linux.
+    let exe = std::env::current_exe().ok();
     let cli = Cli::parse();
     let interval = Duration::from_millis(cli.interval_ms);
     if interval < MIN_POLL_INTERVAL {
@@ -121,7 +124,7 @@ fn main() -> Result<()> {
         let (hosts, remote_command) = (cli.hosts, cli.remote_command);
         Box::new(move |config| host_specs(config, &hosts, remote_command.as_deref()))
     };
-    tui::run(config, config_path, interval, specs)
+    tui::run(config, config_path, interval, specs, exe)
 }
 
 /// Takes a warm-up sample, waits one interval, and prints the second sample.

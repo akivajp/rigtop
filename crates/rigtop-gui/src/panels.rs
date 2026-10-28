@@ -148,6 +148,7 @@ fn view_controls(ui: &mut Ui, state: &mut GuiState) {
             crate::overview::widgets_button(ui, visible, &mut state.view_actions);
         }
         crate::alert_log::button(ui, state.alerts_unread, &mut state.view_actions);
+        crate::update_dialog::release_button(ui, state.release.as_ref(), &mut state.view_actions);
     }
 }
 

@@ -12,6 +12,7 @@ use rigtop_core::config::{ConfigWatcher, HostConfig, OverviewSection, SensorConf
 use rigtop_core::demo::DemoSource;
 use rigtop_core::hosts::{HostKind, HostSpec, host_specs};
 use rigtop_core::remote::RemoteSource;
+use rigtop_core::update::ReleaseChecker;
 use rigtop_core::view::{
     AlertLog, GraphSpan, MetricHistory, ProcessQuery, ProcessRow, Severity, SortKey, process_rows,
     signal_name,
@@ -26,7 +27,7 @@ use crate::notify::{self, Notifier};
 use crate::overview;
 use crate::panels;
 use crate::sensors_dialog::{self, SensorsDialog};
-use crate::update_dialog::UpdateDialog;
+use crate::update_dialog::{self, ReleaseNote, UpdateDialog, UpdateEvent};
 use crate::widget_panel;
 use crate::widgets::{self, BACKGROUND, BORDER, DIM, TEXT};
 
@@ -121,6 +122,10 @@ pub enum ViewAction {
     ShowAlertLog,
     /// Offer to update rigtop on this (remote) host.
     UpdateAgent,
+    /// Offer to update this machine's rigtop to the new release.
+    SelfUpdate,
+    /// Start rigtop again, to run a newly installed release.
+    Restart,
 }
 
 /// Everything the panels read and modify.
@@ -155,6 +160,8 @@ pub struct GuiState {
     /// Unread alerts of every host (count, worst), for the "alerts" button
     /// in the CPU panel title in single-host mode.
     pub alerts_unread: (usize, Option<Severity>),
+    /// A new release of rigtop, or one waiting for a restart (title bar).
+    pub release: Option<ReleaseNote>,
     /// How much time the graphs cover.
     pub graph_span: GraphSpan,
     /// Collection interval, to turn a time span into samples.
@@ -191,6 +198,7 @@ impl GuiState {
             show_zoom: true,
             widgets_visible: None,
             alerts_unread: (0, None),
+            release: None,
             graph_span: GraphSpan::default(),
             interval: Duration::from_secs(1),
             is_local: false,
@@ -354,6 +362,14 @@ pub struct RigtopApp {
     pub hosts_dialog: HostsDialog,
     pub sensors_dialog: SensorsDialog,
     update_dialog: UpdateDialog,
+    /// Looks for new releases (`None` when `[updates] check = false`).
+    release_checker: Option<ReleaseChecker>,
+    /// A release that replaced this program, waiting for a restart.
+    release_installed: Option<String>,
+    /// The release last announced by a desktop notification.
+    release_announced: Option<String>,
+    /// The running program, taken at startup (see `UpdateJob::start_self`).
+    exe: Option<PathBuf>,
     /// Alerts of every host as they appeared and cleared.
     alert_log: AlertLog,
     alert_log_open: bool,
@@ -409,6 +425,11 @@ impl RigtopApp {
         app.remote_command = remote_command.map(str::to_owned);
         app.demo = demo;
         app.interval = interval;
+        app.release_checker = app
+            .config
+            .updates
+            .check
+            .then(|| ReleaseChecker::new(app.config.updates.interval()));
         app.repaint = Some(cc.egui_ctx.clone());
         app.graph_span = storage
             .and_then(|s| eframe::get_value::<u64>(s, GRAPH_SPAN_KEY))
@@ -448,6 +469,10 @@ impl RigtopApp {
             hosts_dialog: HostsDialog::default(),
             sensors_dialog: SensorsDialog::default(),
             update_dialog: UpdateDialog::default(),
+            release_checker: None,
+            release_installed: None,
+            release_announced: None,
+            exe: None,
             alert_log: AlertLog::default(),
             alert_log_open: false,
             notifier,
@@ -595,6 +620,13 @@ impl RigtopApp {
                 repaint.request_repaint()
             });
         }
+        if old.updates != self.config.updates {
+            self.release_checker = self
+                .config
+                .updates
+                .check
+                .then(|| ReleaseChecker::new(self.config.updates.interval()));
+        }
         if old.notifications.level != self.config.notifications.level {
             self.notifier = Notifier::new(self.config.notifications.level);
         }
@@ -603,6 +635,56 @@ impl RigtopApp {
             self.overview.include_local = self.config.overview.include_local;
         }
         self.overview_processes = self.config.overview.processes;
+    }
+
+    /// Sets the running program (taken at startup), which a self-update
+    /// replaces and a restart starts again.
+    pub fn with_exe(mut self, exe: Option<PathBuf>) -> Self {
+        self.exe = exe;
+        self
+    }
+
+    /// What the title bar says about releases of rigtop, if anything.
+    fn release_note(&mut self) -> Option<ReleaseNote> {
+        if let Some(version) = &self.release_installed {
+            return Some(ReleaseNote::Installed(version.clone()));
+        }
+        let version = self.release_checker.as_mut()?.poll()?;
+        Some(ReleaseNote::Available(version.to_owned()))
+    }
+
+    /// Announces a new release once with a desktop notification (unless
+    /// `[updates] notify = false`).
+    fn announce_release(&mut self) {
+        let Some(ReleaseNote::Available(version)) = self.release_note() else {
+            return;
+        };
+        if self.release_announced.as_deref() != Some(&version) {
+            if self.config.updates.notify && self.repaint.is_some() {
+                notify::send_release(&version);
+            }
+            self.release_announced = Some(version);
+        }
+    }
+
+    /// Starts this program again (to run a newly installed release) and
+    /// closes this window.
+    fn restart(&mut self, ctx: &egui::Context) {
+        let Some(exe) = &self.exe else {
+            return;
+        };
+        match std::process::Command::new(exe)
+            .args(std::env::args_os().skip(1))
+            .spawn()
+        {
+            Ok(_) => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+            Err(err) => {
+                let message = format!("cannot restart: {err}");
+                for host in &mut self.hosts {
+                    host.state.set_status(message.clone());
+                }
+            }
+        }
     }
 
     /// Gives the host at `index` a new collector (keeping its history) and
@@ -776,6 +858,7 @@ impl RigtopApp {
         }
         self.zoom = ctx.zoom_factor();
         self.drain_events();
+        let release = self.release_note();
         if let View::Host(index) = self.view
             && index >= self.hosts.len()
         {
@@ -827,6 +910,7 @@ impl RigtopApp {
                         host.state.widgets_visible =
                             (!self.widgets.is_empty()).then_some(self.show_widgets);
                         host.state.alerts_unread = self.alert_log.unread();
+                        host.state.release = release.clone();
                         if host.state.snapshot.is_none() {
                             waiting_screen(ui, host);
                         } else {
@@ -860,6 +944,12 @@ impl RigtopApp {
                         self.update_dialog.ask(index, &self.hosts[index].spec.name);
                     }
                 }
+                ViewAction::SelfUpdate => {
+                    if let Some(ReleaseNote::Available(version)) = self.release_note() {
+                        self.update_dialog.ask_self(&version);
+                    }
+                }
+                ViewAction::Restart => self.restart(&ctx),
             }
         }
         let fixed = self.fixed_host_names();
@@ -892,9 +982,15 @@ impl RigtopApp {
             self.save_sensors(sensors);
         }
         alert_log::show(&ctx, &mut self.alert_log_open, &mut self.alert_log);
-        if let Some(index) = self.update_dialog.show(&ctx, &self.hosts) {
+        match self
+            .update_dialog
+            .show(&ctx, &self.hosts, self.exe.as_deref())
+        {
             // The new agent runs from the next connection on.
-            self.restart_worker(index);
+            Some(UpdateEvent::Reconnect(index)) => self.restart_worker(index),
+            Some(UpdateEvent::Installed(version)) => self.release_installed = Some(version),
+            Some(UpdateEvent::Restart) => self.restart(&ctx),
+            None => {}
         }
 
         // The host shown in detail sends every process; the others only
@@ -917,6 +1013,7 @@ impl RigtopApp {
     /// "Overview | local | zefat | ..." with a status dot per host, plus the
     /// zoom controls on the right.
     fn tab_bar(&mut self, ui: &mut Ui, actions: &mut Vec<ViewAction>) {
+        let release = self.release_note();
         ui.horizontal(|ui| {
             if ui
                 .add(egui::Button::selectable(
@@ -947,6 +1044,7 @@ impl RigtopApp {
                     overview::widgets_button(ui, self.show_widgets, actions);
                 }
                 alert_log::button(ui, self.alert_log.unread(), actions);
+                update_dialog::release_button(ui, release.as_ref(), actions);
             });
         });
         ui.add_space(2.0);
@@ -1001,6 +1099,7 @@ impl eframe::App for RigtopApp {
     fn logic(&mut self, _ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.reload_config();
         self.drain_events();
+        self.announce_release();
     }
 
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
@@ -1547,6 +1646,44 @@ mod tests {
                 "missing {label:?}"
             );
         }
+    }
+
+    #[test]
+    fn new_releases_offer_an_update_and_a_restart() {
+        let mut harness = harness_with(sample_snapshot());
+        harness.state_mut().update_dialog.ask_self("9.9.9");
+        harness.run();
+        // Windows only gets directions; elsewhere the update is offered.
+        let offered = if cfg!(windows) {
+            "cannot be updated from here"
+        } else {
+            "Update rigtop from"
+        };
+        assert!(
+            harness
+                .query_all_by_label_contains(offered)
+                .next()
+                .is_some()
+        );
+        harness
+            .get_by_label(if cfg!(windows) { "close" } else { "cancel" })
+            .click();
+        harness.run();
+        assert!(
+            harness
+                .query_all_by_label_contains(offered)
+                .next()
+                .is_none()
+        );
+
+        harness.state_mut().release_installed = Some("9.9.9".to_owned());
+        harness.run();
+        assert!(
+            harness
+                .query_all_by_label("restart for rigtop 9.9.9")
+                .next()
+                .is_some()
+        );
     }
 
     #[test]
