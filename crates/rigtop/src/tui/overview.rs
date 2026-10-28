@@ -216,6 +216,9 @@ fn draw_host_box(frame: &mut Frame, area: Rect, host: &HostTui, processes: usize
 
     let Some(snapshot) = &host.app.snapshot else {
         let mut lines = vec![Line::from(dim(host.app.waiting_message.clone()))];
+        if let Some(note) = host.app.offline_note() {
+            lines.push(Line::from(colored(note, BAD)));
+        }
         if let Some(error) = &host.app.connection_error {
             lines.push(Line::from(colored(error.clone(), WARN)));
         }
@@ -226,7 +229,11 @@ fn draw_host_box(frame: &mut Frame, area: Rect, host: &HostTui, processes: usize
 
     let mut lines: Vec<Line<'static>> = Vec::new();
     if let Some(error) = &host.app.connection_error {
-        lines.push(Line::from(colored(format!("disconnected: {error}"), WARN)));
+        let note = host
+            .app
+            .offline_note()
+            .unwrap_or_else(|| "disconnected".to_owned());
+        lines.push(Line::from(colored(format!("{note}: {error}"), WARN)));
     }
     let alerts = alerts_with(snapshot, &host.app.config.alerts);
     for alert in alerts.iter().take(MAX_ALERTS) {

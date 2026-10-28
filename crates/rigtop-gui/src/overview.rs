@@ -42,7 +42,10 @@ fn colored(text: impl Into<String>, color: Color32) -> RichText {
 pub fn host_status(host: &HostEntry) -> (Color32, String) {
     let state = &host.state;
     if let Some(error) = &state.connection_error {
-        return (BAD, error.clone());
+        return match state.offline_note() {
+            Some(note) => (BAD, format!("{note}: {error}")),
+            None => (BAD, error.clone()),
+        };
     }
     match state.last_update {
         None => (DIM, host.waiting_message()),
@@ -292,13 +295,20 @@ fn card(
 
             let Some(snapshot) = &host.state.snapshot else {
                 ui.label(dim(host.waiting_message()));
+                if let Some(note) = host.state.offline_note() {
+                    ui.label(colored(note, BAD));
+                }
                 if let Some(error) = &host.state.connection_error {
                     ui.label(colored(error.clone(), WARN));
                 }
                 return;
             };
             if let Some(error) = &host.state.connection_error {
-                ui.label(colored(format!("disconnected: {error}"), WARN));
+                let note = host
+                    .state
+                    .offline_note()
+                    .unwrap_or_else(|| "disconnected".to_owned());
+                ui.label(colored(format!("{note}: {error}"), WARN));
             }
             alert_lines(ui, snapshot, &host.state.config.alerts);
             let graphs = graph_heights(ui.available_height(), snapshot, sections, processes);

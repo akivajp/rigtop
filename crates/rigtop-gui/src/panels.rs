@@ -69,6 +69,9 @@ pub fn title_extras(ui: &mut Ui, pane: Pane, state: &mut GuiState) {
                 .with_layout(Layout::right_to_left(Align::Center), |ui| {
                     ui.label(dim(uptime));
                     ui.label(colored(hostname, TEXT));
+                    if let Some(offline) = state.offline_note() {
+                        ui.label(colored(offline, BAD));
+                    }
                     if let Some((note, hint)) = version {
                         if updatable {
                             let button =

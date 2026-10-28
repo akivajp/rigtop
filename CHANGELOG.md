@@ -7,6 +7,15 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Added
+- Remote hosts that cannot be reached say for how long and since when, in
+  their overview card, tab (GUI: on hover) and title: `offline for 5m
+  (since 14:03)`, counted from their last data.
+- Claude Code widget: a `ctx` row under each session with how full its
+  context window is (yellow from 70%, red from 90%), from the last reply in
+  its transcript; 1M tokens for current Claude models and `[1m]` ones,
+  200K for older ones (`RIGTOP_CLAUDE_CONTEXT_WINDOW` overrides it).
+
 ## [0.14.0] - 2026-10-29
 
 ### Changed

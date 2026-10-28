@@ -3987,6 +3987,7 @@ dependencies = [
 name = "rigtop-core"
 version = "0.14.0"
 dependencies = [
+ "chrono",
  "dirs",
  "libc",
  "nvml-wrapper",

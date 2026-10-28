@@ -180,7 +180,7 @@ GUI では **hosts…**（タブの並び、または手元の機だけを表示
 
 ![rigtop-gui で3台を並べたオーバービュー: GPU 2枚で学習中のワークステーション、バッテリー駆動のノート PC、代替処理済みセクタのあるドライブで赤く表示され、RAID の再同期と容量の逼迫も出ている NAS。右には時計と Claude Code のウィジェット](docs/images/rigtop-gui-overview.png)
 
-rigtop は OS の `ssh`（Windows では標準の OpenSSH クライアント）で、各ホストの `rigtop --agent` を起動します。`~/.ssh/config`・鍵・`ProxyJump` はいつもどおり使えます。常駐プロセスもポート開放も不要で、エージェントは接続が切れると終了し、rigtop は自動で再接続します。詳細表示していないホストからは、プロセスの上位だけを受け取ります。
+rigtop は OS の `ssh`（Windows では標準の OpenSSH クライアント）で、各ホストの `rigtop --agent` を起動します。`~/.ssh/config`・鍵・`ProxyJump` はいつもどおり使えます。常駐プロセスもポート開放も不要で、エージェントは接続が切れると終了し、rigtop は自動で再接続します。つながらない間は、そのホストのカード・タブ・見出しに、どれくらいの間・いつから途切れているかを出します（`offline for 5m (since 14:03)`）。詳細表示していないホストからは、プロセスの上位だけを受け取ります。
 
 - パスワードを聞かれない認証（鍵や ssh-agent）が必要です。ホスト鍵も登録済みである必要があるので、先に一度 `ssh <ホスト>` で接続してください。
 - 非対話の SSH セッション（`ssh ホスト コマンド`）では、`~/.local/bin`（インストールスクリプトの入れ先）や `~/.cargo/bin` に `PATH` が通っていないことがよくあります（zsh は `~/.zshenv` しか読まず、bash は多くの場合何も読みません）。そこで `rigtop` が見つからなければ、rigtop が自動で `~/.local/bin/rigtop --agent`、次に `~/.cargo/bin/rigtop --agent` を試します。それ以外の場所に置いた場合は、ホストの `command`（`--host` なら `--remote-command`）でコマンドを指定してください。

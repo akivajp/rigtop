@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use egui::{
     Color32, CornerRadius, FontId, Id, Margin, RichText, Sense, Stroke, TextStyle, Ui, Visuals,
@@ -152,6 +152,11 @@ pub struct GuiState {
     pub connection_error: Option<String>,
     /// When the latest snapshot arrived.
     pub last_update: Option<Instant>,
+    /// The same, in wall-clock time.
+    last_data_at: Option<SystemTime>,
+    /// Since when the host sends nothing: its last data, or the first failed
+    /// attempt if it never answered. `None` while connected.
+    offline_since: Option<SystemTime>,
     /// Whether the CPU panel title shows zoom buttons (single-host mode).
     pub show_zoom: bool,
     /// Whether the widget column is shown, or `None` without widgets (for
@@ -195,6 +200,8 @@ impl GuiState {
             zoom: 1.0,
             connection_error: None,
             last_update: None,
+            last_data_at: None,
+            offline_since: None,
             show_zoom: true,
             widgets_visible: None,
             alerts_unread: (0, None),
@@ -216,6 +223,8 @@ impl GuiState {
                 self.snapshot = Some(*snapshot);
                 self.connection_error = None;
                 self.last_update = Some(Instant::now());
+                self.last_data_at = Some(SystemTime::now());
+                self.offline_since = None;
             }
             Event::SignalResult {
                 pid,
@@ -228,8 +237,20 @@ impl GuiState {
             Event::Error(err) => {
                 self.set_status(format!("collection error: {err}"));
                 self.connection_error = Some(err);
+                if self.offline_since.is_none() {
+                    self.offline_since = Some(self.last_data_at.unwrap_or_else(SystemTime::now));
+                }
             }
         }
+    }
+
+    /// "offline for 5m (since 14:03)" while the host cannot be reached.
+    pub fn offline_note(&self) -> Option<String> {
+        let since = self.offline_since?;
+        Some(format!(
+            "offline for {}",
+            rigtop_core::view::since_note(since, SystemTime::now())
+        ))
     }
 
     /// Processes after filtering and sorting.
@@ -1055,9 +1076,13 @@ impl RigtopApp {
 fn waiting_screen(ui: &mut Ui, host: &HostEntry) {
     let error = host.state.connection_error.clone();
     let message = host.waiting_message();
+    let offline = host.state.offline_note();
     ui.vertical_centered(|ui| {
         ui.add_space(ui.available_height() / 2.0 - 20.0);
         ui.label(RichText::new(message).color(DIM));
+        if let Some(offline) = offline {
+            ui.label(RichText::new(offline).color(widgets::BAD));
+        }
         if let Some(error) = error {
             ui.label(RichText::new(error).color(widgets::WARN));
         }
@@ -1463,6 +1488,7 @@ mod tests {
             "zefat",
             "nas",
             "Could not resolve hostname",
+            "offline for",
             "CPU",
             "GPU0",
             "Mem",

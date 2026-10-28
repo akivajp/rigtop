@@ -4,7 +4,9 @@
 //! Nothing here depends on a UI toolkit.
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
+
+use chrono::{DateTime, Local};
 
 use crate::config::AlertsConfig;
 use crate::format;
@@ -415,6 +417,28 @@ impl AlertLog {
     pub fn mark_read(&mut self) {
         self.unread = (0, None);
     }
+}
+
+/// How long it has been since `since` (e.g. a host's last data) and when
+/// that was, in local time: "5m (since 14:03)", "2d03h (since Tue 14:03)".
+pub fn since_note(since: SystemTime, now: SystemTime) -> String {
+    let secs = now.duration_since(since).map_or(0, |d| d.as_secs());
+    let span = match secs {
+        0..60 => format!("{secs}s"),
+        60..3_600 => format!("{}m", secs / 60),
+        3_600..86_400 => format!("{}h{:02}m", secs / 3_600, secs % 3_600 / 60),
+        _ => format!("{}d{:02}h", secs / 86_400, secs % 86_400 / 3_600),
+    };
+    let at: DateTime<Local> = since.into();
+    let today: DateTime<Local> = now.into();
+    let clock = if at.date_naive() == today.date_naive() {
+        at.format("%H:%M")
+    } else if secs < 6 * 86_400 {
+        at.format("%a %H:%M")
+    } else {
+        at.format("%b %d %H:%M")
+    };
+    format!("{span} (since {clock})")
 }
 
 /// "agent 0.8.2" when `snapshot` comes from a rigtop of another version
@@ -966,6 +990,18 @@ mod tests {
         let rows = process_rows(&snapshot, &query(SortKey::Pid));
         assert_eq!(rows[1].vram_bytes, Some(1 << 30));
         assert_eq!(rows[1].gpu_percent, Some(70.0));
+    }
+
+    #[test]
+    fn since_notes_say_how_long_and_since_when() {
+        let now = SystemTime::now();
+        let ago = |secs: u64| now - Duration::from_secs(secs);
+        assert!(since_note(ago(42), now).starts_with("42s (since "));
+        assert!(since_note(ago(5 * 60), now).starts_with("5m (since "));
+        assert!(since_note(ago(3 * 3600 + 7 * 60), now).starts_with("3h07m (since "));
+        assert!(since_note(ago(2 * 86_400 + 3 * 3600), now).starts_with("2d03h (since "));
+        // A clock that moved backwards does not underflow.
+        assert!(since_note(now + Duration::from_secs(5), now).starts_with("0s"));
     }
 
     #[test]

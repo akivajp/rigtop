@@ -372,6 +372,8 @@ fn draw_cpu(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect, layou
         .title_top(
             Line::from(
                 [
+                    app.offline_note()
+                        .map(|note| colored(format!(" {note} "), BAD)),
                     app.release_note
                         .as_ref()
                         .map(|note| colored(format!(" {note} "), OK)),

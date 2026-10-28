@@ -1,7 +1,7 @@
 //! UI state: latest snapshot, history for graphs, process table state and
 //! key handling. Kept free of drawing code so it can be unit tested.
 
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use ratatui::crossterm::event::{
     KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
@@ -73,6 +73,11 @@ pub struct App {
     pub connection_error: Option<String>,
     /// When the latest snapshot arrived.
     pub last_update: Option<Instant>,
+    /// The same, in wall-clock time.
+    last_data_at: Option<SystemTime>,
+    /// Since when the host sends nothing: its last data, or the first failed
+    /// attempt if it never answered. `None` while connected.
+    offline_since: Option<SystemTime>,
     /// Unread alerts of every host, shown in the CPU box title (`None`
     /// where the tab bar shows them instead).
     pub alerts_unread: Option<(usize, Option<Severity>)>,
@@ -105,6 +110,8 @@ impl App {
             waiting_message: "collecting…".to_owned(),
             connection_error: None,
             last_update: None,
+            last_data_at: None,
+            offline_since: None,
             alerts_unread: None,
             release_note: None,
         }
@@ -128,6 +135,9 @@ impl App {
             Event::Error(err) => {
                 self.set_status(format!("collection error: {err}"));
                 self.connection_error = Some(err);
+                if self.offline_since.is_none() {
+                    self.offline_since = Some(self.last_data_at.unwrap_or_else(SystemTime::now));
+                }
             }
         }
     }
@@ -137,6 +147,17 @@ impl App {
         self.snapshot = Some(snapshot);
         self.connection_error = None;
         self.last_update = Some(Instant::now());
+        self.last_data_at = Some(SystemTime::now());
+        self.offline_since = None;
+    }
+
+    /// "offline for 5m (since 14:03)" while the host cannot be reached.
+    pub fn offline_note(&self) -> Option<String> {
+        let since = self.offline_since?;
+        Some(format!(
+            "offline for {}",
+            view::since_note(since, SystemTime::now())
+        ))
     }
 
     /// Current status message, if still fresh.
@@ -459,6 +480,21 @@ mod tests {
         assert_eq!(pids(&app), vec![30, 10]);
         app.handle_key(key(KeyCode::Char('t')));
         assert_eq!(pids(&app), vec![30, 2, 10]);
+    }
+
+    #[test]
+    fn offline_time_runs_from_the_last_data() {
+        let mut app = app_with(Vec::new());
+        assert!(app.offline_note().is_none());
+        app.apply(Event::Error("ssh: Connection refused".to_owned()));
+        let note = app.offline_note().expect("offline after an error");
+        assert!(note.starts_with("offline for 0s (since "), "{note}");
+        // Later errors keep the start of the outage.
+        let since = app.offline_since;
+        app.apply(Event::Error("still down".to_owned()));
+        assert_eq!(app.offline_since, since);
+        app.apply(Event::Snapshot(Box::default()));
+        assert!(app.offline_note().is_none(), "connected again");
     }
 
     #[test]

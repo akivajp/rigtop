@@ -180,7 +180,7 @@ With more than one host, rigtop opens on an **overview** with one card per host,
 
 ![rigtop-gui showing an overview of three hosts: a workstation training on two GPUs, a laptop on battery, and a NAS flagged red for a drive with reallocated sectors, with a RAID resync and a nearly full filesystem; a clock and Claude Code widget on the right](docs/images/rigtop-gui-overview.png)
 
-rigtop starts `rigtop --agent` on each remote host through your system's `ssh` (the built-in OpenSSH client on Windows), so `~/.ssh/config`, keys and `ProxyJump` work as usual. There is no daemon to run and no port to open; the agent exits when the connection closes, and rigtop reconnects by itself. Hosts not shown in detail only send their top processes.
+rigtop starts `rigtop --agent` on each remote host through your system's `ssh` (the built-in OpenSSH client on Windows), so `~/.ssh/config`, keys and `ProxyJump` work as usual. There is no daemon to run and no port to open; the agent exits when the connection closes, and rigtop reconnects by itself. While a host cannot be reached, its card, tab and title say for how long and since when (`offline for 5m (since 14:03)`). Hosts not shown in detail only send their top processes.
 
 - Authentication must work without a prompt (key or agent), and the host key must already be known: connect once with `ssh <host>` first.
 - Non-interactive SSH sessions often lack `~/.local/bin` (where the install script puts rigtop) and `~/.cargo/bin` on their `PATH` (zsh reads only `~/.zshenv` for them, bash usually nothing). When `rigtop` is not found there, rigtop tries `~/.local/bin/rigtop --agent`, then `~/.cargo/bin/rigtop --agent`, by itself. For other locations, set `command` for the host (or `--remote-command` for `--host`).
