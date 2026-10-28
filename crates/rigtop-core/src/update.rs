@@ -106,6 +106,10 @@ if [ -z "$bin" ] || [ ! -e "$bin" ]; then
     exit 1
 fi
 case "$bin" in
+    */Cellar/*)
+        echo "rigtop update: $bin was installed with Homebrew; update it with: brew upgrade rigtop" >&2
+        exit 1
+        ;;
     */.cargo/bin/*)
         echo "rigtop update: $bin was installed with cargo; update it with: cargo install $(basename "$bin") --version {version} --locked" >&2
         exit 1
@@ -535,6 +539,13 @@ mod tests {
             error.contains("cargo install rigtop --version 1.2.3"),
             "{error}"
         );
+
+        // Homebrew's copy is Homebrew's to update.
+        let cellar = tmp.path().join("homebrew/Cellar/rigtop/0.15.0/bin");
+        fs::create_dir_all(&cellar).unwrap();
+        executable(&cellar.join("rigtop"), "#!/bin/sh\n");
+        let error = run(&self_update_script("1.2.3", &cellar.join("rigtop"))).unwrap_err();
+        assert!(error.contains("brew upgrade rigtop"), "{error}");
 
         // Updating this machine's copy works the same, for rigtop-gui too.
         executable(&bin.join("rigtop-gui"), "#!/bin/sh\n");

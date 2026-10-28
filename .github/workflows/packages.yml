@@ -1,8 +1,8 @@
 name: Package checks
 
 # Installs the published packages the way users do (Scoop, .deb, the
-# install script) and runs them, and renders the GUI on Windows. Run by
-# hand, e.g. after a release (they point at published release assets).
+# install script, Homebrew) and runs them, and renders the GUI on Windows.
+# Run by hand, e.g. after a release (they point at published release assets).
 on:
   workflow_dispatch:
     inputs:
@@ -114,6 +114,31 @@ jobs:
             ~/.local/bin/rigtop --dump-json | head -c 300; echo
             if [ -x ~/.local/bin/rigtop-gui ]; then ~/.local/bin/rigtop-gui --help | head -n 3; fi
           '
+
+  homebrew:
+    name: Homebrew (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install with the formula of this commit, through a local tap
+        run: |
+          if ! command -v brew > /dev/null; then
+            eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          fi
+          brew tap-new --no-git local/rigtop
+          cp packaging/homebrew/rigtop.rb "$(brew --repository local/rigtop)/Formula/"
+          brew install local/rigtop/rigtop
+          brew test local/rigtop/rigtop
+          rigtop --version
+          rigtop --dump-json | head -c 300; echo
+          if command -v rigtop-gui > /dev/null; then rigtop-gui --help | head -n 3; fi
 
   windows-gui:
     name: GUI screenshot (Windows)
