@@ -81,6 +81,19 @@ git clone https://github.com/akivajp/rigtop.git
 cd rigtop/packaging/aur/rigtop && makepkg -si
 ```
 
+### Uninstall
+
+| Installed with | Remove with |
+|---|---|
+| The install script | `rm ~/.local/bin/rigtop ~/.local/bin/rigtop-gui` |
+| `.deb` | `sudo apt remove rigtop` |
+| Scoop | `scoop uninstall rigtop` |
+| `cargo install` | `cargo uninstall rigtop rigtop-gui` |
+| PKGBUILD | `sudo pacman -R rigtop` |
+| An archive | Delete the files you extracted |
+
+Then, if you set them up: `sudo rigtop --uninstall-collector` removes the [SMART collector](#smart-and-btrfs-scrub-results-optional) and its files, and the udev rule for [CPU power](#cpu-power-rapl) is `/etc/udev/rules.d/90-rigtop-rapl.rules`. Settings are in `~/.config/rigtop/` (Windows: `%APPDATA%\rigtop\`), and the GUI keeps its window layout in `~/.local/share/rigtop/` (macOS: `~/Library/Application Support/rigtop/`, Windows: `%APPDATA%\rigtop\data\`). LibreHardwareMonitor, if the GUI installed it for you: `winget uninstall LibreHardwareMonitor.LibreHardwareMonitor`.
+
 ## Usage
 
 ```sh
@@ -302,6 +315,23 @@ notify = true   # rigtop-gui: desktop notification for a new release
 # Windows: LibreHardwareMonitor's web server ("" to disable).
 url = "http://127.0.0.1:8085/data.json"
 ```
+
+## Code signing policy
+
+Code signing of the Windows releases through the [SignPath Foundation](https://signpath.org) has been applied for; until it is approved, releases are unsigned. Once approved: free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+- **What is signed**: `rigtop.exe` and `rigtop-gui.exe` in the Windows release archive, built by GitHub Actions ([`release.yml`](.github/workflows/release.yml)) from the tagged source of this repository. Nothing built elsewhere is signed, and every signing request is approved by hand.
+- **Team**: [Akiva Miura (@akivajp)](https://github.com/akivajp) is the author, reviewer and approver. Changes from others come as pull requests and are reviewed before they are merged.
+
+### Privacy
+
+rigtop collects no telemetry. It connects only to:
+
+- the hosts you list for remote monitoring, through your own `ssh`;
+- LibreHardwareMonitor on this machine (Windows, `[lhm] url`);
+- github.com, to see whether a new release is out, at startup and every hour. It only asks which release is the latest and sends nothing about your machine; `[updates] check = false` in the [configuration](#configuration) turns it off. An update you choose to install is downloaded from github.com.
+
+Widgets run the commands you configure.
 
 ## License
 

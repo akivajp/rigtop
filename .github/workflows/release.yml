@@ -143,6 +143,9 @@ jobs:
             echo "CHANGELOG.md has no section for $version" >&2
             exit 1
           fi
+          # Download pages must point at the code signing policy (SignPath).
+          printf '\n[Code signing policy](%s/%s#code-signing-policy)\n' \
+            "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" >> notes.md
           cat notes.md
       - name: Create the release
         env:

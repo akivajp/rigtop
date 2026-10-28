@@ -81,6 +81,19 @@ git clone https://github.com/akivajp/rigtop.git
 cd rigtop/packaging/aur/rigtop && makepkg -si
 ```
 
+### アンインストール
+
+| 入れ方 | 削除の方法 |
+|---|---|
+| インストールスクリプト | `rm ~/.local/bin/rigtop ~/.local/bin/rigtop-gui` |
+| `.deb` | `sudo apt remove rigtop` |
+| Scoop | `scoop uninstall rigtop` |
+| `cargo install` | `cargo uninstall rigtop rigtop-gui` |
+| PKGBUILD | `sudo pacman -R rigtop` |
+| アーカイブ | 展開したファイルを削除 |
+
+設定していれば、[SMART の収集](#smart-と-btrfs-の-scrub-結果任意)は `sudo rigtop --uninstall-collector` で、集めたファイルごと削除できます。[CPU 電力](#cpu-の消費電力rapl)の udev ルールは `/etc/udev/rules.d/90-rigtop-rapl.rules` です。設定は `~/.config/rigtop/`（Windows は `%APPDATA%\rigtop\`）に、GUI のウィンドウの配置は `~/.local/share/rigtop/`（macOS は `~/Library/Application Support/rigtop/`、Windows は `%APPDATA%\rigtop\data\`）にあります。GUI から LibreHardwareMonitor を入れた場合は `winget uninstall LibreHardwareMonitor.LibreHardwareMonitor` で削除できます。
+
 ## 使い方
 
 ```sh
@@ -302,6 +315,23 @@ notify = true   # rigtop-gui: 新しいリリースのデスクトップ通知
 # Windows: LibreHardwareMonitor の Web サーバー（"" で無効）
 url = "http://127.0.0.1:8085/data.json"
 ```
+
+## コード署名ポリシー（Code signing policy）
+
+Windows 版のリリースのコード署名を、[SignPath Foundation](https://signpath.org) に申請しています。承認されるまで、リリースは署名なしです。承認後は次のとおりです: Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+- **署名するもの**: Windows 版のアーカイブに入る `rigtop.exe` と `rigtop-gui.exe`。このリポジトリのタグのソースから、GitHub Actions（[`release.yml`](.github/workflows/release.yml)）でビルドしたものだけです。他の場所でビルドしたものは署名せず、署名の依頼は毎回手作業で承認します。
+- **担当**: 作成（author）・レビュー（reviewer）・承認（approver）とも [Akiva Miura (@akivajp)](https://github.com/akivajp)。他の方からの変更はプルリクエストで受け、レビューしてから取り込みます。
+
+### プライバシー
+
+rigtop は利用状況などの情報を集めません。つなぐ先は次だけです。
+
+- 遠隔監視に指定したホスト（OS の `ssh` を使います）
+- この機械の LibreHardwareMonitor（Windows、`[lhm] url`）
+- 新しいリリースが出ていないかの確認のための github.com（起動時と1時間ごと）。最新のリリースがどれかを問い合わせるだけで、手元の情報は送りません。[設定](#設定)の `[updates] check = false` で止められます。更新を選んだときは、github.com からリリースをダウンロードします。
+
+ウィジェットは、設定したコマンドを実行します。
 
 ## ライセンス
 
