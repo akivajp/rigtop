@@ -7,6 +7,8 @@ include breaking changes).
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-29
+
 ### Added
 - Remote hosts that cannot be reached say for how long and since when, in
   their overview card, tab (GUI: on hover) and title: `offline for 5m
@@ -331,7 +333,8 @@ First release.
 - Windows support (CPU, memory, processes, network with link speeds, drives,
   NVIDIA GPUs; temperatures, fans and CPU power are not available yet)
 
-[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/akivajp/rigtop/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/akivajp/rigtop/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/akivajp/rigtop/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/akivajp/rigtop/compare/v0.11.0...v0.12.0
