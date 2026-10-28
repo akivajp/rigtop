@@ -139,6 +139,14 @@ jobs:
           rigtop --version
           rigtop --dump-json | head -c 300; echo
           if command -v rigtop-gui > /dev/null; then rigtop-gui --help | head -n 3; fi
+      - name: Install from the published tap, as in the README
+        run: |
+          if ! command -v brew > /dev/null; then
+            eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          fi
+          brew uninstall rigtop
+          brew install akivajp/tap/rigtop
+          rigtop --version
 
   windows-gui:
     name: GUI screenshot (Windows)
