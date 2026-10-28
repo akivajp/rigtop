@@ -1,7 +1,7 @@
 name: Package checks
 
 # Installs the published packages the way users do (Scoop, .deb, the
-# install script, Homebrew) and runs them, and renders the GUI on Windows.
+# install script, Homebrew, winget) and runs them, and renders the GUI on Windows.
 # Run by hand, e.g. after a release (they point at published release assets).
 on:
   workflow_dispatch:
@@ -147,6 +147,27 @@ jobs:
           brew uninstall rigtop
           brew install akivajp/tap/rigtop
           rigtop --version
+
+  winget:
+    name: winget (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate and install the manifest of this commit
+        shell: pwsh
+        run: |
+          winget --version
+          # Installing from a local manifest is off by default.
+          winget settings --enable LocalManifestFiles
+          winget validate --manifest packaging/winget
+          winget install --manifest packaging/winget --accept-package-agreements --accept-source-agreements --disable-interactivity
+          if ($LASTEXITCODE -ne 0) { throw "winget install failed: $LASTEXITCODE" }
+          # Portable commands are linked here (on the PATH of new shells).
+          $links = "$env:LOCALAPPDATA\Microsoft\WinGet\Links"
+          & "$links\rigtop.exe" --version
+          $json = & "$links\rigtop.exe" --dump-json | ConvertFrom-Json
+          "host: $($json.host.os), $($json.processes.Count) processes"
+          if (-not (Test-Path "$links\rigtop-gui.exe")) { throw "rigtop-gui is not linked" }
 
   windows-gui:
     name: GUI screenshot (Windows)
