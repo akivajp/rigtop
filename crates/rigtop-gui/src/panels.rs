@@ -8,7 +8,7 @@ use egui_extras::{Column, TableBuilder};
 use rigtop_core::ProcessSignal;
 use rigtop_core::format;
 use rigtop_core::snapshot::{
-    BtrfsFilesystem, GpuStats, NetworkStats, SmartDevice, Snapshot, device_matches_disk,
+    BtrfsFilesystem, GpuStats, NetworkStats, SmartDevice, Snapshot, ZfsPool, device_matches_disk,
 };
 use rigtop_core::view::{
     LHM_HINT, SortKey, disk_rate_text, is_virtual_interface, lhm_help, signal_name,
@@ -743,7 +743,25 @@ fn storage(ui: &mut Ui, state: &GuiState) {
                     }
                 });
             }
+            for pool in &snapshot.raid.zfs {
+                ui.horizontal(|ui| {
+                    ui.label(colored(&pool.name, widgets::STORAGE_TITLE));
+                    ui.label("zfs");
+                    zfs_state(ui, pool);
+                });
+            }
         });
+}
+
+/// A ZFS pool's health: "ok", or its state in the color of its severity.
+pub fn zfs_state(ui: &mut Ui, pool: &ZfsPool) {
+    if pool.is_online() {
+        ui.label(colored("ok", OK));
+    } else if pool.is_failing() {
+        ui.label(colored(&pool.state, BAD).strong());
+    } else {
+        ui.label(colored(&pool.state, WARN));
+    }
 }
 
 fn smart_labels(ui: &mut Ui, smart: &SmartDevice, now: u64) {

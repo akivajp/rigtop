@@ -1349,6 +1349,10 @@ mod tests {
                     ..Default::default()
                 }],
                 md: Vec::new(),
+                zfs: vec![rigtop_core::snapshot::ZfsPool {
+                    name: "tank".to_owned(),
+                    state: "DEGRADED".to_owned(),
+                }],
             },
             networks: vec![NetworkStats {
                 name: "enp9s0".to_owned(),

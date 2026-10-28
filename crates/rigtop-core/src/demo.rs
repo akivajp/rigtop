@@ -14,7 +14,7 @@ use crate::snapshot::{
     BatteryStats, BtrfsAllocation, BtrfsDeviceStats, BtrfsFilesystem, BtrfsScrub, CpuStats, DiskIo,
     Fan, FilesystemUsage, GpuProcess, GpuStats, HostInfo, MdArray, MdMember, MdSync, MemoryStats,
     NetworkStats, PowerStats, ProcessInfo, RaidStats, SensorChip, SmartDevice, Snapshot,
-    Temperature, WirelessLink,
+    Temperature, WirelessLink, ZfsPool,
 };
 use crate::source::{DataSource, ProcessSignal, SourceError};
 
@@ -747,6 +747,7 @@ fn workstation(t: f64) -> Snapshot {
                 }),
             }],
             md: Vec::new(),
+            zfs: Vec::new(),
         },
         smart: (0..3).map(smart).collect(),
         networks: vec![
@@ -1007,6 +1008,10 @@ fn nas(t: f64) -> Snapshot {
                     speed_kib_per_sec: Some(148_000),
                 }),
                 ..Default::default()
+            }],
+            zfs: vec![ZfsPool {
+                name: "backup".to_owned(),
+                state: "ONLINE".to_owned(),
             }],
         },
         smart: (0..4).map(smart).collect(),

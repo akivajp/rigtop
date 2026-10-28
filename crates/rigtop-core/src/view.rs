@@ -531,6 +531,19 @@ pub fn alerts_with(snapshot: &Snapshot, limits: &AlertsConfig) -> Vec<Alert> {
             );
         }
     }
+    for pool in &snapshot.raid.zfs {
+        if pool.is_failing() {
+            add(
+                Severity::Critical,
+                format!("zfs {} {}", pool.name, pool.state),
+            );
+        } else if !pool.is_online() {
+            add(
+                Severity::Warning,
+                format!("zfs {} {}", pool.name, pool.state),
+            );
+        }
+    }
     for smart in &snapshot.smart {
         if let Some(error) = &smart.error {
             add(
@@ -1122,6 +1135,7 @@ mod tests {
     fn alerts_flag_storage_problems_first() {
         use crate::snapshot::{
             BtrfsDeviceStats, BtrfsFilesystem, FilesystemUsage, MdArray, RaidStats, SmartDevice,
+            ZfsPool,
         };
         let snapshot = Snapshot {
             filesystems: vec![FilesystemUsage {
@@ -1148,6 +1162,20 @@ mod tests {
                     working_devices: Some(1),
                     ..Default::default()
                 }],
+                zfs: vec![
+                    ZfsPool {
+                        name: "tank".to_owned(),
+                        state: "DEGRADED".to_owned(),
+                    },
+                    ZfsPool {
+                        name: "cold".to_owned(),
+                        state: "OFFLINE".to_owned(),
+                    },
+                    ZfsPool {
+                        name: "fast".to_owned(),
+                        state: "ONLINE".to_owned(),
+                    },
+                ],
             },
             smart: vec![SmartDevice {
                 device: "sda".to_owned(),
@@ -1163,11 +1191,14 @@ mod tests {
             vec![
                 "btrfs /: 2 I/O errors (devid 1)",
                 "md0 (raid1) degraded",
+                "zfs tank DEGRADED",
+                "zfs cold OFFLINE",
                 "/data 92% full"
             ]
         );
         assert_eq!(alerts[0].severity, Severity::Critical);
-        assert_eq!(alerts[2].severity, Severity::Warning);
+        assert_eq!(alerts[2].severity, Severity::Critical);
+        assert_eq!(alerts[3].severity, Severity::Warning);
         assert!(super::alerts(&Snapshot::default()).is_empty());
     }
 

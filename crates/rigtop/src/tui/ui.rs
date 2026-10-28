@@ -20,7 +20,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Cell, Clear, Paragraph, Row, Table, TableState};
 use rigtop_core::Snapshot;
 use rigtop_core::snapshot::{
-    BtrfsFilesystem, CpuStats, MemoryStats, NetworkStats, SmartDevice, device_matches_disk,
+    BtrfsFilesystem, CpuStats, MemoryStats, NetworkStats, SmartDevice, ZfsPool, device_matches_disk,
 };
 
 use super::app::{App, ProcTableHit};
@@ -858,7 +858,27 @@ fn storage_lines(snapshot: &Snapshot, width: u16) -> Vec<Line<'static>> {
         }
         lines.push(Line::from(spans));
     }
+
+    // ZFS pools.
+    for pool in &snapshot.raid.zfs {
+        lines.push(Line::from(vec![
+            colored(format!("{} ", pool.name), STORAGE_TITLE),
+            Span::raw("zfs "),
+            zfs_state(pool),
+        ]));
+    }
     lines
+}
+
+/// A ZFS pool's health: "ok", or its state in the color of its severity.
+pub(super) fn zfs_state(pool: &ZfsPool) -> Span<'static> {
+    if pool.is_online() {
+        colored("ok", OK)
+    } else if pool.is_failing() {
+        colored(pool.state.clone(), BAD)
+    } else {
+        colored(pool.state.clone(), WARN)
+    }
 }
 
 /// Second btrfs line: live error counters, then the last scrub, e.g.
@@ -1455,6 +1475,10 @@ mod tests {
                     expected_devices: Some(2),
                     working_devices: Some(1),
                     ..Default::default()
+                }],
+                zfs: vec![rigtop_core::snapshot::ZfsPool {
+                    name: "tank".to_owned(),
+                    state: "DEGRADED".to_owned(),
                 }],
             },
             processes: vec![ProcessInfo {

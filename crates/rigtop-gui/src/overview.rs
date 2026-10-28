@@ -738,6 +738,10 @@ fn storage_section(ui: &mut Ui, snapshot: &Snapshot) {
                 colored("ok", OK)
             });
         }
+        for pool in &snapshot.raid.zfs {
+            ui.label(dim(format!("zfs {}", pool.name)));
+            crate::panels::zfs_state(ui, pool);
+        }
     });
 }
 

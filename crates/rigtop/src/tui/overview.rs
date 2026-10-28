@@ -494,6 +494,11 @@ fn storage_lines(snapshot: &Snapshot, width: usize) -> Vec<Line<'static>> {
             colored("ok  ", OK)
         });
     }
+    for pool in &snapshot.raid.zfs {
+        health.push(dim(format!("zfs {} ", pool.name)));
+        health.push(super::ui::zfs_state(pool));
+        health.push(Span::raw("  "));
+    }
     if !health.is_empty() {
         lines.push(Line::from(health));
     }

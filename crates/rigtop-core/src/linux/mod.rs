@@ -1,7 +1,7 @@
 //! Linux-specific readers for `/sys` and `/proc`.
 //!
 //! These cover what `sysinfo` does not expose: hwmon sensors, RAPL energy
-//! counters, per-device disk I/O, btrfs and mdadm state.
+//! counters, per-device disk I/O, btrfs, mdadm and ZFS state.
 //!
 //! Every reader takes its root directories from [`SysRoots`] instead of
 //! hard-coding `/sys` and `/proc`, so tests can point them at a fixture tree.
@@ -17,6 +17,7 @@ pub mod mounts;
 pub mod net;
 pub mod procstat;
 pub mod rapl;
+pub mod zfs;
 
 use std::fs;
 use std::path::{Path, PathBuf};

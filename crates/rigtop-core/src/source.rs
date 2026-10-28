@@ -285,6 +285,7 @@ impl LocalSource {
         self.net_links
             .annotate(&self.roots, &mut snapshot.networks, now);
         snapshot.raid.md = linux::mdstat::read_arrays(&self.roots);
+        snapshot.raid.zfs = linux::zfs::read_pools(&self.roots);
         // sysinfo no longer lists threads (see SystemCollector::refresh).
         for process in &mut snapshot.processes {
             process.threads = linux::procstat::thread_count(&self.roots, process.pid);

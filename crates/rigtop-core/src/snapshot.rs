@@ -428,6 +428,35 @@ pub struct RaidStats {
     pub btrfs: Vec<BtrfsFilesystem>,
     /// Linux md (mdadm) arrays.
     pub md: Vec<MdArray>,
+    /// Imported ZFS pools.
+    pub zfs: Vec<ZfsPool>,
+}
+
+/// A ZFS pool and its health.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ZfsPool {
+    /// Pool name (e.g. `"tank"`).
+    pub name: String,
+    /// Health as `zpool status` shows it: `ONLINE`, `DEGRADED`, `FAULTED`,
+    /// `OFFLINE`, `UNAVAIL`, `REMOVED` or `SUSPENDED`.
+    pub state: String,
+}
+
+impl ZfsPool {
+    /// Whether the pool is healthy.
+    pub fn is_online(&self) -> bool {
+        self.state == "ONLINE"
+    }
+
+    /// Whether the pool lost redundancy or data is at risk (worse than an
+    /// administratively offline pool).
+    pub fn is_failing(&self) -> bool {
+        matches!(
+            self.state.as_str(),
+            "DEGRADED" | "FAULTED" | "UNAVAIL" | "REMOVED" | "SUSPENDED"
+        )
+    }
 }
 
 /// A btrfs filesystem as seen in `/sys/fs/btrfs/<fsid>`.

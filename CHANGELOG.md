@@ -7,6 +7,12 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Added
+- ZFS pools (Linux): each imported pool's health from
+  `/proc/spl/kstat/zfs/<pool>/state` (no root needed) in the storage box
+  and on overview cards. `DEGRADED`, `FAULTED`, `UNAVAIL`, `REMOVED` and
+  `SUSPENDED` raise a critical alert, other states than `ONLINE` a warning.
+
 ## [0.15.0] - 2026-10-29
 
 ### Added
