@@ -12,6 +12,10 @@ include breaking changes).
   `/proc/spl/kstat/zfs/<pool>/state` (no root needed) in the storage box
   and on overview cards. `DEGRADED`, `FAULTED`, `UNAVAIL`, `REMOVED` and
   `SUSPENDED` raise a critical alert, other states than `ONLINE` a warning.
+- Failed systemd units (Linux): `systemctl list-units --state=failed`,
+  looked up every 30 seconds, raises a warning per unit
+  (`systemd: nginx.service failed`); `[alerts] ignored_units` lists units
+  not to warn about.
 
 ## [0.15.0] - 2026-10-29
 

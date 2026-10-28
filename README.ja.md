@@ -132,7 +132,7 @@ cargo run --release -p rigtop-gui            # オプションは TUI と同じ�
 
 文字の大きさは Ctrl + マウスホイール、Ctrl + `+` / `-` / `0`、または CPU パネルの見出しにある `A-` / `A+` ボタンで変えられます。拡大率とパネルの配置は次回起動時に復元されます。「reset layout」で初期配置に戻せます。同じ見出しの「graph」ボタンでグラフの時間幅（幅に合わせる・直近の 1・5・15 分・1・6・24 時間）を切り替えられ、これも次回に復元されます。「alerts…」では、起動してから全ホストで出た警告と消えた警告を時刻付きで一覧できます。まだ見ていない警告があると、その数を警告の色で表示します。CPU のコアの下の「sensors…」（またはセンサー名のクリック）で、全ての温度・ファンを一覧するウィンドウが開き、名前を付けたり非表示にしたりできます。[設定](#設定)ファイルの `[sensors]` に保存されます。
 
-いずれかのホストに新しい警告（ドライブのエラー、RAID のデバイスの欠落、SMART の異常、残り容量の少ないファイルシステム）が出ると、GUI はデスクトップ通知を出します（最小化中も。Linux と macOS のみで、Windows は未対応）。起動時から出ている警告は通知しません。[設定](#設定)の `[notifications] level` で、`"critical"`（既定）、`"warning"`（RAID の再同期・容量の逼迫・CPU・GPU・ドライブの高温も含む）、`"off"` を選べます。しきい値は `[alerts]` で変えられます。`rigtop-gui --test-notification` で通知の見本を出せます。
+いずれかのホストに新しい警告（ドライブのエラー、RAID のデバイスの欠落、SMART の異常、残り容量の少ないファイルシステム、失敗した systemd のサービス）が出ると、GUI はデスクトップ通知を出します（最小化中も。Linux と macOS のみで、Windows は未対応）。起動時から出ている警告は通知しません。[設定](#設定)の `[notifications] level` で、`"critical"`（既定）、`"warning"`（RAID の再同期・容量の逼迫・CPU・GPU・ドライブの高温も含む）、`"off"` を選べます。しきい値は `[alerts]` で変えられます。`rigtop-gui --test-notification` で通知の見本を出せます。
 
 マウス操作が有効なため、多くの端末では Shift+ドラッグで文字を選択できます。
 
@@ -299,6 +299,7 @@ filesystem_critical_percent = 97
 cpu_warning_celsius = 96    # CPU の最も高い温度
 gpu_warning_celsius = 85
 drive_warning_celsius = 70  # SMART か NVMe のセンサー
+ignored_units = []          # 失敗していても警告しない systemd のユニット（例: ["foo.service"]）
 
 [notifications]
 # rigtop-gui: 新しい警告のデスクトップ通知（"critical"・"warning"・"off"）

@@ -544,6 +544,11 @@ pub fn alerts_with(snapshot: &Snapshot, limits: &AlertsConfig) -> Vec<Alert> {
             );
         }
     }
+    for unit in &snapshot.failed_units {
+        if !limits.ignored_units.contains(unit) {
+            add(Severity::Warning, format!("systemd: {unit} failed"));
+        }
+    }
     for smart in &snapshot.smart {
         if let Some(error) = &smart.error {
             add(
@@ -1200,6 +1205,22 @@ mod tests {
         assert_eq!(alerts[2].severity, Severity::Critical);
         assert_eq!(alerts[3].severity, Severity::Warning);
         assert!(super::alerts(&Snapshot::default()).is_empty());
+    }
+
+    #[test]
+    fn failed_units_warn_unless_ignored() {
+        let snapshot = Snapshot {
+            failed_units: vec!["nginx.service".to_owned(), "wait-online.service".to_owned()],
+            ..Default::default()
+        };
+        let limits = AlertsConfig {
+            ignored_units: vec!["wait-online.service".to_owned()],
+            ..Default::default()
+        };
+        let alerts = alerts_with(&snapshot, &limits);
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(alerts[0].text, "systemd: nginx.service failed");
+        assert_eq!(alerts[0].severity, Severity::Warning);
     }
 
     #[test]

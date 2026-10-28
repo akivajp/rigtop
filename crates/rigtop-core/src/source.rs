@@ -111,6 +111,8 @@ pub struct LocalSource {
     diskstats: DiskStatsMeter,
     #[cfg(target_os = "linux")]
     net_links: NetLinkReader,
+    #[cfg(target_os = "linux")]
+    failed_units: linux::systemd::FailedUnitsReader,
     /// Directories searched for btrfs scrub status files, in order.
     #[cfg(target_os = "linux")]
     scrub_dirs: Vec<std::path::PathBuf>,
@@ -148,6 +150,8 @@ impl LocalSource {
             diskstats: DiskStatsMeter::new(),
             #[cfg(target_os = "linux")]
             net_links: NetLinkReader::new(),
+            #[cfg(target_os = "linux")]
+            failed_units: linux::systemd::FailedUnitsReader::new(),
             #[cfg(target_os = "linux")]
             drm_gpus: linux::drm::DrmGpuReader::new(),
             // The copy made by the root collector first, then btrfs-progs'
@@ -286,6 +290,7 @@ impl LocalSource {
             .annotate(&self.roots, &mut snapshot.networks, now);
         snapshot.raid.md = linux::mdstat::read_arrays(&self.roots);
         snapshot.raid.zfs = linux::zfs::read_pools(&self.roots);
+        snapshot.failed_units = self.failed_units.read(now);
         // sysinfo no longer lists threads (see SystemCollector::refresh).
         for process in &mut snapshot.processes {
             process.threads = linux::procstat::thread_count(&self.roots, process.pid);

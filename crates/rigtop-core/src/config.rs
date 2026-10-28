@@ -26,6 +26,7 @@
 //! cpu_warning_celsius = 96    # hottest CPU reading
 //! gpu_warning_celsius = 85
 //! drive_warning_celsius = 70  # SMART or NVMe sensor
+//! ignored_units = []          # failed systemd units not to warn about
 //!
 //! [notifications]
 //! # rigtop-gui: desktop notifications for new alerts ("critical", "warning" or "off").
@@ -338,6 +339,9 @@ pub struct AlertsConfig {
     pub gpu_warning_celsius: f32,
     /// Drive temperature (°C, from SMART or the NVMe sensor) for a warning.
     pub drive_warning_celsius: f32,
+    /// systemd units whose failure is not worth a warning (e.g. a
+    /// `systemd-networkd-wait-online.service` that fails on every boot).
+    pub ignored_units: Vec<String>,
 }
 
 impl Default for AlertsConfig {
@@ -348,6 +352,7 @@ impl Default for AlertsConfig {
             cpu_warning_celsius: 96.0,
             gpu_warning_celsius: 85.0,
             drive_warning_celsius: 70.0,
+            ignored_units: Vec::new(),
         }
     }
 }
