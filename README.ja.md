@@ -74,6 +74,12 @@ Windows では [Scoop](https://scoop.sh) でも入れられます（スタート
 scoop install https://raw.githubusercontent.com/akivajp/rigtop/main/packaging/scoop/rigtop.json
 ```
 
+[Homebrew](https://brew.sh)（Apple Silicon の macOS、Linux）では、[akivajp/tap](https://github.com/akivajp/homebrew-tap) から入れられます（`brew upgrade rigtop` で更新できます）。
+
+```sh
+brew install akivajp/tap/rigtop
+```
+
 Arch Linux とその派生では、[`packaging/aur/rigtop/PKGBUILD`](packaging/aur/rigtop/PKGBUILD) でパッケージを作れます（AUR のアカウント登録が再開したら、AUR にも登録する予定です）。
 
 ```sh
@@ -88,6 +94,7 @@ cd rigtop/packaging/aur/rigtop && makepkg -si
 | インストールスクリプト | `rm ~/.local/bin/rigtop ~/.local/bin/rigtop-gui` |
 | `.deb` | `sudo apt remove rigtop` |
 | Scoop | `scoop uninstall rigtop` |
+| Homebrew | `brew uninstall rigtop` |
 | `cargo install` | `cargo uninstall rigtop rigtop-gui` |
 | PKGBUILD | `sudo pacman -R rigtop` |
 | アーカイブ | 展開したファイルを削除 |

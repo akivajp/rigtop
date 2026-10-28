@@ -21,6 +21,9 @@ include breaking changes).
   data directory on macOS and Windows), so what happened overnight is
   still there after a restart. Alerts still present when rigtop starts
   are not logged again. Older events show their date.
+- Homebrew: `brew install akivajp/tap/rigtop` (macOS on Apple Silicon,
+  Linux x86_64 and aarch64), from the release binaries. rigtop's own
+  update leaves a Homebrew install alone and points to `brew upgrade rigtop`.
 
 ## [0.15.0] - 2026-10-29
 

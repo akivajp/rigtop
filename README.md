@@ -74,6 +74,12 @@ On Windows with [Scoop](https://scoop.sh), which also adds rigtop-gui to the Sta
 scoop install https://raw.githubusercontent.com/akivajp/rigtop/main/packaging/scoop/rigtop.json
 ```
 
+With [Homebrew](https://brew.sh) (macOS on Apple Silicon, Linux), from the [akivajp/tap](https://github.com/akivajp/homebrew-tap) tap (`brew upgrade rigtop` updates it):
+
+```sh
+brew install akivajp/tap/rigtop
+```
+
 On Arch Linux and derivatives, [`packaging/aur/rigtop/PKGBUILD`](packaging/aur/rigtop/PKGBUILD) builds a package (it will be on the AUR once account registration there reopens):
 
 ```sh
@@ -88,6 +94,7 @@ cd rigtop/packaging/aur/rigtop && makepkg -si
 | The install script | `rm ~/.local/bin/rigtop ~/.local/bin/rigtop-gui` |
 | `.deb` | `sudo apt remove rigtop` |
 | Scoop | `scoop uninstall rigtop` |
+| Homebrew | `brew uninstall rigtop` |
 | `cargo install` | `cargo uninstall rigtop rigtop-gui` |
 | PKGBUILD | `sudo pacman -R rigtop` |
 | An archive | Delete the files you extracted |
