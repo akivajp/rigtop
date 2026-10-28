@@ -1635,10 +1635,13 @@ mod tests {
             {"label":"week","value":"22% left · Fri 09:00","gauge":0.22,"gauge_style":"level","level":"warn"},
             {"value":"rigtop","heading":true},
             {"label":"busy","value":"7a · 1 agent","level":"ok"},
+            {"label":"  ctx","value":"61% · 606K/1M","gauge":0.61,"gauge_style":"level","level":"ok"},
             {"label":"  agent","value":"Explore: find the config loader"},
             {"label":"idle","value":"06 · waiting on 1 task · 3m","level":"ok"},
+            {"label":"  ctx","value":"93% · 930K/1M","gauge":0.93,"gauge_style":"level","level":"bad"},
             {"value":"website","heading":true},
-            {"label":"idle","value":"d8 · your turn · 12m","level":"normal"}
+            {"label":"idle","value":"d8 · your turn · 12m","level":"normal"},
+            {"label":"  ctx","value":"12% · 24K/200K","gauge":0.12,"gauge_style":"level","level":"ok"}
         ]}"#;
         vec![
             Widget {
