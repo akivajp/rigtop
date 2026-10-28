@@ -91,8 +91,10 @@ fn script(version: &str, binary: Option<&str>) -> String {
             Some(rest) => format!("bin=\"$HOME\"/{}", shell_quote(rest)),
             None => format!("bin={}", shell_quote(path)),
         },
-        // Like the agent connection: PATH first, then cargo's directory.
+        // Like the agent connection: PATH first, then the install script's
+        // directory, then cargo's.
         None => "bin=$(command -v rigtop 2>/dev/null || true)\n\
+                 [ -n \"$bin\" ] || [ ! -x \"$HOME/.local/bin/rigtop\" ] || bin=\"$HOME/.local/bin/rigtop\"\n\
                  [ -n \"$bin\" ] || [ ! -x \"$HOME/.cargo/bin/rigtop\" ] || bin=\"$HOME/.cargo/bin/rigtop\""
             .to_owned(),
     };
@@ -491,6 +493,27 @@ mod tests {
                 "installed --version v1.2.3 --bin-dir {} --tui-only",
                 bin.display()
             )
+        );
+
+        // Not on PATH: ~/.local/bin (the install script's place) is found.
+        let home = tmp.path().join("home");
+        let local = home.join(".local/bin");
+        fs::create_dir_all(&local).unwrap();
+        executable(&local.join("rigtop"), "#!/bin/sh\n");
+        let output = run_script(
+            "env",
+            &[
+                format!("HOME={}", home.display()),
+                format!("PATH={}:/usr/bin:/bin", tools.display()),
+                "sh".to_owned(),
+                "-s".to_owned(),
+            ],
+            &update_script("1.2.3", "rigtop --agent"),
+        )
+        .unwrap();
+        assert!(
+            output.contains(&format!("--bin-dir {}", local.display())),
+            "{output}"
         );
 
         // A copy the user cannot replace is left alone, with a reason.

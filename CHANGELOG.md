@@ -7,6 +7,11 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Changed
+- Remote hosts: when `rigtop` is not on the PATH of the SSH session, the
+  agent is looked for in `~/.local/bin` (where the install script puts it)
+  before `~/.cargo/bin`, both for monitoring and for updating it.
+
 ## [0.13.0] - 2026-10-28
 
 ### Added

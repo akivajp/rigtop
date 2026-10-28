@@ -19,10 +19,12 @@ use crate::source::{DataSource, ProcessSignal, SourceError};
 
 /// Command run on the remote host by default.
 pub const DEFAULT_REMOTE_COMMAND: &str = "rigtop --agent";
-/// Tried when the default command is not found: `cargo install` puts rigtop
-/// in `~/.cargo/bin`, which non-interactive SSH sessions often lack on
-/// their `PATH`.
-pub const FALLBACK_REMOTE_COMMAND: &str = "~/.cargo/bin/rigtop --agent";
+/// Tried in order when the default command is not found: the install
+/// script puts rigtop in `~/.local/bin` and `cargo install` in
+/// `~/.cargo/bin`, which non-interactive SSH sessions often lack on their
+/// `PATH`. Release binaries come first: they update without building.
+pub const FALLBACK_REMOTE_COMMANDS: [&str; 2] =
+    ["~/.local/bin/rigtop --agent", "~/.cargo/bin/rigtop --agent"];
 /// Exit status of POSIX shells for "command not found".
 const NOT_FOUND_STATUS: i32 = 127;
 
@@ -45,9 +47,9 @@ pub struct RemoteTarget {
     pub program: String,
     /// Its arguments.
     pub args: Vec<String>,
-    /// Arguments to use instead when the remote command is not found (for
-    /// the default command: [`FALLBACK_REMOTE_COMMAND`]).
-    pub fallback_args: Option<Vec<String>>,
+    /// Arguments to try in order when the remote command is not found
+    /// (for the default command: [`FALLBACK_REMOTE_COMMANDS`]).
+    pub fallback_args: Vec<Vec<String>>,
 }
 
 impl RemoteTarget {
@@ -73,12 +75,18 @@ impl RemoteTarget {
         args.push(remote_command.to_owned());
         // Only the default command falls back; one set by the user is
         // taken as it is.
-        let fallback_args = (remote_command == DEFAULT_REMOTE_COMMAND).then(|| {
-            let mut fallback = args.clone();
-            *fallback.last_mut().expect("command pushed above") =
-                FALLBACK_REMOTE_COMMAND.to_owned();
-            fallback
-        });
+        let fallback_args = if remote_command == DEFAULT_REMOTE_COMMAND {
+            FALLBACK_REMOTE_COMMANDS
+                .iter()
+                .map(|command| {
+                    let mut fallback = args.clone();
+                    *fallback.last_mut().expect("command pushed above") = (*command).to_owned();
+                    fallback
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         Self {
             name: destination.to_owned(),
             program: "ssh".to_owned(),
@@ -222,9 +230,10 @@ pub struct RemoteSource {
     agent_version: String,
     /// Why the last connection failed, repeated while waiting to retry.
     last_error: Option<String>,
-    /// Whether to start the agent with the fallback command.
-    use_fallback: bool,
-    /// The command was not found and the fallback should be tried at once.
+    /// Which command starts the agent: 0 for the configured one, then the
+    /// fallbacks in order.
+    attempt: usize,
+    /// The command was not found and the next one should be tried at once.
     retry_now: bool,
 }
 
@@ -240,7 +249,7 @@ impl RemoteSource {
             pending: VecDeque::new(),
             agent_version: String::new(),
             last_error: None,
-            use_fallback: false,
+            attempt: 0,
             retry_now: false,
         }
     }
@@ -265,9 +274,13 @@ impl RemoteSource {
                 }
             }
             self.last_attempt = Some(Instant::now());
-            let args = match (&self.target.fallback_args, self.use_fallback) {
-                (Some(fallback), true) => fallback,
-                _ => &self.target.args,
+            let args = match self.attempt {
+                0 => &self.target.args,
+                n => self
+                    .target
+                    .fallback_args
+                    .get(n - 1)
+                    .unwrap_or(&self.target.args),
             };
             let mut connection = match Connection::spawn(&self.target, args) {
                 Ok(connection) => connection,
@@ -307,16 +320,18 @@ impl RemoteSource {
             (None, None) => ("connection closed".to_owned(), false),
         };
         self.connection = None;
-        if not_found && self.target.fallback_args.is_some() {
-            if self.use_fallback {
-                // Neither worked; start over with the PATH next time, in
-                // case rigtop gets installed there.
-                self.use_fallback = false;
-                reason = format!("rigtop is neither on the PATH nor in ~/.cargo/bin ({reason})");
-            } else {
-                self.use_fallback = true;
+        if not_found && !self.target.fallback_args.is_empty() {
+            if self.attempt < self.target.fallback_args.len() {
+                self.attempt += 1;
                 self.retry_now = true;
                 self.last_attempt = None;
+            } else {
+                // None worked; start over with the PATH next time, in case
+                // rigtop gets installed there.
+                self.attempt = 0;
+                reason = format!(
+                    "rigtop is not on the PATH, in ~/.local/bin or in ~/.cargo/bin ({reason})"
+                );
             }
         }
         let error = SourceError::Disconnected(format!("{}: {reason}", self.target.name));
@@ -406,10 +421,13 @@ impl DataSource for RemoteSource {
     /// Returns the newest snapshot from the agent, waiting for one if none
     /// arrived since the previous poll.
     fn poll(&mut self) -> Result<Snapshot, SourceError> {
-        match self.poll_once() {
-            // Not found on the PATH: try ~/.cargo/bin right away.
-            Err(_) if std::mem::take(&mut self.retry_now) => self.poll_once(),
-            result => result,
+        loop {
+            match self.poll_once() {
+                // Not found: try the next place (~/.local/bin, then
+                // ~/.cargo/bin) right away.
+                Err(_) if std::mem::take(&mut self.retry_now) => continue,
+                result => return result,
+            }
         }
     }
 
@@ -475,47 +493,52 @@ mod tests {
         assert!(target.args.windows(2).any(|w| w == ["-o", "BatchMode=yes"]));
         let n = target.args.len();
         assert_eq!(&target.args[n - 3..], ["--", "zefat", "rigtop --agent"]);
-        // The default command falls back to ~/.cargo/bin ...
-        let fallback = target.fallback_args.as_ref().unwrap();
-        assert_eq!(&fallback[n - 3..], ["--", "zefat", FALLBACK_REMOTE_COMMAND]);
+        // The default command falls back to ~/.local/bin, then ~/.cargo/bin ...
+        let fallbacks: Vec<&str> = target
+            .fallback_args
+            .iter()
+            .map(|args| args[n - 1].as_str())
+            .collect();
+        assert_eq!(fallbacks, FALLBACK_REMOTE_COMMANDS);
+        assert_eq!(&target.fallback_args[0][n - 3..n - 1], ["--", "zefat"]);
         // ... a command the user chose does not.
         let custom = RemoteTarget::ssh("zefat", "/opt/rigtop/bin/rigtop --agent");
-        assert_eq!(custom.fallback_args, None);
+        assert!(custom.fallback_args.is_empty());
     }
 
     /// `sh -c <script>` standing in for ssh.
     #[cfg(unix)]
-    fn sh_target(script: &str, fallback: Option<&str>) -> RemoteTarget {
+    fn sh_target(script: &str, fallbacks: &[&str]) -> RemoteTarget {
         let args = |script: &str| vec!["-c".to_owned(), script.to_owned()];
         RemoteTarget {
             name: "fake".to_owned(),
             program: "sh".to_owned(),
             args: args(script),
-            fallback_args: fallback.map(args),
+            fallback_args: fallbacks.iter().map(|script| args(script)).collect(),
         }
     }
 
     #[cfg(unix)]
     #[test]
     fn command_not_found_tries_the_fallback_at_once() {
-        // Found nowhere: both attempts in one poll, and a clear message.
+        // Found nowhere: every attempt in one poll, and a clear message.
         let missing = "echo 'zsh:1: command not found: rigtop' >&2; exit 127";
-        let mut source = RemoteSource::new(sh_target(missing, Some(missing)));
+        let mut source = RemoteSource::new(sh_target(missing, &[missing, missing]));
         let err = source.poll().unwrap_err().to_string();
         assert!(
-            err.contains("neither on the PATH nor in ~/.cargo/bin"),
+            err.contains("not on the PATH, in ~/.local/bin or in ~/.cargo/bin"),
             "{err}"
         );
-        assert!(!source.use_fallback, "the PATH comes first again next time");
+        assert_eq!(source.attempt, 0, "the PATH comes first again next time");
 
-        // Other failures do not switch to the fallback.
+        // Other failures do not switch to the fallbacks.
         let mut source = RemoteSource::new(sh_target(
             "echo 'Permission denied (publickey)' >&2; exit 255",
-            Some(missing),
+            &[missing],
         ));
         let err = source.poll().unwrap_err().to_string();
         assert!(err.contains("Permission denied"), "{err}");
-        assert!(!source.use_fallback);
+        assert_eq!(source.attempt, 0);
     }
 
     #[test]
@@ -524,7 +547,7 @@ mod tests {
             name: "nowhere".to_owned(),
             program: "/nonexistent/ssh".to_owned(),
             args: Vec::new(),
-            fallback_args: None,
+            fallback_args: Vec::new(),
         });
         let err = source.poll().unwrap_err().to_string();
         assert!(err.contains("cannot start"), "{err}");
@@ -547,7 +570,7 @@ mod tests {
                 "-c".to_owned(),
                 "echo 'rigtop: command not found' >&2; exit 127".to_owned(),
             ],
-            fallback_args: None,
+            fallback_args: Vec::new(),
         });
         let err = source.poll().unwrap_err().to_string();
         assert!(err.contains("fake: rigtop: command not found"), "{err}");
@@ -563,7 +586,7 @@ mod tests {
                 "-c".to_owned(),
                 r#"echo '{"type":"hello","protocol":999,"version":"9.9.9"}'; sleep 5"#.to_owned(),
             ],
-            fallback_args: None,
+            fallback_args: Vec::new(),
         });
         let err = source.poll().unwrap_err().to_string();
         assert!(err.contains("protocol 999"), "{err}");
@@ -583,7 +606,7 @@ mod tests {
                    sleep 5"#
                     .to_owned(),
             ],
-            fallback_args: None,
+            fallback_args: Vec::new(),
         });
         let snapshot = source.poll().unwrap();
         assert_eq!(snapshot.host.hostname, "nas");
