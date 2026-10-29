@@ -546,6 +546,22 @@ mod tests {
     }
 
     #[test]
+    fn enter_opens_and_closes_details() {
+        let mut app = app_with(vec![process(30, "python", 2.0, false)]);
+        // Nothing selected: nothing to show.
+        app.handle_key(key(KeyCode::Enter));
+        assert!(!app.details);
+        app.selected_pid = Some(30);
+        app.handle_key(key(KeyCode::Enter));
+        assert!(app.details);
+        // Other keys still work underneath; Esc closes.
+        app.handle_key(key(KeyCode::Down));
+        assert!(app.details);
+        app.handle_key(key(KeyCode::Esc));
+        assert!(!app.details);
+    }
+
+    #[test]
     fn kill_requires_confirmation() {
         let mut app = app_with(vec![
             process(10, "bash", 1.0, false),
