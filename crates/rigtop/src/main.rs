@@ -3,11 +3,13 @@
 //! Without options it starts the TUI for this machine; `--host` (and
 //! `[[hosts]]` in the configuration) adds remote machines over SSH, where
 //! `rigtop --agent` streams the data, with an overview of all hosts.
-//! `--dump-json` prints one snapshot to check what the collectors see.
+//! `--dump-json` prints one snapshot to check what the collectors see, and
+//! `--watch` runs a command when alerts appear on any host, without a screen.
 
 #[cfg(target_os = "linux")]
 mod collector;
 mod tui;
+mod watch;
 
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -31,10 +33,11 @@ struct Cli {
     #[arg(long)]
     dump_json: bool,
 
-    /// Sampling interval in milliseconds. Rates (CPU %, throughput, power)
-    /// are averaged over this interval.
-    #[arg(long, default_value_t = 1000, value_name = "MS")]
-    interval_ms: u64,
+    /// Sampling interval in milliseconds [default: 1000; for --watch,
+    /// `[watch] interval` of the configuration]. Rates (CPU %, throughput,
+    /// power) are averaged over this interval.
+    #[arg(long, value_name = "MS")]
+    interval_ms: Option<u64>,
 
     /// Pretty-print JSON output.
     #[arg(long)]
@@ -48,7 +51,7 @@ struct Cli {
     /// [[hosts]] of the configuration). Takes any destination `ssh` accepts
     /// (a ~/.ssh/config host, user@host, ...); key-based authentication is
     /// required, and the remote host needs rigtop installed.
-    #[arg(long = "host", value_name = "DESTINATION", conflicts_with_all = ["agent", "dump_json"])]
+    #[arg(long = "host", value_name = "DESTINATION", conflicts_with_all = ["agent", "dump_json", "test_alert"])]
     hosts: Vec<String>,
 
     /// Command that starts the agent on hosts given with --host
@@ -64,8 +67,19 @@ struct Cli {
 
     /// Show made-up data for three hosts instead of this machine and the
     /// configured hosts (to try the interface, or for screenshots).
-    #[arg(long, conflicts_with_all = ["agent", "dump_json", "hosts"])]
+    #[arg(long, conflicts_with_all = ["agent", "dump_json", "hosts", "test_alert"])]
     demo: bool,
+
+    /// Watch this machine and the configured hosts without a screen, and run
+    /// the `[watch] command` of the configuration when an alert appears or
+    /// clears (e.g. to send it to your phone). Meant to run as a service.
+    #[arg(long, conflicts_with_all = ["agent", "dump_json", "test_alert"])]
+    watch: bool,
+
+    /// Run the `[watch] command` once with a sample alert, to check that
+    /// alerts arrive, and exit.
+    #[arg(long, conflicts_with_all = ["agent", "dump_json"])]
+    test_alert: bool,
 
     /// Linux, as root: install and start the systemd timer that collects
     /// SMART data and btrfs scrub results for rigtop every 10 minutes
@@ -84,7 +98,8 @@ fn main() -> Result<()> {
     // "... (deleted)" on Linux.
     let exe = std::env::current_exe().ok();
     let cli = Cli::parse();
-    let interval = Duration::from_millis(cli.interval_ms);
+    let interval_override = cli.interval_ms.map(Duration::from_millis);
+    let interval = interval_override.unwrap_or(Duration::from_secs(1));
     if interval < MIN_POLL_INTERVAL {
         bail!(
             "--interval-ms must be at least {} ms",
@@ -113,6 +128,9 @@ fn main() -> Result<()> {
     if cli.dump_json {
         return dump_json(&config, interval, cli.pretty);
     }
+    if cli.test_alert {
+        return watch::test_alert(&config);
+    }
     if cli.agent {
         let source = LocalSource::with_config(&config);
         let stdin = io::BufReader::new(io::stdin());
@@ -124,6 +142,9 @@ fn main() -> Result<()> {
         let (hosts, remote_command) = (cli.hosts, cli.remote_command);
         Box::new(move |config| host_specs(config, &hosts, remote_command.as_deref()))
     };
+    if cli.watch {
+        return watch::run(config, config_path, specs, interval_override);
+    }
     tui::run(config, config_path, interval, specs, exe)
 }
 

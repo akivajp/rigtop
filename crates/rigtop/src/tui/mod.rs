@@ -66,7 +66,7 @@ impl HostTui {
 }
 
 /// A collector thread for `spec`.
-fn spawn_worker(spec: &HostSpec, config: &Config, interval: Duration) -> Worker {
+pub(crate) fn spawn_worker(spec: &HostSpec, config: &Config, interval: Duration) -> Worker {
     let source_config = config.clone();
     let kind = spec.kind.clone();
     Worker::spawn(
@@ -83,7 +83,7 @@ fn spawn_worker(spec: &HostSpec, config: &Config, interval: Duration) -> Worker 
 
 /// Stops workers without waiting: joining one that is still connecting
 /// would freeze the screen.
-fn stop_workers(workers: Vec<Worker>) {
+pub(crate) fn stop_workers(workers: Vec<Worker>) {
     if !workers.is_empty() {
         thread::spawn(move || drop(workers));
     }

@@ -256,6 +256,15 @@ impl Drop for CommandRunner {
 /// Runs `command` through the shell, killing it after `timeout`. Returns its
 /// output, or why it failed (the last line of its stderr if any).
 pub fn run_command(command: &str, timeout: Duration) -> Result<String, String> {
+    run_command_with_env(command, &[], timeout)
+}
+
+/// Like [`run_command`], with extra environment variables for the command.
+pub fn run_command_with_env(
+    command: &str,
+    env: &[(&str, &str)],
+    timeout: Duration,
+) -> Result<String, String> {
     let mut process = if cfg!(windows) {
         let mut process = Command::new("cmd");
         process.args(["/C", command]);
@@ -266,6 +275,7 @@ pub fn run_command(command: &str, timeout: Duration) -> Result<String, String> {
         process
     };
     process
+        .envs(env.iter().copied())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

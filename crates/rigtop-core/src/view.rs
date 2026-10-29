@@ -446,8 +446,9 @@ impl AlertLog {
             .and_then(|mut file| file.write_all(format!("{line}\n").as_bytes()));
     }
 
-    /// Records how the alerts of `host` changed since its previous update.
-    pub fn update(&mut self, host: &str, alerts: &[Alert], at_ms: u64) {
+    /// Records how the alerts of `host` changed since its previous update,
+    /// and returns those changes.
+    pub fn update(&mut self, host: &str, alerts: &[Alert], at_ms: u64) -> Vec<AlertEvent> {
         let previous = self.active.remove(host).unwrap_or_default();
         let keys = |list: &[Alert]| -> HashSet<String> { list.iter().map(alert_key).collect() };
         let (before, now) = (keys(&previous), keys(alerts));
@@ -459,6 +460,7 @@ impl AlertLog {
             .collect();
         // Cleared first, so that a changed alert reads "went away, came back".
         changes.sort_by_key(|(change, _)| *change == AlertChange::Raised);
+        let mut new_events = Vec::with_capacity(changes.len());
         for (change, alert) in changes {
             if change == AlertChange::Raised {
                 self.unread.0 += 1;
@@ -474,9 +476,11 @@ impl AlertLog {
                 alert: alert.clone(),
             };
             self.save(&event);
+            new_events.push(event.clone());
             self.events.push_back(event);
         }
         self.active.insert(host.to_owned(), alerts.to_vec());
+        new_events
     }
 
     /// All events, oldest first.
@@ -1335,9 +1339,14 @@ mod tests {
         let mut log = AlertLog::persistent(path.clone());
         assert_eq!(log.events().count(), 3);
         assert_eq!(log.unread(), (0, None));
-        log.update("nas", std::slice::from_ref(&degraded), 3_000);
+        assert!(
+            log.update("nas", std::slice::from_ref(&degraded), 3_000)
+                .is_empty()
+        );
         assert_eq!(log.events().count(), 3);
-        log.update("nas", &[], 4_000);
+        let changes = log.update("nas", &[], 4_000);
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].alert, degraded);
         let last = log.events().last().unwrap();
         assert_eq!((last.change, last.at_ms), (AlertChange::Cleared, 4_000));
         assert_eq!(AlertLog::persistent(path).events().count(), 4);

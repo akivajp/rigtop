@@ -208,6 +208,37 @@ rigtop は OS の `ssh`（Windows では標準の OpenSSH クライアント）�
 - 遠隔のプロセスの終了は、SSH でログインしたユーザーの権限で行われます。
 - 手元と違う版の rigtop が入っているホストは、見出しにその版を出します（`agent 0.8.2`）。新しい項目は、そのホストの rigtop を更新すると表示されます。手元より古い場合は、TUI の `u` か GUI でその表示をクリックすると、手元と同じ版に更新できます。確認の後、SSH 越しにリリースのインストールスクリプトを実行して、エージェントとして動いている rigtop を入れ替え、つなぎ直します（curl か wget のある Linux・macOS のホスト）。`cargo install` やパッケージマネージャーで入れたものは書き換えず、更新のコマンドを案内します。Windows のホストは Scoop で更新してください。
 
+## 画面なしでの警告の通知（`rigtop --watch`）
+
+`rigtop --watch` は、手元の機と設定したホストを画面なしで監視し、警告が出たり消えたりしたときに、指定したコマンドを実行します。RAID の劣化、ドライブの異常、ホストの停止を、rigtop を開いていないときにも知ることができます。警告の内容は環境変数でコマンドに渡します（`RIGTOP_HOST`、`RIGTOP_SEVERITY`、`RIGTOP_CHANGE` = `raised` / `cleared`、`RIGTOP_ALERT`、`[critical] nas: md0 (raid1) degraded` のような `RIGTOP_MESSAGE`）。[ntfy](https://ntfy.sh)・チャットの Webhook・メールなどに送れます。
+
+```toml
+[watch]
+command = 'curl -s -d "$RIGTOP_MESSAGE" https://ntfy.sh/my-topic'
+level = "critical"     # または "warning"
+offline_after = "3m"   # この時間つながらないホストを critical の警告にする
+```
+
+`rigtop --test-alert` で、見本の警告でコマンドを1回実行できます。変化は日時付きで標準出力に出し、専用の警告の履歴に残すので、再起動しても同じ警告は送り直しません。監視を始めた時点で出ている警告は送ります。systemd のユーザーサービスとして動かし続けるには:
+
+```ini
+# ~/.config/systemd/user/rigtop-watch.service
+[Service]
+ExecStart=%h/.local/bin/rigtop --watch
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+```
+
+```sh
+systemctl --user enable --now rigtop-watch
+loginctl enable-linger "$USER"            # ログアウト中も動かし続ける
+journalctl --user -u rigtop-watch -f      # 検知した内容と送った内容
+```
+
+サービスからは ssh-agent を使えないので、遠隔のホストにはパスフレーズの無い鍵が必要です（または `SSH_AUTH_SOCK` でエージェントを指定します）。動かすのは1台だけにしてください。複数台で動かすと、同じ警告がそれぞれから届きます。
+
 ## Linux
 
 ほとんどの項目は、追加のソフトも特別な権限も無しで表示できます（CPU、メモリ、プロセス、温度とファン（hwmon）、ネットワーク、ディスク、btrfs と md の RAID、ノート PC のバッテリー）。次の項目だけ、パッケージか権限が必要です。
@@ -319,6 +350,15 @@ level = "critical"
 check = true
 interval = "1h"
 notify = true   # rigtop-gui: 新しいリリースのデスクトップ通知
+
+[watch]
+# rigtop --watch: いずれかのホストで警告が出たり消えたりしたときに実行するコマンド
+command = ""           # 例: 'curl -s -d "$RIGTOP_MESSAGE" https://ntfy.sh/my-topic'
+level = "critical"     # または "warning"（"off" なら実行しない）
+cleared = true         # 警告が消えたときも実行する
+interval = "10s"       # 各ホストの計測の間隔
+offline_after = "3m"   # この時間つながらないホストを critical の警告にする（"0s" で無効）
+timeout = "30s"        # これより長くかかった実行は止める
 
 [tui]
 # ホストの画面で表示しない欄（`v` でも切り替えられる）

@@ -7,6 +7,16 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Added
+- `rigtop --watch`: watches this machine and the configured hosts without
+  a screen and runs the `[watch] command` when an alert appears or clears
+  (`RIGTOP_HOST`, `RIGTOP_SEVERITY`, `RIGTOP_CHANGE`, `RIGTOP_ALERT` and
+  `RIGTOP_MESSAGE` in its environment), e.g. to post to ntfy, a chat webhook
+  or mail. A host unreachable for `offline_after` (3 minutes) is a critical
+  alert. Its own alert history keeps a restart from sending alerts again.
+  Meant to run as a systemd user service (see the README);
+  `rigtop --test-alert` runs the command once with a sample alert.
+
 ## [0.17.0] - 2026-10-29
 
 ### Added

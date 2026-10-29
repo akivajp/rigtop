@@ -208,6 +208,37 @@ rigtop starts `rigtop --agent` on each remote host through your system's `ssh` (
 - Killing processes on a remote host uses the SSH user's permissions.
 - A host whose rigtop is another version than yours says so in its title (`agent 0.8.2`); newer readings appear once it is updated. When it is older, `u` in the TUI or a click on that note in the GUI updates it to your version: after you confirm, rigtop runs the release's install script over SSH (Linux and macOS hosts with curl or wget) and replaces the rigtop the agent runs, then reconnects. Copies from `cargo install` or a package manager are left alone, with the command to update them; Windows hosts update with Scoop.
 
+## Alerts without a window (`rigtop --watch`)
+
+`rigtop --watch` watches this machine and the configured hosts without a screen and runs a command of yours when an alert appears or clears, so a degraded RAID, a failing drive or a host gone offline reaches you while no rigtop is open. The command gets the alert in its environment (`RIGTOP_HOST`, `RIGTOP_SEVERITY`, `RIGTOP_CHANGE` = `raised` / `cleared`, `RIGTOP_ALERT`, and `RIGTOP_MESSAGE` such as `[critical] nas: md0 (raid1) degraded`), so it can post to [ntfy](https://ntfy.sh), a chat webhook or mail:
+
+```toml
+[watch]
+command = 'curl -s -d "$RIGTOP_MESSAGE" https://ntfy.sh/my-topic'
+level = "critical"     # or "warning"
+offline_after = "3m"   # a host unreachable this long is a critical alert
+```
+
+`rigtop --test-alert` runs the command once with a sample alert. Changes are printed with the time and kept in their own alert history, so a restart does not send them again; alerts already present when watching starts are sent. To keep it running as a systemd user service:
+
+```ini
+# ~/.config/systemd/user/rigtop-watch.service
+[Service]
+ExecStart=%h/.local/bin/rigtop --watch
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+```
+
+```sh
+systemctl --user enable --now rigtop-watch
+loginctl enable-linger "$USER"            # keep it running while logged out
+journalctl --user -u rigtop-watch -f      # what it sees and sends
+```
+
+A service has no SSH agent: remote hosts need a key without a passphrase (or `SSH_AUTH_SOCK` pointing at an agent). Run it on one machine only, or each one sends the same alerts.
+
 ## Linux
 
 Most readings need neither extra software nor privileges: CPU, memory, processes, temperatures and fans (hwmon), network, disks, btrfs and md RAID, and laptop batteries. A few need a package or a permission:
@@ -319,6 +350,15 @@ level = "critical"
 check = true
 interval = "1h"
 notify = true   # rigtop-gui: desktop notification for a new release
+
+[watch]
+# rigtop --watch: a command run when an alert appears or clears on any host.
+command = ""           # e.g. 'curl -s -d "$RIGTOP_MESSAGE" https://ntfy.sh/my-topic'
+level = "critical"     # or "warning" ("off" runs nothing)
+cleared = true         # also when an alert goes away
+interval = "10s"       # time between samples of each host
+offline_after = "3m"   # a host unreachable this long is a critical alert ("0s" turns it off)
+timeout = "30s"        # a run taking longer is stopped
 
 [tui]
 # Boxes of the host view not to draw (also toggled with `v`).

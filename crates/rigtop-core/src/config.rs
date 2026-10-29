@@ -39,6 +39,16 @@
 //! interval = "1h"
 //! notify = true   # rigtop-gui: desktop notification for a new release
 //!
+//! [watch]
+//! # `rigtop --watch`: run a command when an alert appears or clears on any
+//! # host, with RIGTOP_HOST, RIGTOP_SEVERITY, RIGTOP_CHANGE, RIGTOP_ALERT and
+//! # RIGTOP_MESSAGE in its environment.
+//! command = 'curl -s -d "$RIGTOP_MESSAGE" https://ntfy.sh/my-topic'
+//! level = "critical"     # or "warning" ("off" runs nothing)
+//! cleared = true         # also when an alert goes away
+//! interval = "10s"       # time between samples
+//! offline_after = "3m"   # a host unreachable this long is a critical alert
+//!
 //! [lhm]
 //! # Windows: LibreHardwareMonitor's web server ("" to disable).
 //! url = "http://127.0.0.1:8085/data.json"
@@ -149,6 +159,8 @@ pub struct Config {
     pub notifications: NotificationsConfig,
     /// Looking for new rigtop releases.
     pub updates: UpdatesConfig,
+    /// Alerts sent by `rigtop --watch`.
+    pub watch: WatchConfig,
     /// Remote hosts monitored over SSH (`[[hosts]]` tables).
     pub hosts: Vec<HostConfig>,
     /// Extra panels beside the monitor (`[[widgets]]` tables).
@@ -420,6 +432,42 @@ impl UpdatesConfig {
     /// Time between checks; at least a minute, whatever the file says.
     pub fn check_interval(&self) -> Duration {
         self.interval.max(Duration::from_secs(60))
+    }
+}
+
+/// `rigtop --watch`: watching every host without a screen and running a
+/// command when alerts appear or clear.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct WatchConfig {
+    /// Shell command run for each change ("" runs nothing; changes are
+    /// still printed and kept in the alert history).
+    pub command: String,
+    /// The least severe alerts the command runs for.
+    pub level: NotifyLevel,
+    /// Also run the command when an alert clears.
+    pub cleared: bool,
+    /// Time between samples of each host.
+    #[serde(with = "duration_text")]
+    pub interval: Duration,
+    /// A host that sends nothing this long becomes a critical alert.
+    #[serde(with = "duration_text")]
+    pub offline_after: Duration,
+    /// Time a run of the command may take before it is killed.
+    #[serde(with = "duration_text")]
+    pub timeout: Duration,
+}
+
+impl Default for WatchConfig {
+    fn default() -> Self {
+        Self {
+            command: String::new(),
+            level: NotifyLevel::Critical,
+            cleared: true,
+            interval: Duration::from_secs(10),
+            offline_after: Duration::from_secs(180),
+            timeout: Duration::from_secs(30),
+        }
     }
 }
 
@@ -853,6 +901,20 @@ mod tests {
         let config = Config::load(&path).unwrap();
         assert_eq!(config.tui, TuiConfig::default());
         assert!(!fs::read_to_string(&path).unwrap().contains("show_widgets"));
+    }
+
+    #[test]
+    fn watch_settings() {
+        let config: Config = toml::from_str(
+            "[watch]\ncommand = \"notify-send x\"\nlevel = \"warning\"\ninterval = \"30s\"\n",
+        )
+        .unwrap();
+        assert_eq!(config.watch.command, "notify-send x");
+        assert_eq!(config.watch.level, NotifyLevel::Warning);
+        assert!(config.watch.cleared);
+        assert_eq!(config.watch.interval, Duration::from_secs(30));
+        assert_eq!(config.watch.offline_after, Duration::from_secs(180));
+        assert!(toml::from_str::<Config>("[watch]\ncomand = \"x\"\n").is_err());
     }
 
     #[test]
