@@ -168,7 +168,7 @@ pub fn run(
         processes: config.overview.processes,
         tabs: Vec::new(),
         quit: false,
-        show_widgets: true,
+        show_widgets: config.tui.show_widgets,
         alert_log: AlertLogView::default(),
         update: None,
         releases: Releases::new(&config.updates, exe),
@@ -377,7 +377,9 @@ fn event_loop(
                 }
                 if screen.panels_menu {
                     let hidden = &reload.config.tui.hidden_panels;
-                    ui::draw_panels_menu(frame, body, hidden);
+                    // The widget column is listed only when there are widgets.
+                    let widgets = (!widgets.is_empty()).then_some(screen.show_widgets);
+                    ui::draw_panels_menu(frame, body, hidden, widgets);
                 }
                 if let Some(window) = &screen.update {
                     window.draw(frame, body);
@@ -491,6 +493,9 @@ fn apply_config(
         screen.releases = Releases::new(&config.updates, exe);
         screen.releases.installed = installed;
     }
+    if old.tui.show_widgets != config.tui.show_widgets {
+        screen.show_widgets = config.tui.show_widgets;
+    }
     if old.overview.include_local != config.overview.include_local {
         screen.include_local = config.overview.include_local;
     }
@@ -514,14 +519,28 @@ fn toggle_panel(section: OverviewSection, hosts: &mut [HostTui], reload: &mut Re
     } else {
         hidden.push(section);
     }
+    save_tui(hosts, reload);
+}
+
+/// Shows or hides the widget column, and keeps the choice in the
+/// configuration file (`[tui] show_widgets`).
+fn toggle_widgets(screen: &mut Screen, hosts: &mut [HostTui], reload: &mut Reload) {
+    screen.show_widgets = !screen.show_widgets;
+    reload.config.tui.show_widgets = screen.show_widgets;
+    save_tui(hosts, reload);
+}
+
+/// Hands `[tui]` of `reload.config` to every host and writes it to the
+/// configuration file.
+fn save_tui(hosts: &mut [HostTui], reload: &mut Reload) {
     for host in hosts.iter_mut() {
-        host.app.config.tui.hidden_panels = reload.config.tui.hidden_panels.clone();
+        host.app.config.tui = reload.config.tui.clone();
     }
     if let Some(watcher) = &mut reload.watcher {
-        let saved = Config::save_hidden_panels(watcher.path(), &reload.config.tui.hidden_panels);
-        if let Err(err) = saved {
+        if let Err(err) = Config::save_tui(watcher.path(), &reload.config.tui) {
             for host in hosts.iter_mut() {
-                host.app.set_status(format!("panels not saved: {err}"));
+                host.app
+                    .set_status(format!("view settings not saved: {err}"));
             }
         }
         // Our own write, not an edit to apply.
@@ -672,6 +691,7 @@ fn handle_key(
     }
     if screen.panels_menu {
         match key.code {
+            KeyCode::Char('w') if has_widgets => toggle_widgets(screen, hosts, reload),
             KeyCode::Char(c) => match ui::PANEL_KEYS.iter().find(|(k, _)| *k == c) {
                 Some((_, section)) => toggle_panel(*section, hosts, reload),
                 None => screen.panels_menu = false,
@@ -724,7 +744,7 @@ fn handle_key(
         return;
     }
     if has_widgets && !busy && key.code == KeyCode::Char('w') {
-        screen.show_widgets = !screen.show_widgets;
+        toggle_widgets(screen, hosts, reload);
         return;
     }
     if multi && !busy && screen.handle_key(key, hosts.len()) {

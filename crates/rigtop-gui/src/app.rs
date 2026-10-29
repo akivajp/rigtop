@@ -1723,6 +1723,33 @@ mod tests {
     }
 
     #[test]
+    fn widget_column_toggles_from_the_panels_menu() {
+        let mut app = RigtopApp::without_worker(Config::default());
+        for _ in 0..5 {
+            app.primary_mut()
+                .apply(Event::Snapshot(Box::new(sample_snapshot())));
+        }
+        app.widgets = sample_widgets();
+        let mut harness = Harness::builder()
+            .with_size([1400.0, 900.0])
+            .build_ui_state(|ui, app: &mut RigtopApp| app.show(ui), app);
+        harness.run();
+        assert!(harness.state().show_widgets);
+        harness.get_by_label("panels…").click();
+        harness.run();
+        let checkbox = egui_kittest::kittest::by()
+            .role(egui::accesskit::Role::CheckBox)
+            .label("Widgets");
+        harness.get(checkbox).click();
+        harness.run();
+        assert!(!harness.state().show_widgets);
+        assert!(
+            harness.query_by_label("Claude Code").is_none(),
+            "column hidden"
+        );
+    }
+
+    #[test]
     fn panels_can_be_hidden_and_shown_again() {
         let mut harness = harness_with(sample_snapshot());
         harness.run();
@@ -1739,6 +1766,16 @@ mod tests {
         assert!(
             is_complete_layout(tree),
             "a hidden panel is still in the layout"
+        );
+        // Without widgets, the menu has no widget column item.
+        assert!(
+            harness
+                .query(
+                    egui_kittest::kittest::by()
+                        .role(egui::accesskit::Role::CheckBox)
+                        .label("Widgets")
+                )
+                .is_none()
         );
         // "reset layout" brings every panel back.
         harness.state_mut().tree = default_tree();

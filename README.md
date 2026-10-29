@@ -117,7 +117,7 @@ cargo run --release -p rigtop -- --help  # options (--interval-ms, --config, --d
 | `/` | filter by name, command, user or pid (`Enter` keeps it, `Esc` clears it) |
 | `e` | tree view: processes under their parents, siblings in the sort order (a filter keeps the parents of what it finds) |
 | `t` | show or hide kernel threads |
-| `v` | show or hide boxes of the host view: `m` memory, `g` GPU, `s` storage, `n` network, `p` processes (saved as `[tui] hidden_panels`); the others take the room |
+| `v` | show or hide boxes of the host view: `m` memory, `g` GPU, `s` storage, `n` network, `p` processes (saved as `[tui] hidden_panels`), and `w` the widget column; the others take the room |
 | `k` / `K` | send SIGTERM / SIGKILL to the selected process (asks first) |
 | `n` | switch the network interface |
 | `+` / `-` | slower / faster updates |
@@ -146,7 +146,7 @@ With mouse support on, most terminals select text with Shift+drag.
 
 ## Widgets
 
-Anything else you want on the same screen can go in a column of widgets on the right, next to the overview and the host views (in the TUI when the terminal is at least 120 columns wide; `w` hides and shows it). A widget is a built-in clock or any command, run every few seconds on the machine that displays it:
+Anything else you want on the same screen can go in a column of widgets on the right, next to the overview and the host views (in the TUI when the terminal is at least 120 columns wide). Hide and show it with "widgets" or "panels…" in the GUI, and `w` (or `v` then `w`) in the TUI, which keeps the choice as `[tui] show_widgets`. A widget is a built-in clock or any command, run every few seconds on the machine that displays it:
 
 ```toml
 [[widgets]]
@@ -323,6 +323,7 @@ notify = true   # rigtop-gui: desktop notification for a new release
 [tui]
 # Boxes of the host view not to draw (also toggled with `v`).
 hidden_panels = []   # e.g. ["gpu", "network"]
+show_widgets = true  # the widget column (`w`)
 
 [lhm]
 # Windows: LibreHardwareMonitor's web server ("" to disable).

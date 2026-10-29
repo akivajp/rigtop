@@ -265,9 +265,17 @@ fn left_column_heights(
 
 /// The panel menu (`v`): which boxes of the host view are drawn, with the
 /// key that toggles each.
-pub(super) fn draw_panels_menu(frame: &mut Frame, area: Rect, hidden: &[OverviewSection]) {
+///
+/// `widgets` is whether the widget column is shown, `None` without widgets.
+pub(super) fn draw_panels_menu(
+    frame: &mut Frame,
+    area: Rect,
+    hidden: &[OverviewSection],
+    widgets: Option<bool>,
+) {
     let width = 26.min(area.width);
-    let height = (PANEL_KEYS.len() as u16 + 4).min(area.height);
+    let rows = PANEL_KEYS.len() as u16 + u16::from(widgets.is_some());
+    let height = (rows + 4).min(area.height);
     let rect = Rect {
         x: area.x + (area.width - width) / 2,
         y: area.y + (area.height - height) / 2,
@@ -288,6 +296,13 @@ pub(super) fn draw_panels_menu(frame: &mut Frame, area: Rect, hidden: &[Overview
             ])
         })
         .collect();
+    if let Some(shown) = widgets {
+        let mark = if shown { "[x]" } else { "[ ]" };
+        lines.push(Line::from(vec![
+            colored(" w  ", Color::White),
+            Span::raw(format!("{mark} Widgets")),
+        ]));
+    }
     lines.push(Line::from(""));
     lines.push(Line::from(dim(" v/Esc close")));
     frame.render_widget(Clear, rect);

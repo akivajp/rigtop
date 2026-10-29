@@ -174,6 +174,14 @@ fn panels_menu(ui: &mut Ui, state: &mut GuiState) {
                     state.view_actions.push(ViewAction::TogglePane(pane));
                 }
             }
+            // The widget column, when there are widgets (as the "widgets" button).
+            if let Some(visible) = state.widgets_visible {
+                ui.separator();
+                let mut shown = visible;
+                if ui.checkbox(&mut shown, "Widgets").changed() {
+                    state.view_actions.push(ViewAction::ToggleWidgets);
+                }
+            }
         })
         .0
         .on_hover_text("show or hide panels; \"reset layout\" shows them all again");

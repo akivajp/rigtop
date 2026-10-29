@@ -46,6 +46,7 @@
 //! [tui]
 //! # Boxes of the host view not to draw (also toggled with `v`).
 //! hidden_panels = ["gpu"]
+//! show_widgets = true   # the widget column (`w`)
 //!
 //! [overview]
 //! # Sections of each host card, most important first.
@@ -228,12 +229,23 @@ impl OverviewSection {
 }
 
 /// Settings of the terminal UI.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct TuiConfig {
     /// Boxes of the host view not to draw (`v` toggles them and saves the
     /// choice here). The CPU box is always drawn.
     pub hidden_panels: Vec<OverviewSection>,
+    /// Whether the widget column is shown (`w`, or `v` then `w`).
+    pub show_widgets: bool,
+}
+
+impl Default for TuiConfig {
+    fn default() -> Self {
+        Self {
+            hidden_panels: Vec::new(),
+            show_widgets: true,
+        }
+    }
 }
 
 /// Settings of the multi-host overview.
@@ -606,11 +618,12 @@ impl Config {
     /// one.
     ///
     /// Used by the GUI's sensor editor.
-    /// Writes `[tui] hidden_panels`, leaving the rest of the file as it is.
-    pub fn save_hidden_panels(path: &Path, hidden: &[OverviewSection]) -> Result<(), ConfigError> {
+    /// Writes `[tui]` (keys left at their defaults are removed), leaving
+    /// the rest of the file as it is.
+    pub fn save_tui(path: &Path, tui: &TuiConfig) -> Result<(), ConfigError> {
         edit_file(path, |document| {
             if !document.contains_key("tui") {
-                if hidden.is_empty() {
+                if *tui == TuiConfig::default() {
                     return Ok(());
                 }
                 document["tui"] = toml_edit::table();
@@ -619,10 +632,11 @@ impl Config {
                 // Not a table: loading would have failed already.
                 return Ok(());
             };
-            if hidden.is_empty() {
+            if tui.hidden_panels.is_empty() {
                 table.remove("hidden_panels");
             } else {
-                let names: toml_edit::Array = hidden
+                let names: toml_edit::Array = tui
+                    .hidden_panels
                     .iter()
                     .filter_map(|section| {
                         serde_json::to_value(section)
@@ -631,6 +645,11 @@ impl Config {
                     })
                     .collect();
                 table.insert("hidden_panels", toml_edit::value(names));
+            }
+            if tui.show_widgets {
+                table.remove("show_widgets");
+            } else {
+                table.insert("show_widgets", toml_edit::value(false));
             }
             Ok(())
         })
@@ -816,8 +835,11 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("config.toml");
         fs::write(&path, "# mine\n[alerts]\ncpu_warning_celsius = 90\n").unwrap();
-        Config::save_hidden_panels(&path, &[OverviewSection::Gpu, OverviewSection::Network])
-            .unwrap();
+        let tui = TuiConfig {
+            hidden_panels: vec![OverviewSection::Gpu, OverviewSection::Network],
+            show_widgets: false,
+        };
+        Config::save_tui(&path, &tui).unwrap();
         let text = fs::read_to_string(&path).unwrap();
         assert!(text.starts_with("# mine"), "{text}");
         let config = Config::load(&path).unwrap();
@@ -825,9 +847,12 @@ mod tests {
             config.tui.hidden_panels,
             vec![OverviewSection::Gpu, OverviewSection::Network]
         );
+        assert!(!config.tui.show_widgets);
         assert_eq!(config.alerts.cpu_warning_celsius, 90.0);
-        Config::save_hidden_panels(&path, &[]).unwrap();
-        assert!(Config::load(&path).unwrap().tui.hidden_panels.is_empty());
+        Config::save_tui(&path, &TuiConfig::default()).unwrap();
+        let config = Config::load(&path).unwrap();
+        assert_eq!(config.tui, TuiConfig::default());
+        assert!(!fs::read_to_string(&path).unwrap().contains("show_widgets"));
     }
 
     #[test]

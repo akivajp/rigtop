@@ -13,6 +13,10 @@ include breaking changes).
   then `m`, `g`, `s`, `n`, `p` for memory, GPU, storage, network and
   processes (kept in the configuration as `[tui] hidden_panels`). The
   other panels take the room; the CPU panel always stays.
+- The widget column can also be switched from those menus ("Widgets" in
+  "panels…", `w` in the TUI's `v` menu), next to the existing "widgets"
+  button and `w` key. The TUI now keeps the choice as
+  `[tui] show_widgets`, so it survives a restart.
 
 ## [0.16.0] - 2026-10-29
 
