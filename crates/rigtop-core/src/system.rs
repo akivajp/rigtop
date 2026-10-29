@@ -337,6 +337,8 @@ impl SystemCollector {
                     write_bytes_per_sec: rate(disk.written_bytes, elapsed_secs),
                     run_time_secs: p.run_time(),
                     kernel_thread: p.thread_kind() == Some(ThreadKind::Kernel),
+                    // Filled in from /proc/<pid>/cgroup on Linux.
+                    container: None,
                 }
             })
             .collect()

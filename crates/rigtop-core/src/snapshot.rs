@@ -700,6 +700,9 @@ pub struct ProcessInfo {
     pub run_time_secs: u64,
     /// Kernel thread (e.g. `kworker`), which front-ends may hide.
     pub kernel_thread: bool,
+    /// The container it runs in (Docker, Podman, ... name, or short id),
+    /// if any.
+    pub container: Option<String>,
 }
 
 #[cfg(test)]

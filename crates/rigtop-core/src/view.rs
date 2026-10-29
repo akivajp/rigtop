@@ -195,6 +195,8 @@ pub enum SortKey {
     Name,
     Threads,
     User,
+    /// Container name; processes outside containers last.
+    Container,
     Memory,
     Cpu,
     /// Disk reads plus writes.
@@ -205,11 +207,12 @@ pub enum SortKey {
 
 impl SortKey {
     /// Sort keys in column order, used to step left/right.
-    pub const ALL: [SortKey; 9] = [
+    pub const ALL: [SortKey; 10] = [
         SortKey::Pid,
         SortKey::Name,
         SortKey::Threads,
         SortKey::User,
+        SortKey::Container,
         SortKey::Memory,
         SortKey::Cpu,
         SortKey::Disk,
@@ -219,7 +222,10 @@ impl SortKey {
 
     /// Whether "descending" is the natural order (largest consumers first).
     pub fn descending_by_default(self) -> bool {
-        !matches!(self, SortKey::Pid | SortKey::Name | SortKey::User)
+        !matches!(
+            self,
+            SortKey::Pid | SortKey::Name | SortKey::User | SortKey::Container
+        )
     }
 }
 
@@ -766,6 +772,9 @@ pub fn process_rows<'a>(snapshot: &'a Snapshot, query: &ProcessQuery<'_>) -> Vec
             || p.name.to_lowercase().contains(&filter)
             || p.command.to_lowercase().contains(&filter)
             || p.user.to_lowercase().contains(&filter)
+            || p.container
+                .as_ref()
+                .is_some_and(|c| c.to_lowercase().contains(&filter))
             || p.pid.to_string() == filter
     };
     let candidates = snapshot
@@ -797,6 +806,12 @@ pub fn process_rows<'a>(snapshot: &'a Snapshot, query: &ProcessQuery<'_>) -> Vec
             SortKey::Name => a.info.name.to_lowercase().cmp(&b.info.name.to_lowercase()),
             SortKey::Threads => a.info.threads.cmp(&b.info.threads),
             SortKey::User => a.info.user.cmp(&b.info.user),
+            SortKey::Container => match (&a.info.container, &b.info.container) {
+                (Some(a), Some(b)) => a.cmp(b),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => std::cmp::Ordering::Equal,
+            },
             SortKey::Memory => a.info.memory_bytes.cmp(&b.info.memory_bytes),
             SortKey::Cpu => a.info.cpu_percent.total_cmp(&b.info.cpu_percent),
             SortKey::Disk => disk_rate(a.info).total_cmp(&disk_rate(b.info)),

@@ -525,11 +525,20 @@ fn workstation(t: f64) -> Snapshot {
         (3_150, 3_120),
         (3_180, 3_120),
     ];
+    // A small web app in Docker containers.
+    let containers = [
+        (1_402, "app-db-1"),
+        (1_266, "app-redis-1"),
+        (1_270, "app-web-1"),
+    ];
     for process in &mut processes {
         if process.name == "rustc" {
             process.parent_pid = Some(60_100);
         } else if let Some(&(_, parent)) = parents.iter().find(|(pid, _)| *pid == process.pid) {
             process.parent_pid = Some(parent);
+        }
+        if let Some(&(_, name)) = containers.iter().find(|(pid, _)| *pid == process.pid) {
+            process.container = Some(name.to_owned());
         }
     }
     let nvme = |i: u32, celsius: f64| SensorChip {

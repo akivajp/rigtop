@@ -16,6 +16,11 @@ include breaking changes).
   alert. Its own alert history keeps a restart from sending alerts again.
   Meant to run as a systemd user service (see the README);
   `rigtop --test-alert` runs the command once with a sample alert.
+- Linux: a Container column in the process table, for processes in Docker,
+  Podman, Kubernetes (containerd, CRI-O), LXC or systemd-nspawn containers,
+  from their cgroup. Names come from `docker ps` / `podman ps` when the user
+  may run them (otherwise the short id); the column is hidden on hosts
+  without containers. It can be sorted, and the filter matches it.
 
 ## [0.17.0] - 2026-10-29
 

@@ -1256,10 +1256,14 @@ fn draw_processes(
     let has_gpus = !snapshot.gpus.is_empty();
     // Thread counts are not available everywhere (e.g. Windows).
     let has_threads = snapshot.processes.iter().any(|p| p.threads.is_some());
+    let has_containers = snapshot.processes.iter().any(|p| p.container.is_some());
     let columns = process_columns(
         area.width.saturating_sub(2),
-        has_gpus,
-        has_threads,
+        Optional {
+            gpus: has_gpus,
+            threads: has_threads,
+            containers: has_containers,
+        },
         app.tree,
     );
     let header = Row::new(
@@ -1287,6 +1291,10 @@ fn draw_processes(
                     Cell::from(p.threads.map_or(String::new(), |t| t.to_string()))
                 }
                 ProcColumn::User => Cell::from(p.user.clone()),
+                ProcColumn::Container => Cell::from(Span::styled(
+                    p.container.clone().unwrap_or_default(),
+                    Style::default().fg(NET_TITLE),
+                )),
                 ProcColumn::Memory => Cell::from(format::bytes(p.memory_bytes)),
                 ProcColumn::Cpu => Cell::from(Span::styled(
                     format!("{cpu:.1}"),
@@ -1359,6 +1367,7 @@ enum ProcColumn {
     Command,
     Threads,
     User,
+    Container,
     Memory,
     Cpu,
     Disk,
@@ -1368,12 +1377,13 @@ enum ProcColumn {
 
 impl ProcColumn {
     /// Display order.
-    const ORDER: [ProcColumn; 10] = [
+    const ORDER: [ProcColumn; 11] = [
         ProcColumn::Pid,
         ProcColumn::Program,
         ProcColumn::Command,
         ProcColumn::Threads,
         ProcColumn::User,
+        ProcColumn::Container,
         ProcColumn::Memory,
         ProcColumn::Cpu,
         ProcColumn::Disk,
@@ -1388,6 +1398,7 @@ impl ProcColumn {
             ProcColumn::Command => "Command",
             ProcColumn::Threads => "Thr",
             ProcColumn::User => "User",
+            ProcColumn::Container => "Container",
             ProcColumn::Memory => "Mem",
             ProcColumn::Cpu => "Cpu%",
             ProcColumn::Disk => "Disk",
@@ -1403,6 +1414,7 @@ impl ProcColumn {
             ProcColumn::Command => None,
             ProcColumn::Threads => Some(SortKey::Threads),
             ProcColumn::User => Some(SortKey::User),
+            ProcColumn::Container => Some(SortKey::Container),
             ProcColumn::Memory => Some(SortKey::Memory),
             ProcColumn::Cpu => Some(SortKey::Cpu),
             ProcColumn::Disk => Some(SortKey::Disk),
@@ -1421,6 +1433,7 @@ impl ProcColumn {
             ProcColumn::Command => 12,
             ProcColumn::Threads => 4,
             ProcColumn::User => 9,
+            ProcColumn::Container => 14,
             ProcColumn::Memory => 6,
             ProcColumn::Cpu => 6,
             // "1023M/s"
@@ -1439,11 +1452,20 @@ impl ProcColumn {
     }
 }
 
+/// Which optional columns have data on a host.
+#[derive(Debug, Clone, Copy)]
+struct Optional {
+    gpus: bool,
+    threads: bool,
+    containers: bool,
+}
+
 /// Columns that fit in `width`: Pid, Program, Mem and Cpu% always, then
-/// User, Gpu%, VRAM, Disk, Thr and Command as space allows (GPU columns only on
-/// hosts with GPUs, Thr only where thread counts exist). Returned in
-/// display order.
-fn process_columns(width: u16, has_gpus: bool, has_threads: bool, tree: bool) -> Vec<ProcColumn> {
+/// User, Container, Gpu%, VRAM, Disk, Thr and Command as space allows (GPU
+/// columns only on hosts with GPUs, Thr only where thread counts exist,
+/// Container only where processes run in containers). Returned in display
+/// order.
+fn process_columns(width: u16, has: Optional, tree: bool) -> Vec<ProcColumn> {
     let mut chosen = vec![
         ProcColumn::Pid,
         ProcColumn::Program,
@@ -1452,6 +1474,7 @@ fn process_columns(width: u16, has_gpus: bool, has_threads: bool, tree: bool) ->
     ];
     let optional = [
         ProcColumn::User,
+        ProcColumn::Container,
         ProcColumn::Gpu,
         ProcColumn::Vram,
         ProcColumn::Disk,
@@ -1461,10 +1484,13 @@ fn process_columns(width: u16, has_gpus: bool, has_threads: bool, tree: bool) ->
     // Every column is followed by one space of column spacing.
     let used = |cols: &[ProcColumn]| cols.iter().map(|c| c.width(tree) + 1).sum::<u16>();
     for column in optional {
-        if !has_gpus && matches!(column, ProcColumn::Gpu | ProcColumn::Vram) {
-            continue;
-        }
-        if !has_threads && column == ProcColumn::Threads {
+        let available = match column {
+            ProcColumn::Gpu | ProcColumn::Vram => has.gpus,
+            ProcColumn::Threads => has.threads,
+            ProcColumn::Container => has.containers,
+            _ => true,
+        };
+        if !available {
             continue;
         }
         let mut candidate = chosen.clone();
@@ -1724,7 +1750,12 @@ mod tests {
 
     #[test]
     fn process_columns_keep_essentials_when_narrow() {
-        let narrow = process_columns(36, true, true, false);
+        let all = Optional {
+            gpus: true,
+            threads: true,
+            containers: true,
+        };
+        let narrow = process_columns(36, all, false);
         assert_eq!(
             narrow,
             vec![
@@ -1734,12 +1765,23 @@ mod tests {
                 ProcColumn::Cpu
             ]
         );
-        let wide = process_columns(120, true, true, false);
+        let wide = process_columns(120, all, false);
         assert_eq!(wide, ProcColumn::ORDER.to_vec());
         // No GPU columns on hosts without GPUs.
-        assert!(!process_columns(120, false, true, false).contains(&ProcColumn::Vram));
+        let no_gpus = Optional { gpus: false, ..all };
+        assert!(!process_columns(120, no_gpus, false).contains(&ProcColumn::Vram));
         // No Thr column where thread counts are unknown (Windows).
-        assert!(!process_columns(120, true, false, false).contains(&ProcColumn::Threads));
+        let no_threads = Optional {
+            threads: false,
+            ..all
+        };
+        assert!(!process_columns(120, no_threads, false).contains(&ProcColumn::Threads));
+        // No Container column without containers.
+        let no_containers = Optional {
+            containers: false,
+            ..all
+        };
+        assert!(!process_columns(120, no_containers, false).contains(&ProcColumn::Container));
     }
 
     #[test]

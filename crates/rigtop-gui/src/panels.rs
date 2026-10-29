@@ -1051,12 +1051,13 @@ fn network(ui: &mut Ui, state: &mut GuiState) {
 // ---------------------------------------------------------------- processes
 
 /// Columns of the process table: header, sort key, width (None = remainder).
-const PROC_COLUMNS: [(&str, Option<SortKey>, Option<f32>); 10] = [
+const PROC_COLUMNS: [(&str, Option<SortKey>, Option<f32>); 11] = [
     ("Pid", Some(SortKey::Pid), Some(70.0)),
     ("Program", Some(SortKey::Name), Some(130.0)),
     ("Command", None, None),
     ("Thr", Some(SortKey::Threads), Some(40.0)),
     ("User", Some(SortKey::User), Some(80.0)),
+    ("Container", Some(SortKey::Container), Some(110.0)),
     ("Mem", Some(SortKey::Memory), Some(64.0)),
     ("Cpu%", Some(SortKey::Cpu), Some(56.0)),
     ("Disk", Some(SortKey::Disk), Some(64.0)),
@@ -1068,7 +1069,15 @@ const PROC_COLUMNS: [(&str, Option<SortKey>, Option<f32>); 10] = [
 const COMMAND_MIN_WIDTH: f32 = 120.0;
 /// Columns given up first when the table is too narrow; Pid, Program, Mem
 /// and Cpu% always stay.
-const DROP_ORDER: [&str; 6] = ["Command", "Thr", "Disk", "User", "VRAM", "Gpu%"];
+const DROP_ORDER: [&str; 7] = [
+    "Command",
+    "Thr",
+    "Disk",
+    "User",
+    "Container",
+    "VRAM",
+    "Gpu%",
+];
 
 /// Removes columns in [`DROP_ORDER`] until the rest fit in `width`.
 fn fit_columns(
@@ -1098,7 +1107,7 @@ fn processes(ui: &mut Ui, state: &mut GuiState) {
         ui.label(dim("filter"));
         ui.add(
             egui::TextEdit::singleline(&mut state.filter)
-                .hint_text("name, command, user or pid")
+                .hint_text("name, command, user, container or pid")
                 .desired_width((panel_width * 0.35).clamp(80.0, 220.0)),
         );
         ui.checkbox(&mut state.tree, "tree")
@@ -1117,10 +1126,15 @@ fn processes(ui: &mut Ui, state: &mut GuiState) {
         .snapshot
         .as_ref()
         .is_some_and(|s| s.processes.iter().any(|p| p.threads.is_some()));
+    let has_containers = state
+        .snapshot
+        .as_ref()
+        .is_some_and(|s| s.processes.iter().any(|p| p.container.is_some()));
     let mut columns: Vec<_> = PROC_COLUMNS
         .iter()
         .filter(|(_, key, _)| has_gpus || !matches!(key, Some(SortKey::Gpu | SortKey::Vram)))
         .filter(|(_, key, _)| has_threads || *key != Some(SortKey::Threads))
+        .filter(|(_, key, _)| has_containers || *key != Some(SortKey::Container))
         .copied()
         .map(|(name, key, width)| match name {
             // Room for the lines before the names.
@@ -1198,6 +1212,13 @@ fn processes(ui: &mut Ui, state: &mut GuiState) {
                             "Command" => ui.label(dim(&p.command)),
                             "Thr" => ui.label(p.threads.map_or(String::new(), |t| t.to_string())),
                             "User" => ui.label(&p.user),
+                            "Container" => ui.add(
+                                egui::Label::new(colored(
+                                    p.container.as_deref().unwrap_or_default(),
+                                    widgets::NET_TITLE,
+                                ))
+                                .truncate(),
+                            ),
                             "Mem" => ui.label(format::bytes(p.memory_bytes)),
                             "Cpu%" => {
                                 let cpu = p.cpu_percent;

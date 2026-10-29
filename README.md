@@ -19,7 +19,7 @@ A system monitor for workstations, laptops and NAS — an alternative to btop th
 
 - The btop overview on one screen: CPU (total, per core, temperatures), every GPU, memory, storage, network, and a process list with kill / force kill.
 - **Storage health**, which existing monitors mostly skip: btrfs RAID profiles and per-device error counters, mdadm array state, ZFS pool health, NVMe temperatures, and SMART health.
-- Per-process GPU usage and VRAM (NVIDIA, via NVML), and per-process disk I/O.
+- Per-process GPU usage and VRAM (NVIDIA, via NVML), per-process disk I/O, and the container each process runs in (Docker, Podman, Kubernetes, LXC, systemd-nspawn; Linux).
 - Combined CPU + GPU power draw and fan speeds (with your own labels for fan channels).
 - **Multiple hosts over plain SSH**: `rigtop --agent` streams snapshots over stdin/stdout, so there is no daemon to run and no port to open.
 
@@ -114,7 +114,7 @@ cargo run --release -p rigtop -- --help  # options (--interval-ms, --config, --d
 |---|---|
 | `↑` `↓` `PgUp` `PgDn` `Home` `End` | select a process |
 | `←` `→` / `r` | change the sort column / reverse the order |
-| `/` | filter by name, command, user or pid (`Enter` keeps it, `Esc` clears it) |
+| `/` | filter by name, command, user, container or pid (`Enter` keeps it, `Esc` clears it) |
 | `e` | tree view: processes under their parents, siblings in the sort order (a filter keeps the parents of what it finds) |
 | `t` | show or hide kernel threads |
 | `v` | show or hide boxes of the host view: `m` memory, `g` GPU, `s` storage, `n` network, `p` processes (saved as `[tui] hidden_panels`), and `w` the widget column; the others take the room |

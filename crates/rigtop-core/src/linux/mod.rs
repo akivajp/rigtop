@@ -2,13 +2,14 @@
 //!
 //! These cover what `sysinfo` does not expose: hwmon sensors, RAPL energy
 //! counters, per-device disk I/O, btrfs, mdadm and ZFS state, failed
-//! systemd units.
+//! systemd units, the containers processes run in.
 //!
 //! Every reader takes its root directories from [`SysRoots`] instead of
 //! hard-coding `/sys` and `/proc`, so tests can point them at a fixture tree.
 
 pub mod battery;
 pub mod btrfs;
+pub mod containers;
 pub mod diskstats;
 pub mod drm;
 pub mod hwmon;

@@ -113,6 +113,8 @@ pub struct LocalSource {
     net_links: NetLinkReader,
     #[cfg(target_os = "linux")]
     failed_units: linux::systemd::FailedUnitsReader,
+    #[cfg(target_os = "linux")]
+    containers: linux::containers::ContainerTracker,
     /// Directories searched for btrfs scrub status files, in order.
     #[cfg(target_os = "linux")]
     scrub_dirs: Vec<std::path::PathBuf>,
@@ -152,6 +154,8 @@ impl LocalSource {
             net_links: NetLinkReader::new(),
             #[cfg(target_os = "linux")]
             failed_units: linux::systemd::FailedUnitsReader::new(),
+            #[cfg(target_os = "linux")]
+            containers: linux::containers::ContainerTracker::new(),
             #[cfg(target_os = "linux")]
             drm_gpus: linux::drm::DrmGpuReader::new(),
             // The copy made by the root collector first, then btrfs-progs'
@@ -295,6 +299,8 @@ impl LocalSource {
         for process in &mut snapshot.processes {
             process.threads = linux::procstat::thread_count(&self.roots, process.pid);
         }
+        self.containers
+            .annotate(&self.roots, &mut snapshot.processes, now);
 
         snapshot.sensors = chips.into_iter().map(|c| c.chip).collect();
     }
