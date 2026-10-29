@@ -520,6 +520,20 @@ pub fn event_time(at_ms: u64, now: SystemTime) -> String {
     }
 }
 
+/// Where a host goes in an overview sorted by attention: 0 for one that is
+/// unreachable or has a critical alert, 1 for one with stale data or a
+/// warning, 2 for the rest.
+pub fn attention_rank(alerts: &[Alert], unreachable: bool, stale: bool) -> u8 {
+    let worst = alerts.iter().map(|a| a.severity).max();
+    if unreachable || worst == Some(Severity::Critical) {
+        0
+    } else if stale || worst == Some(Severity::Warning) {
+        1
+    } else {
+        2
+    }
+}
+
 /// Short notes for a GPU's title line, with how much attention each needs
 /// (`None`: just information): running at its power limit, slowed down by
 /// the hardware, ECC memory errors.
@@ -1021,6 +1035,26 @@ pub fn default_interface(snapshot: &Snapshot) -> Option<String> {
 mod tests {
     use super::*;
     use crate::snapshot::{EccErrors, GpuProcess, NetworkStats};
+
+    #[test]
+    fn attention_ranks() {
+        let alert = |severity| Alert {
+            severity,
+            text: String::new(),
+        };
+        assert_eq!(attention_rank(&[], false, false), 2);
+        assert_eq!(attention_rank(&[alert(Severity::Warning)], false, false), 1);
+        assert_eq!(attention_rank(&[], false, true), 1);
+        assert_eq!(
+            attention_rank(
+                &[alert(Severity::Warning), alert(Severity::Critical)],
+                false,
+                false
+            ),
+            0
+        );
+        assert_eq!(attention_rank(&[], true, false), 0);
+    }
 
     #[test]
     fn gpu_notes_and_pcie() {

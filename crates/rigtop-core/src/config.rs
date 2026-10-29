@@ -63,6 +63,7 @@
 //! sections = ["cpu", "gpu", "memory", "processes", "network", "storage"]
 //! include_local = true
 //! processes = 10
+//! alerts_first = true   # hosts that need attention first
 //!
 //! [[hosts]]
 //! name = "zefat"
@@ -273,6 +274,9 @@ pub struct OverviewConfig {
     /// Processes listed per card. Hosts not shown in detail only send this
     /// many, to keep SSH traffic small.
     pub processes: usize,
+    /// Put hosts that need attention first (unreachable or with critical
+    /// alerts, then warnings); the others keep their order.
+    pub alerts_first: bool,
 }
 
 impl Default for OverviewConfig {
@@ -281,6 +285,7 @@ impl Default for OverviewConfig {
             sections: OverviewSection::ALL.to_vec(),
             include_local: true,
             processes: 10,
+            alerts_first: true,
         }
     }
 }

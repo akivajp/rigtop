@@ -9,7 +9,7 @@ use rigtop_core::config::AlertsConfig;
 use rigtop_core::config::OverviewSection;
 use rigtop_core::format;
 use rigtop_core::snapshot::Snapshot;
-use rigtop_core::view::{Severity, alerts_with};
+use rigtop_core::view::{Severity, alerts_with, attention_rank};
 
 use crate::app::{HostEntry, OverviewSettings, ViewAction};
 use crate::widgets::{self, BAD, BORDER, DIM, OK, TEXT, WARN, percent_color, temperature_color};
@@ -65,6 +65,20 @@ pub fn host_status(host: &HostEntry) -> (Color32, String) {
             }
         }
     }
+}
+
+/// The host's [`attention_rank`], for ordering the overview.
+fn attention(host: &HostEntry) -> u8 {
+    let state = &host.state;
+    let alerts = state
+        .snapshot
+        .as_ref()
+        .map(|s| alerts_with(s, &state.config.alerts))
+        .unwrap_or_default();
+    let stale = state
+        .last_update
+        .is_some_and(|at| at.elapsed() > STALE_AFTER);
+    attention_rank(&alerts, state.connection_error.is_some(), stale)
 }
 
 /// A colored "●" followed by plain text, as one label text.
@@ -176,9 +190,16 @@ pub fn show(
     });
     ui.add_space(2.0);
 
-    let visible: Vec<usize> = (0..hosts.len())
+    let mut visible: Vec<usize> = (0..hosts.len())
         .filter(|&i| settings.include_local || !hosts[i].spec.is_local())
         .collect();
+    if visible
+        .first()
+        .is_some_and(|&i| hosts[i].state.config.overview.alerts_first)
+    {
+        // Stable: hosts of the same rank keep the configured order.
+        visible.sort_by_key(|&i| attention(&hosts[i]));
+    }
     if visible.is_empty() {
         ui.label(dim(
             "no hosts to show: add [[hosts]] to the configuration or use --host",

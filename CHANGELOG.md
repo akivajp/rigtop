@@ -28,6 +28,12 @@ include breaking changes).
   are a critical alert). The GUI shows the PCIe link in the GPU name's
   tooltip.
 
+### Changed
+- The overview puts hosts that need attention first (unreachable or with a
+  critical alert, then with warnings); the others keep their order. Tabs
+  keep the configured order. `[overview] alerts_first = false` turns this
+  off.
+
 ## [0.17.0] - 2026-10-29
 
 ### Added

@@ -10,7 +10,7 @@ use ratatui::widgets::{Block, BorderType, Paragraph, Wrap};
 use rigtop_core::config::OverviewSection;
 use rigtop_core::format;
 use rigtop_core::snapshot::Snapshot;
-use rigtop_core::view::{Severity, alerts_with};
+use rigtop_core::view::{Severity, alerts_with, attention_rank};
 
 use super::HostTui;
 use super::ui::{
@@ -60,6 +60,18 @@ pub fn host_status(host: &HostTui) -> (Color, String) {
             }
         }
     }
+}
+
+/// The host's [`attention_rank`], for ordering the overview.
+fn attention(host: &HostTui) -> u8 {
+    let app = &host.app;
+    let alerts = app
+        .snapshot
+        .as_ref()
+        .map(|s| alerts_with(s, &app.config.alerts))
+        .unwrap_or_default();
+    let stale = app.last_update.is_some_and(|at| at.elapsed() > STALE_AFTER);
+    attention_rank(&alerts, app.connection_error.is_some(), stale)
 }
 
 /// Draws "0 Overview  1 ● local  2 ● zefat" and returns the clickable
@@ -139,10 +151,17 @@ pub fn draw_overview(
     include_local: bool,
     processes: usize,
 ) {
-    let visible: Vec<&HostTui> = hosts
+    let mut visible: Vec<&HostTui> = hosts
         .iter()
         .filter(|h| include_local || !h.spec.is_local())
         .collect();
+    if visible
+        .first()
+        .is_some_and(|h| h.app.config.overview.alerts_first)
+    {
+        // Stable: hosts of the same rank keep the configured order.
+        visible.sort_by_key(|h| attention(h));
+    }
     if visible.is_empty() {
         let text = "no hosts to show: add [[hosts]] to the configuration or use --host";
         frame.render_widget(Paragraph::new(dim(text)), area);
