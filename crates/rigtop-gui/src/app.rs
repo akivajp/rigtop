@@ -156,6 +156,8 @@ pub struct GuiState {
     /// Selected process, tracked by pid so it survives re-sorting.
     pub selected_pid: Option<u32>,
     pub confirm: Option<ConfirmSignal>,
+    /// The process whose details window is open.
+    pub details_pid: Option<u32>,
     /// Commands queued for the worker during this frame.
     pub commands: Vec<Command>,
     /// View changes queued during this frame.
@@ -211,6 +213,7 @@ impl GuiState {
             tree: false,
             selected_pid: None,
             confirm: None,
+            details_pid: None,
             commands: Vec::new(),
             view_actions: Vec::new(),
             zoom: 1.0,
@@ -968,6 +971,7 @@ impl RigtopApp {
             });
         if let View::Host(index) = self.view {
             panels::confirm_dialog(ui.ctx(), &mut self.hosts[index].state);
+            panels::details_window(ui.ctx(), &mut self.hosts[index].state);
             lhm_setup::dialog(ui.ctx(), &mut self.hosts[index].state);
         }
 
@@ -1482,6 +1486,14 @@ mod tests {
         harness.get_by_label("Cancel").click();
         harness.run();
         assert!(harness.state().primary().confirm.is_none());
+
+        // "Details…" opens a window with the whole command line.
+        harness.get_by_label("python").click_secondary();
+        harness.run();
+        harness.get_by_label("Details…").click();
+        harness.run();
+        assert_eq!(harness.state().primary().details_pid, Some(4242));
+        harness.get_by_label("Running");
     }
 
     #[test]

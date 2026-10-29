@@ -169,6 +169,11 @@ fn draw_screen(
     let hit = shown(OverviewSection::Processes)
         .then(|| draw_processes(frame, app, snapshot, right, table_state));
 
+    if app.details
+        && let Some(pid) = app.selected_pid
+    {
+        draw_details(frame, right, snapshot, pid);
+    }
     if let Some(confirm) = &app.confirm {
         draw_confirm(
             frame,
@@ -1248,7 +1253,7 @@ fn draw_processes(
     let footer = match app.status() {
         Some(status) => Line::from(colored(format!(" {status} "), WARN)),
         None => Line::from(dim(
-            " ↑↓ select  ←→ sort  r reverse  / filter  e tree  t kthreads  v panels  U update  k term  K kill  +- interval  g graph span  a alerts  q quit ",
+            " ↑↓ select  Enter details  ←→ sort  r reverse  / filter  e tree  t kthreads  v panels  U update  k term  K kill  +- interval  g graph span  a alerts  q quit ",
         )),
     };
     let block = panel("proc", PROC_TITLE)
@@ -1510,6 +1515,44 @@ fn process_columns(width: u16, has: Optional, tree: bool) -> Vec<ProcColumn> {
         .into_iter()
         .filter(|c| chosen.contains(c))
         .collect()
+}
+
+/// The selected process's details over the lower part of `area` (the
+/// process box), so the selected row usually stays in sight above.
+fn draw_details(frame: &mut Frame, area: Rect, snapshot: &Snapshot, pid: u32) {
+    let rows = rigtop_core::view::process_details(snapshot, pid, std::time::SystemTime::now());
+    let mut lines: Vec<Line> = match rows {
+        Some(rows) => rows
+            .into_iter()
+            .map(|(label, value)| {
+                Line::from(vec![
+                    colored(format!("{label:<10}"), PROC_TITLE),
+                    Span::raw(value),
+                ])
+            })
+            .collect(),
+        None => vec![Line::from(dim(format!("process {pid} has exited")))],
+    };
+    lines.push(Line::from(dim("Enter/Esc: close   ↑↓: other processes")));
+    // Rows after wrapping (long command lines), plus the borders.
+    let inner_width = area.width.saturating_sub(2).max(1) as usize;
+    let wrapped: usize = lines
+        .iter()
+        .map(|line| line.width().div_ceil(inner_width).max(1))
+        .sum();
+    let height = (wrapped as u16 + 2).min(area.height);
+    let rect = Rect {
+        y: area.bottom() - height,
+        height,
+        ..area
+    };
+    frame.render_widget(Clear, rect);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(panel("details", PROC_TITLE))
+            .wrap(ratatui::widgets::Wrap { trim: false }),
+        rect,
+    );
 }
 
 fn draw_confirm(frame: &mut Frame, area: Rect, pid: u32, name: &str, signal: &str) {

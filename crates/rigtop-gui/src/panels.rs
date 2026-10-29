@@ -1179,6 +1179,7 @@ fn processes(ui: &mut Ui, state: &mut GuiState) {
     let mut sort_clicked = None;
     let mut select = None;
     let mut ask = None;
+    let mut details = None;
     // Rows are computed once per frame; the closures below only read them.
     let rows = state.process_rows();
     let (sort_key, descending, selected_pid) =
@@ -1256,9 +1257,16 @@ fn processes(ui: &mut Ui, state: &mut GuiState) {
                 if response.clicked() {
                     select = Some(p.pid);
                 }
+                if response.double_clicked() {
+                    details = Some(p.pid);
+                }
                 response.context_menu(|ui| {
                     ui.label(dim(format!("{} ({})", p.name, p.pid)));
                     ui.separator();
+                    if ui.button("Details…").clicked() {
+                        details = Some(p.pid);
+                        ui.close();
+                    }
                     if ui.button("Terminate (SIGTERM)").clicked() {
                         ask = Some((p.pid, p.name.clone(), ProcessSignal::Terminate));
                         ui.close();
@@ -1278,9 +1286,53 @@ fn processes(ui: &mut Ui, state: &mut GuiState) {
     if let Some(pid) = select {
         state.selected_pid = Some(pid);
     }
+    if let Some(pid) = details {
+        state.selected_pid = Some(pid);
+        state.details_pid = Some(pid);
+    }
     if let Some((pid, name, signal)) = ask {
         state.selected_pid = Some(pid);
         state.ask_signal(pid, &name, signal);
+    }
+}
+
+/// A window with the details of a process (who started it, since when,
+/// its whole command line...), kept up to date until closed.
+pub fn details_window(ctx: &egui::Context, state: &mut GuiState) {
+    let Some(pid) = state.details_pid else {
+        return;
+    };
+    let rows = state
+        .snapshot
+        .as_ref()
+        .and_then(|s| view::process_details(s, pid, std::time::SystemTime::now()));
+    let mut open = true;
+    egui::Window::new(format!("process {pid}"))
+        .id(egui::Id::unique(("process_details", pid)))
+        .open(&mut open)
+        .collapsible(false)
+        .resizable(true)
+        .default_width(520.0)
+        .show(ctx, |ui| match rows {
+            Some(rows) => {
+                egui::Grid::new("process_details_grid")
+                    .num_columns(2)
+                    .striped(true)
+                    .show(ui, |ui| {
+                        for (label, value) in rows {
+                            ui.label(colored(label, widgets::PROC_TITLE));
+                            // Long command lines wrap; selectable for copying.
+                            ui.add(egui::Label::new(value).wrap().selectable(true));
+                            ui.end_row();
+                        }
+                    });
+            }
+            None => {
+                ui.label(dim(format!("process {pid} has exited")));
+            }
+        });
+    if !open {
+        state.details_pid = None;
     }
 }
 

@@ -520,6 +520,90 @@ pub fn event_time(at_ms: u64, now: SystemTime) -> String {
     }
 }
 
+/// What a process detail view shows, as label and value rows: who started
+/// it, who runs it, since when, what it uses, and its whole command line.
+/// `None` once the process is gone.
+pub fn process_details(
+    snapshot: &Snapshot,
+    pid: u32,
+    now: SystemTime,
+) -> Option<Vec<(&'static str, String)>> {
+    let by_pid: HashMap<u32, &ProcessInfo> =
+        snapshot.processes.iter().map(|p| (p.pid, p)).collect();
+    let process = by_pid.get(&pid)?;
+    let mut rows = vec![("Program", format!("{} (pid {})", process.name, process.pid))];
+
+    // Parents up to the first process, oldest first; bounded in case of a
+    // loop in inconsistent data.
+    let mut chain = Vec::new();
+    let mut parent = process.parent_pid;
+    while let Some(ppid) = parent.filter(|_| chain.len() < 32) {
+        match by_pid.get(&ppid) {
+            Some(p) => {
+                chain.push(format!("{} ({})", p.name, p.pid));
+                parent = p.parent_pid.filter(|&next| next != p.pid);
+            }
+            None => {
+                chain.push(ppid.to_string());
+                break;
+            }
+        }
+    }
+    if !chain.is_empty() {
+        chain.reverse();
+        rows.push(("Parents", chain.join(" › ")));
+    }
+    let children = snapshot
+        .processes
+        .iter()
+        .filter(|p| p.parent_pid == Some(pid))
+        .count();
+    if children > 0 {
+        rows.push(("Children", children.to_string()));
+    }
+    rows.push(("User", process.user.clone()));
+    if let Some(container) = &process.container {
+        rows.push(("Container", container.clone()));
+    }
+    if !process.state.is_empty() {
+        rows.push(("State", process.state.clone()));
+    }
+    let started = now - Duration::from_secs(process.run_time_secs);
+    rows.push(("Running", since_note(started, now)));
+    rows.push(("CPU", format!("{:.1}%", process.cpu_percent)));
+    rows.push(("Memory", format::bytes(process.memory_bytes)));
+    if let Some(threads) = process.threads {
+        rows.push(("Threads", threads.to_string()));
+    }
+    rows.push((
+        "Disk",
+        format!(
+            "read {}, write {}",
+            format::rate(process.read_bytes_per_sec),
+            format::rate(process.write_bytes_per_sec)
+        ),
+    ));
+    for gpu in &snapshot.gpus {
+        if let Some(usage) = gpu.processes.iter().find(|p| p.pid == pid) {
+            let mut text = format!("GPU {}", gpu.index);
+            if let Some(sm) = usage.sm_percent {
+                text.push_str(&format!(" {sm:.0}%"));
+            }
+            if let Some(memory) = usage.memory_bytes {
+                text.push_str(&format!(", {} VRAM", format::bytes(memory)));
+            }
+            rows.push(("GPU", text));
+        }
+    }
+    let command = if process.command.is_empty() {
+        format!("[{}]", process.name)
+    } else {
+        process.command.clone()
+    };
+    rows.push(("Command", command));
+    Some(rows)
+}
+
 /// Where a host goes in an overview sorted by attention: 0 for one that is
 /// unreachable or has a critical alert, 1 for one with stale data or a
 /// warning, 2 for the rest.
@@ -1035,6 +1119,45 @@ pub fn default_interface(snapshot: &Snapshot) -> Option<String> {
 mod tests {
     use super::*;
     use crate::snapshot::{EccErrors, GpuProcess, NetworkStats};
+
+    #[test]
+    fn process_details_rows() {
+        let mut snapshot = Snapshot::default();
+        let mut shell = process(20, "zsh", 0.0, false);
+        shell.parent_pid = Some(1);
+        let mut python = process(30, "python", 99.5, false);
+        python.parent_pid = Some(20);
+        python.command = "python train.py --epochs 10".to_owned();
+        python.container = Some("trainer".to_owned());
+        python.run_time_secs = 3_660;
+        snapshot.processes = vec![process(1, "systemd", 0.0, false), shell, python];
+        snapshot.gpus = vec![GpuStats {
+            index: 0,
+            processes: vec![GpuProcess {
+                pid: 30,
+                memory_bytes: Some(2 << 30),
+                sm_percent: Some(97.0),
+            }],
+            ..Default::default()
+        }];
+        let now = SystemTime::now();
+        let rows = process_details(&snapshot, 30, now).unwrap();
+        let get = |label: &str| {
+            rows.iter()
+                .find(|(l, _)| *l == label)
+                .map(|(_, v)| v.as_str())
+        };
+        assert_eq!(get("Program"), Some("python (pid 30)"));
+        assert_eq!(get("Parents"), Some("systemd (1) › zsh (20)"));
+        assert_eq!(get("Children"), None);
+        assert_eq!(get("Container"), Some("trainer"));
+        assert!(get("Running").unwrap().starts_with("1h01m (since "));
+        assert_eq!(get("GPU"), Some("GPU 0 97%, 2.0G VRAM"));
+        assert_eq!(get("Command"), Some("python train.py --epochs 10"));
+        let shell = process_details(&snapshot, 20, now).unwrap();
+        assert!(shell.contains(&("Children", "1".to_owned())));
+        assert!(process_details(&snapshot, 99, now).is_none());
+    }
 
     #[test]
     fn attention_ranks() {

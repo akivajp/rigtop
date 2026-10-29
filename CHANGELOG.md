@@ -27,6 +27,9 @@ include breaking changes).
   warning) and ECC memory errors since the driver loaded (uncorrected ones
   are a critical alert). The GUI shows the PCIe link in the GPU name's
   tooltip.
+- Process details: `Enter` in the TUI, a double-click (or right-click →
+  "Details…") in the GUI shows the selected process's parents, children,
+  user, container, start time, usage, GPU use and whole command line.
 
 ### Changed
 - The overview puts hosts that need attention first (unreachable or with a

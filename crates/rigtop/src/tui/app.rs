@@ -60,6 +60,8 @@ pub struct App {
     pub selected_pid: Option<u32>,
     pub table_state: TableState,
     pub confirm: Option<ConfirmSignal>,
+    /// Whether the selected process's details are open (`Enter`).
+    pub details: bool,
     /// Process table geometry from the last frame.
     pub proc_hit: Option<ProcTableHit>,
     status: Option<(String, Instant)>,
@@ -102,6 +104,7 @@ impl App {
             selected_pid: None,
             table_state: TableState::default(),
             confirm: None,
+            details: false,
             proc_hit: None,
             status: None,
             interval,
@@ -242,9 +245,18 @@ impl App {
             return None;
         }
 
+        if self.details {
+            // Esc or Enter closes the details; other keys work underneath
+            // (moving the selection shows the next process's details).
+            if matches!(key.code, KeyCode::Esc | KeyCode::Enter) {
+                self.details = false;
+                return None;
+            }
+        }
         let rows_len = self.process_rows().len();
         match key.code {
             KeyCode::Char('q') => self.should_quit = true,
+            KeyCode::Enter => self.details = self.selected_pid.is_some(),
             KeyCode::Esc if !self.filter.is_empty() => self.filter.clear(),
             KeyCode::Up => self.move_selection(-1, rows_len),
             KeyCode::Down => self.move_selection(1, rows_len),
