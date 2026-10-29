@@ -4,7 +4,8 @@
 //!   sources and front-ends (also the wire format for remote monitoring).
 //! - [`source`]: the [`DataSource`] trait and the [`LocalSource`] implementation.
 //! - [`config`]: user configuration (sensor labels, SMART directory).
-//! - [`system`], [`gpu`], [`smart`], `linux`: the individual collectors.
+//! - [`system`], [`gpu`], [`smart`], `linux`: the individual collectors;
+//!   [`fill`]: when filesystems will be full.
 //! - [`agent`], [`remote`]: remote monitoring over SSH (`rigtop --agent` and
 //!   the [`remote::RemoteSource`] that talks to it).
 //! - [`demo`]: made-up hosts for trying the interface (`--demo`).
@@ -14,6 +15,7 @@
 pub mod agent;
 pub mod config;
 pub mod demo;
+pub mod fill;
 pub mod format;
 pub mod gpu;
 pub mod hosts;

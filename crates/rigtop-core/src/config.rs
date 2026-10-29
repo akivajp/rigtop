@@ -23,6 +23,7 @@
 //! # When readings become alerts (0 turns one off).
 //! filesystem_warning_percent = 90
 //! filesystem_critical_percent = 97
+//! filesystem_full_warning_hours = 24  # full this soon at the last half hour's rate
 //! cpu_warning_celsius = 96    # hottest CPU reading
 //! gpu_warning_celsius = 85
 //! drive_warning_celsius = 70  # SMART or NVMe sensor
@@ -378,6 +379,9 @@ pub struct AlertsConfig {
     pub filesystem_warning_percent: f64,
     /// Filesystem usage (%) for a critical alert.
     pub filesystem_critical_percent: f64,
+    /// A filesystem that will be full within this many hours, at the growth
+    /// of the last half hour, is a warning.
+    pub filesystem_full_warning_hours: f64,
     /// Hottest CPU reading (°C) for a warning. Desktop Ryzen CPUs run up to
     /// 95 °C under full load by design.
     pub cpu_warning_celsius: f32,
@@ -401,6 +405,7 @@ impl Default for AlertsConfig {
         Self {
             filesystem_warning_percent: 90.0,
             filesystem_critical_percent: 97.0,
+            filesystem_full_warning_hours: 24.0,
             cpu_warning_celsius: 96.0,
             gpu_warning_celsius: 85.0,
             drive_warning_celsius: 70.0,

@@ -114,6 +114,7 @@ pub struct LocalSource {
     last_poll: Option<Instant>,
     /// See [`DataSource::watch_processes`].
     watched_pids: Vec<u32>,
+    fill: crate::fill::FillTracker,
     #[cfg(target_os = "linux")]
     roots: SysRoots,
     #[cfg(target_os = "linux")]
@@ -158,6 +159,7 @@ impl LocalSource {
             smart: SmartReader::new(&config.smart.dir),
             last_poll: None,
             watched_pids: Vec::new(),
+            fill: crate::fill::FillTracker::new(),
             #[cfg(target_os = "linux")]
             roots: SysRoots::default(),
             #[cfg(target_os = "linux")]
@@ -233,6 +235,7 @@ impl LocalSource {
         #[cfg(not(target_os = "linux"))]
         self.collect_portable(&mut snapshot, elapsed);
 
+        self.fill.annotate(&mut snapshot.filesystems, now);
         let power = &mut snapshot.power;
         power.total_w = sum_present([power.cpu_or_soc_w().1, power.gpus_w]);
         snapshot

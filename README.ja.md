@@ -337,6 +337,7 @@ scrub_dir = "/var/lib/rigtop/btrfs"
 # 警告にする値（0 でその警告を出さない）
 filesystem_warning_percent = 90
 filesystem_critical_percent = 97
+filesystem_full_warning_hours = 24  # 直近30分の増え方でこの時間内に満杯になりそうなら警告
 cpu_warning_celsius = 96    # CPU の最も高い温度
 gpu_warning_celsius = 85
 drive_warning_celsius = 70  # SMART か NVMe のセンサー

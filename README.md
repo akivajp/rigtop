@@ -337,6 +337,7 @@ scrub_dir = "/var/lib/rigtop/btrfs"
 # When readings become alerts (0 turns one off).
 filesystem_warning_percent = 90
 filesystem_critical_percent = 97
+filesystem_full_warning_hours = 24  # full this soon at the last half hour's rate
 cpu_warning_celsius = 96    # hottest CPU reading
 gpu_warning_celsius = 85
 drive_warning_celsius = 70  # SMART or NVMe sensor

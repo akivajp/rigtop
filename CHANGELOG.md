@@ -25,6 +25,10 @@ include breaking changes).
   agent keeps watched processes in its limited process list
   (`watch_processes` in the agent protocol, announced in its greeting;
   older agents are left alone and the details say they cannot tell).
+- Filesystems filling up: one that will be full within
+  `[alerts] filesystem_full_warning_hours` (24) at the growth of the last
+  half hour is a warning ("/srv full in ~5h12m"). Measured by the agent,
+  so remote hosts need 0.19 or later; it takes ten minutes of history.
 
 ## [0.18.0] - 2026-10-29
 

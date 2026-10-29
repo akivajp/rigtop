@@ -953,6 +953,16 @@ pub fn alerts_with(snapshot: &Snapshot, limits: &AlertsConfig) -> Vec<Alert> {
         } else if reached(percent, limits.filesystem_warning_percent) {
             add(Severity::Warning, format!("{name} {percent:.0}% full"));
         }
+        let soon = limits.filesystem_full_warning_hours * 3600.0;
+        if let Some(secs) = fs.full_in_secs
+            && soon > 0.0
+            && secs as f64 <= soon
+        {
+            add(
+                Severity::Warning,
+                format!("{name} full in ~{}", format::duration(secs)),
+            );
+        }
     }
     if let Some(text) = oom_alert(&snapshot.memory.oom_kills) {
         add(Severity::Critical, text);
@@ -1925,6 +1935,39 @@ mod tests {
             );
         }
         assert_eq!(log.events().count(), ALERT_LOG_LEN);
+    }
+
+    #[test]
+    fn filesystems_filling_up_warn() {
+        use crate::snapshot::FilesystemUsage;
+        let filling = |full_in_secs| Snapshot {
+            filesystems: vec![FilesystemUsage {
+                mount_points: vec!["/srv".to_owned()],
+                total_bytes: 100,
+                available_bytes: 50,
+                full_in_secs,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let texts = |snapshot: &Snapshot, limits: &AlertsConfig| -> Vec<String> {
+            alerts_with(snapshot, limits)
+                .into_iter()
+                .map(|a| a.text)
+                .collect()
+        };
+        let defaults = AlertsConfig::default();
+        assert_eq!(
+            texts(&filling(Some(5 * 3600)), &defaults),
+            ["/srv full in ~5h00m"]
+        );
+        assert!(texts(&filling(Some(30 * 3600)), &defaults).is_empty());
+        assert!(texts(&filling(None), &defaults).is_empty());
+        let off = AlertsConfig {
+            filesystem_full_warning_hours: 0.0,
+            ..Default::default()
+        };
+        assert!(texts(&filling(Some(60)), &off).is_empty());
     }
 
     #[test]

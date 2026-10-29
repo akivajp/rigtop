@@ -718,6 +718,7 @@ fn workstation(t: f64) -> Snapshot {
                 mount_points: vec!["/".to_owned(), "/home".to_owned()],
                 total_bytes: 5 * TIB + TIB / 2,
                 available_bytes: 3 * TIB + TIB / 10,
+                full_in_secs: None,
             },
             FilesystemUsage {
                 device: "/dev/nvme0n1p1".to_owned(),
@@ -725,6 +726,7 @@ fn workstation(t: f64) -> Snapshot {
                 mount_points: vec!["/boot/efi".to_owned()],
                 total_bytes: GIB,
                 available_bytes: GIB - (60 << 20),
+                full_in_secs: None,
             },
         ],
         raid: RaidStats {
@@ -882,6 +884,7 @@ fn laptop(t: f64) -> Snapshot {
             mount_points: vec!["/".to_owned()],
             total_bytes: 930 * GIB,
             available_bytes: 352 * GIB,
+            full_in_secs: None,
         }],
         networks: vec![NetworkStats {
             name: "wlp1s0".to_owned(),
@@ -1011,6 +1014,7 @@ fn nas(t: f64) -> Snapshot {
                 mount_points: vec!["/srv".to_owned()],
                 total_bytes: 21 * TIB + TIB / 2,
                 available_bytes: 2 * TIB - TIB / 5,
+                full_in_secs: None,
             },
             FilesystemUsage {
                 device: "/dev/sde2".to_owned(),
@@ -1018,6 +1022,7 @@ fn nas(t: f64) -> Snapshot {
                 mount_points: vec!["/".to_owned()],
                 total_bytes: 230 * GIB,
                 available_bytes: 180 * GIB,
+                full_in_secs: None,
             },
         ],
         raid: RaidStats {

@@ -202,6 +202,7 @@ impl SystemCollector {
                 mount_points: Vec::new(),
                 total_bytes: disk.total_space(),
                 available_bytes: disk.available_space(),
+                full_in_secs: None,
             });
             entry.mount_points.push(mount_point);
         }

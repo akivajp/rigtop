@@ -409,6 +409,10 @@ pub struct FilesystemUsage {
     pub total_bytes: u64,
     /// Space available to unprivileged users.
     pub available_bytes: u64,
+    /// Seconds until it is full at the growth of the last half hour; `None`
+    /// when usage does not grow, without enough history yet, and from
+    /// agents before 0.19 (see [`crate::fill`]).
+    pub full_in_secs: Option<u64>,
 }
 
 /// Returns true if `device` (a disk such as `"sda"`, or an NVMe controller
