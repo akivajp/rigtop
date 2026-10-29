@@ -82,6 +82,18 @@ impl Pane {
         }
     }
 
+    /// Full name, for menus.
+    pub fn name(self) -> &'static str {
+        match self {
+            Pane::Cpu => "CPU",
+            Pane::Memory => "Memory",
+            Pane::Gpu => "GPU",
+            Pane::Storage => "Storage",
+            Pane::Network => "Network",
+            Pane::Processes => "Processes",
+        }
+    }
+
     /// Title color, as in the TUI.
     pub fn color(self) -> Color32 {
         match self {
@@ -126,6 +138,8 @@ pub enum ViewAction {
     SelfUpdate,
     /// Start rigtop again, to run a newly installed release.
     Restart,
+    /// Show or hide a panel of the host view.
+    TogglePane(Pane),
 }
 
 /// Everything the panels read and modify.
@@ -167,6 +181,8 @@ pub struct GuiState {
     pub alerts_unread: (usize, Option<Severity>),
     /// A new release of rigtop, or one waiting for a restart (title bar).
     pub release: Option<ReleaseNote>,
+    /// Panels hidden from the host view ("panels…").
+    pub hidden_panes: Vec<Pane>,
     /// How much time the graphs cover.
     pub graph_span: GraphSpan,
     /// Collection interval, to turn a time span into samples.
@@ -206,6 +222,7 @@ impl GuiState {
             widgets_visible: None,
             alerts_unread: (0, None),
             release: None,
+            hidden_panes: Vec::new(),
             graph_span: GraphSpan::default(),
             interval: Duration::from_secs(1),
             is_local: false,
@@ -935,6 +952,7 @@ impl RigtopApp {
                         host.state.widgets_visible =
                             (!self.widgets.is_empty()).then_some(self.show_widgets);
                         host.state.alerts_unread = self.alert_log.unread();
+                        host.state.hidden_panes = hidden_panes(&self.tree);
                         host.state.release = release.clone();
                         if host.state.snapshot.is_none() {
                             waiting_screen(ui, host);
@@ -959,6 +977,13 @@ impl RigtopApp {
                 ViewAction::ZoomOut => set_zoom(&ctx, ctx.zoom_factor() - ZOOM_STEP),
                 ViewAction::ZoomReset => set_zoom(&ctx, 1.0),
                 ViewAction::ResetLayout => self.tree = default_tree(),
+                ViewAction::TogglePane(pane) => {
+                    if let Some(id) = self.tree.tiles.find_pane(&pane) {
+                        // The other panels share the room of a hidden one.
+                        let visible = self.tree.is_visible(id);
+                        self.tree.set_visible(id, !visible);
+                    }
+                }
                 ViewAction::EditHosts => self.hosts_dialog.open(),
                 ViewAction::ToggleWidgets => self.show_widgets = !self.show_widgets,
                 ViewAction::NextGraphSpan => self.graph_span = self.graph_span.next(),
@@ -1148,6 +1173,18 @@ impl eframe::App for RigtopApp {
 fn set_zoom(ctx: &egui::Context, zoom: f32) {
     let zoom = (zoom.clamp(MIN_ZOOM, MAX_ZOOM) * 100.0).round() / 100.0;
     ctx.set_zoom_factor(zoom);
+}
+
+/// Panels of `tree` that are hidden.
+fn hidden_panes(tree: &Tree<Pane>) -> Vec<Pane> {
+    Pane::ALL
+        .into_iter()
+        .filter(|pane| {
+            tree.tiles
+                .find_pane(pane)
+                .is_some_and(|id| !tree.is_visible(id))
+        })
+        .collect()
 }
 
 /// Whether a restored layout still contains every panel exactly once (a
@@ -1686,6 +1723,30 @@ mod tests {
     }
 
     #[test]
+    fn panels_can_be_hidden_and_shown_again() {
+        let mut harness = harness_with(sample_snapshot());
+        harness.run();
+        harness.get_by_label("panels…").click();
+        harness.run();
+        // "GPU" also appears in the power line: pick the checkbox.
+        let checkbox = egui_kittest::kittest::by()
+            .role(egui::accesskit::Role::CheckBox)
+            .label("GPU");
+        harness.get(checkbox).click();
+        harness.run();
+        let tree = &harness.state().tree;
+        assert_eq!(hidden_panes(tree), vec![Pane::Gpu]);
+        assert!(
+            is_complete_layout(tree),
+            "a hidden panel is still in the layout"
+        );
+        // "reset layout" brings every panel back.
+        harness.state_mut().tree = default_tree();
+        harness.run();
+        assert!(hidden_panes(&harness.state().tree).is_empty());
+    }
+
+    #[test]
     fn new_releases_offer_an_update_and_a_restart() {
         let mut harness = harness_with(sample_snapshot());
         harness.state_mut().update_dialog.ask_self("9.9.9");
@@ -2003,7 +2064,14 @@ mod tests {
         harness.run();
         if let Ok(clicks) = std::env::var("RIGTOP_GUI_CLICK") {
             for label in clicks.split(',') {
-                harness.get_by_label(label).click();
+                // A menu checkbox wins over text with the same name.
+                let checkbox = egui_kittest::kittest::by()
+                    .role(egui::accesskit::Role::CheckBox)
+                    .label(label);
+                match harness.query(checkbox) {
+                    Some(node) => node.click(),
+                    None => harness.get_by_label(label).click(),
+                }
                 harness.run();
             }
             // Otherwise the last click's pointer and hover stay in the picture.

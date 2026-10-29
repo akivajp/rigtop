@@ -19,6 +19,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Cell, Clear, Paragraph, Row, Table, TableState};
 use rigtop_core::Snapshot;
+use rigtop_core::config::OverviewSection;
 use rigtop_core::snapshot::{
     BtrfsFilesystem, CpuStats, MemoryStats, NetworkStats, SmartDevice, ZfsPool, device_matches_disk,
 };
@@ -125,11 +126,26 @@ fn draw_screen(
         Layout::vertical([Constraint::Length(cpu_layout.height), Constraint::Fill(1)]).areas(area);
     draw_cpu(frame, app, snapshot, top, cpu_layout);
 
-    let left_width = (area.width * 45 / 100).max(44).min(area.width);
+    // Boxes hidden with `v`; the others take their room.
+    let hidden = &app.config.tui.hidden_panels;
+    let shown = |section: OverviewSection| !hidden.contains(&section);
+    let left_shown = [
+        OverviewSection::Memory,
+        OverviewSection::Gpu,
+        OverviewSection::Storage,
+        OverviewSection::Network,
+    ]
+    .into_iter()
+    .any(shown);
+    let left_width = match (left_shown, shown(OverviewSection::Processes)) {
+        (true, true) => (area.width * 45 / 100).max(44).min(area.width),
+        (true, false) => area.width,
+        (false, _) => 0,
+    };
     let [left, right] =
         Layout::horizontal([Constraint::Length(left_width), Constraint::Fill(1)]).areas(bottom);
 
-    let heights = left_column_heights(snapshot, left);
+    let heights = left_column_heights(snapshot, left, &shown);
     let [mem, gpu, storage, net] = Layout::vertical([
         Constraint::Length(heights.memory),
         Constraint::Length(heights.gpu),
@@ -150,7 +166,8 @@ fn draw_screen(
     if heights.network > 0 {
         draw_network(frame, app, snapshot, net);
     }
-    let hit = draw_processes(frame, app, snapshot, right, table_state);
+    let hit = shown(OverviewSection::Processes)
+        .then(|| draw_processes(frame, app, snapshot, right, table_state));
 
     if let Some(confirm) = &app.confirm {
         draw_confirm(
@@ -161,7 +178,7 @@ fn draw_screen(
             signal_name(confirm.signal),
         );
     }
-    Some(hit)
+    hit
 }
 
 /// Box heights of the left column; 0 means the box is not shown.
@@ -179,7 +196,11 @@ struct LeftHeights {
 ///
 /// A box that does not get its minimum is hidden. Spare height is split
 /// between taller GPU history graphs and the network box.
-fn left_column_heights(snapshot: &Snapshot, area: Rect) -> LeftHeights {
+fn left_column_heights(
+    snapshot: &Snapshot,
+    area: Rect,
+    shown: &dyn Fn(OverviewSection) -> bool,
+) -> LeftHeights {
     let mut remaining = area.height;
     // Takes up to `wanted` rows if at least `minimum` are left.
     let mut take = |wanted: u16, minimum: u16| {
@@ -191,12 +212,23 @@ fn left_column_heights(snapshot: &Snapshot, area: Rect) -> LeftHeights {
         got
     };
 
-    let gpus = snapshot.gpus.len() as u16;
-    let memory = take(
-        memory_rows(&snapshot.memory).len() as u16 + 2,
-        MIN_BOX_HEIGHT,
-    );
-    let storage_needed = storage_lines(snapshot, area.width.saturating_sub(2)).len() as u16 + 2;
+    // A hidden box wants no rows.
+    let gpus = if shown(OverviewSection::Gpu) {
+        snapshot.gpus.len() as u16
+    } else {
+        0
+    };
+    let memory_wanted = if shown(OverviewSection::Memory) {
+        memory_rows(&snapshot.memory).len() as u16 + 2
+    } else {
+        0
+    };
+    let memory = take(memory_wanted, MIN_BOX_HEIGHT);
+    let storage_needed = if shown(OverviewSection::Storage) {
+        storage_lines(snapshot, area.width.saturating_sub(2)).len() as u16 + 2
+    } else {
+        0
+    };
     let storage = take(storage_needed, MIN_BOX_HEIGHT);
     let gpu_text = if gpus == 0 {
         0
@@ -204,7 +236,12 @@ fn left_column_heights(snapshot: &Snapshot, area: Rect) -> LeftHeights {
         gpus * GPU_TEXT_ROWS + 2
     };
     let mut gpu = take(gpu_text, gpu_text);
-    let mut network = take(NET_MIN_HEIGHT, NET_COMPACT_HEIGHT);
+    let network_wanted = if shown(OverviewSection::Network) {
+        NET_MIN_HEIGHT
+    } else {
+        0
+    };
+    let mut network = take(network_wanted, NET_COMPACT_HEIGHT);
 
     if gpu > 0 {
         // Half of the spare height becomes GPU history graph rows.
@@ -214,6 +251,9 @@ fn left_column_heights(snapshot: &Snapshot, area: Rect) -> LeftHeights {
     }
     if network > 0 {
         network += remaining;
+    } else if gpu > 0 {
+        // Without the network box, the GPU graphs take the rest.
+        gpu += remaining;
     }
     LeftHeights {
         memory,
@@ -222,6 +262,46 @@ fn left_column_heights(snapshot: &Snapshot, area: Rect) -> LeftHeights {
         network,
     }
 }
+
+/// The panel menu (`v`): which boxes of the host view are drawn, with the
+/// key that toggles each.
+pub(super) fn draw_panels_menu(frame: &mut Frame, area: Rect, hidden: &[OverviewSection]) {
+    let width = 26.min(area.width);
+    let height = (PANEL_KEYS.len() as u16 + 4).min(area.height);
+    let rect = Rect {
+        x: area.x + (area.width - width) / 2,
+        y: area.y + (area.height - height) / 2,
+        width,
+        height,
+    };
+    let mut lines: Vec<Line> = PANEL_KEYS
+        .iter()
+        .map(|(key, section)| {
+            let mark = if hidden.contains(section) {
+                "[ ]"
+            } else {
+                "[x]"
+            };
+            Line::from(vec![
+                colored(format!(" {key}  "), Color::White),
+                Span::raw(format!("{mark} {}", section.label())),
+            ])
+        })
+        .collect();
+    lines.push(Line::from(""));
+    lines.push(Line::from(dim(" v/Esc close")));
+    frame.render_widget(Clear, rect);
+    frame.render_widget(Paragraph::new(lines).block(panel("panels", WARN)), rect);
+}
+
+/// Keys of the panel menu and the boxes they toggle (the CPU box stays).
+pub(super) const PANEL_KEYS: [(char, OverviewSection); 5] = [
+    ('m', OverviewSection::Memory),
+    ('g', OverviewSection::Gpu),
+    ('s', OverviewSection::Storage),
+    ('n', OverviewSection::Network),
+    ('p', OverviewSection::Processes),
+];
 
 /// A rounded box with a colored title, btop style.
 pub(super) fn panel(title: &str, color: Color) -> Block<'_> {
@@ -1146,7 +1226,7 @@ fn draw_processes(
     let footer = match app.status() {
         Some(status) => Line::from(colored(format!(" {status} "), WARN)),
         None => Line::from(dim(
-            " ↑↓ select  ←→ sort  r reverse  / filter  e tree  t kthreads  U update  k term  K kill  +- interval  g graph span  a alerts  q quit ",
+            " ↑↓ select  ←→ sort  r reverse  / filter  e tree  t kthreads  v panels  U update  k term  K kill  +- interval  g graph span  a alerts  q quit ",
         )),
     };
     let block = panel("proc", PROC_TITLE)
@@ -1615,13 +1695,13 @@ mod tests {
     fn left_column_hides_boxes_that_do_not_fit() {
         let snapshot = sample_snapshot();
         // Tall: everything shown, the network box absorbs the rest.
-        let tall = left_column_heights(&snapshot, Rect::new(0, 0, 90, 60));
+        let tall = left_column_heights(&snapshot, Rect::new(0, 0, 90, 60), &|_| true);
         assert!(
             tall.memory > 0 && tall.gpu > 0 && tall.storage > 0 && tall.network >= NET_MIN_HEIGHT
         );
         assert_eq!(tall.memory + tall.gpu + tall.storage + tall.network, 60);
         // Short: memory and storage win, the rest is hidden rather than squashed.
-        let short = left_column_heights(&snapshot, Rect::new(0, 0, 90, 12));
+        let short = left_column_heights(&snapshot, Rect::new(0, 0, 90, 12), &|_| true);
         assert!(short.memory > 0 && short.storage > 0);
         assert_eq!(short.gpu, 0);
         assert!(short.memory + short.gpu + short.storage + short.network <= 12);

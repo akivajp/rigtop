@@ -7,6 +7,13 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Added
+- Panels can be hidden: "panels…" in the GUI (next to "reset layout";
+  kept with the layout, which "reset layout" restores) and `v` in the TUI,
+  then `m`, `g`, `s`, `n`, `p` for memory, GPU, storage, network and
+  processes (kept in the configuration as `[tui] hidden_panels`). The
+  other panels take the room; the CPU panel always stays.
+
 ## [0.16.0] - 2026-10-29
 
 ### Added

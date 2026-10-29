@@ -21,7 +21,7 @@ use ratatui::crossterm::event::{
 use ratatui::crossterm::execute;
 use ratatui::layout::{Constraint, Layout, Position, Rect};
 use rigtop_core::config::ConfigWatcher;
-use rigtop_core::config::UpdatesConfig;
+use rigtop_core::config::{OverviewSection, UpdatesConfig};
 use rigtop_core::demo::DemoSource;
 use rigtop_core::hosts::{HostKind, HostSpec};
 use rigtop_core::remote::RemoteSource;
@@ -172,6 +172,7 @@ pub fn run(
         alert_log: AlertLogView::default(),
         update: None,
         releases: Releases::new(&config.updates, exe),
+        panels_menu: false,
     };
     // Kept between runs; the made-up alerts of --demo are not.
     let demo = hosts
@@ -226,6 +227,8 @@ struct Screen {
     /// Updating rigtop here (`U`) or on a remote host (`u`).
     update: Option<UpdateWindow>,
     releases: Releases,
+    /// Whether the panel menu (`v`) is open.
+    panels_menu: bool,
 }
 
 impl Screen {
@@ -372,6 +375,10 @@ fn event_loop(
                 if screen.alert_log.open {
                     screen.alert_log.draw(frame, body);
                 }
+                if screen.panels_menu {
+                    let hidden = &reload.config.tui.hidden_panels;
+                    ui::draw_panels_menu(frame, body, hidden);
+                }
                 if let Some(window) = &screen.update {
                     window.draw(frame, body);
                 }
@@ -381,7 +388,7 @@ fn event_loop(
         if event::poll(INPUT_POLL)? {
             match event::read()? {
                 TermEvent::Key(key) if key.kind != KeyEventKind::Release => {
-                    handle_key(key, hosts, screen, multi, !widgets.is_empty());
+                    handle_key(key, hosts, screen, reload, multi, !widgets.is_empty());
                     dirty = true;
                 }
                 TermEvent::Mouse(mouse) => {
@@ -496,6 +503,30 @@ fn apply_config(
         None if hosts.len() > 1 => View::Overview,
         None => View::Host(0),
     };
+}
+
+/// Shows or hides a box of the host view on every host, and keeps the
+/// choice in the configuration file (`[tui] hidden_panels`).
+fn toggle_panel(section: OverviewSection, hosts: &mut [HostTui], reload: &mut Reload) {
+    let hidden = &mut reload.config.tui.hidden_panels;
+    if let Some(position) = hidden.iter().position(|s| *s == section) {
+        hidden.remove(position);
+    } else {
+        hidden.push(section);
+    }
+    for host in hosts.iter_mut() {
+        host.app.config.tui.hidden_panels = reload.config.tui.hidden_panels.clone();
+    }
+    if let Some(watcher) = &mut reload.watcher {
+        let saved = Config::save_hidden_panels(watcher.path(), &reload.config.tui.hidden_panels);
+        if let Err(err) = saved {
+            for host in hosts.iter_mut() {
+                host.app.set_status(format!("panels not saved: {err}"));
+            }
+        }
+        // Our own write, not an edit to apply.
+        watcher.mark_seen();
+    }
 }
 
 /// Opens the update window for the host at `index`, or says why it does
@@ -631,11 +662,22 @@ fn handle_key(
     key: KeyEvent,
     hosts: &mut [HostTui],
     screen: &mut Screen,
+    reload: &mut Reload,
     multi: bool,
     has_widgets: bool,
 ) {
     if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
         screen.quit = true;
+        return;
+    }
+    if screen.panels_menu {
+        match key.code {
+            KeyCode::Char(c) => match ui::PANEL_KEYS.iter().find(|(k, _)| *k == c) {
+                Some((_, section)) => toggle_panel(*section, hosts, reload),
+                None => screen.panels_menu = false,
+            },
+            _ => screen.panels_menu = false,
+        }
         return;
     }
     if screen.alert_log.open {
@@ -657,6 +699,10 @@ fn handle_key(
         View::Host(i) => hosts[i].app.editing_filter || hosts[i].app.confirm.is_some(),
         View::Overview => false,
     };
+    if !busy && key.code == KeyCode::Char('v') {
+        screen.panels_menu = true;
+        return;
+    }
     if !busy && key.code == KeyCode::Char('a') {
         screen.alert_log.show();
         return;
@@ -717,6 +763,7 @@ mod tests {
                 },
                 None,
             ),
+            panels_menu: false,
         }
     }
 

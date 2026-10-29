@@ -133,6 +133,7 @@ fn view_controls(ui: &mut Ui, state: &mut GuiState) {
     {
         state.view_actions.push(ViewAction::ResetLayout);
     }
+    panels_menu(ui, state);
     if ui
         .add(small(&format!("graph {}", state.graph_span.label())))
         .on_hover_text(
@@ -153,6 +154,29 @@ fn view_controls(ui: &mut Ui, state: &mut GuiState) {
         crate::alert_log::button(ui, state.alerts_unread, &mut state.view_actions);
         crate::update_dialog::release_button(ui, state.release.as_ref(), &mut state.view_actions);
     }
+}
+
+/// "panels…": shows or hides each panel but the CPU one (which holds these
+/// controls); the others take the room of a hidden one.
+fn panels_menu(ui: &mut Ui, state: &mut GuiState) {
+    // Stays open while ticking boxes, so several panels can be switched.
+    let config = egui::containers::menu::MenuConfig::new()
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+    egui::containers::menu::MenuButton::from_button(egui::Button::new(dim("panels…")).frame(false))
+        .config(config)
+        .ui(ui, |ui| {
+            for pane in Pane::ALL.into_iter().filter(|p| *p != Pane::Cpu) {
+                let mut shown = !state.hidden_panes.contains(&pane);
+                if ui
+                    .checkbox(&mut shown, colored(pane.name(), pane.color()))
+                    .changed()
+                {
+                    state.view_actions.push(ViewAction::TogglePane(pane));
+                }
+            }
+        })
+        .0
+        .on_hover_text("show or hide panels; \"reset layout\" shows them all again");
 }
 
 /// Draws the body of a panel.

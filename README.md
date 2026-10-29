@@ -117,6 +117,7 @@ cargo run --release -p rigtop -- --help  # options (--interval-ms, --config, --d
 | `/` | filter by name, command, user or pid (`Enter` keeps it, `Esc` clears it) |
 | `e` | tree view: processes under their parents, siblings in the sort order (a filter keeps the parents of what it finds) |
 | `t` | show or hide kernel threads |
+| `v` | show or hide boxes of the host view: `m` memory, `g` GPU, `s` storage, `n` network, `p` processes (saved as `[tui] hidden_panels`); the others take the room |
 | `k` / `K` | send SIGTERM / SIGKILL to the selected process (asks first) |
 | `n` | switch the network interface |
 | `+` / `-` | slower / faster updates |
@@ -137,7 +138,7 @@ cargo run --release -p rigtop-gui            # same options: --interval-ms, --co
 
 Drag panel borders to resize and panel titles to rearrange. Click a column header to sort, tick "tree" to show processes under their parents, right-click a process to terminate or kill it (asks first), and pick the network interface from the list.
 
-Zoom with Ctrl + mouse wheel, Ctrl + `+` / `-` / `0`, or the `A-` / `A+` buttons in the CPU panel title. The zoom level and panel layout are restored on the next start; "reset layout" brings back the default arrangement. The "graph" button next to them sets the time the graphs cover (fit to the width, or the last 1, 5, 15 minutes, 1, 6 or 24 hours), also restored on the next start. "alerts…" lists the alerts of every host as they appeared and cleared, kept between runs (in `~/.local/state/rigtop/`); it shows the number of new ones, in their color, until you look. "sensors…" under the CPU cores (or a click on a sensor's name) opens a window listing every temperature and fan, to name or hide them; it saves `[sensors]` in the [configuration](#configuration) file.
+Zoom with Ctrl + mouse wheel, Ctrl + `+` / `-` / `0`, or the `A-` / `A+` buttons in the CPU panel title. The zoom level and panel layout are restored on the next start; "panels…" shows or hides each panel (the others take the room), and "reset layout" brings back the default arrangement with every panel. The "graph" button next to them sets the time the graphs cover (fit to the width, or the last 1, 5, 15 minutes, 1, 6 or 24 hours), also restored on the next start. "alerts…" lists the alerts of every host as they appeared and cleared, kept between runs (in `~/.local/state/rigtop/`); it shows the number of new ones, in their color, until you look. "sensors…" under the CPU cores (or a click on a sensor's name) opens a window listing every temperature and fan, to name or hide them; it saves `[sensors]` in the [configuration](#configuration) file.
 
 When a new alert appears on any host (drive errors, a missing RAID device, failing SMART, a nearly full filesystem, a failed systemd service), the GUI shows a desktop notification, also while it is minimized (Linux and macOS; not on Windows yet). Alerts present at startup are not announced. `[notifications] level` in the [configuration](#configuration) picks `"critical"` (default), `"warning"` (also resyncs, filling filesystems, hot CPUs, GPUs and drives) or `"off"`; the thresholds are in `[alerts]`; `rigtop-gui --test-notification` shows a sample notification.
 
@@ -318,6 +319,10 @@ level = "critical"
 check = true
 interval = "1h"
 notify = true   # rigtop-gui: desktop notification for a new release
+
+[tui]
+# Boxes of the host view not to draw (also toggled with `v`).
+hidden_panels = []   # e.g. ["gpu", "network"]
 
 [lhm]
 # Windows: LibreHardwareMonitor's web server ("" to disable).

@@ -43,6 +43,10 @@
 //! # Windows: LibreHardwareMonitor's web server ("" to disable).
 //! url = "http://127.0.0.1:8085/data.json"
 //!
+//! [tui]
+//! # Boxes of the host view not to draw (also toggled with `v`).
+//! hidden_panels = ["gpu"]
+//!
 //! [overview]
 //! # Sections of each host card, most important first.
 //! sections = ["cpu", "gpu", "memory", "processes", "network", "storage"]
@@ -136,6 +140,8 @@ pub struct Config {
     pub lhm: LhmConfig,
     /// The multi-host overview.
     pub overview: OverviewConfig,
+    /// The terminal UI.
+    pub tui: TuiConfig,
     /// When a reading becomes an alert.
     pub alerts: AlertsConfig,
     /// Desktop notifications for new alerts (GUI).
@@ -219,6 +225,15 @@ impl OverviewSection {
             OverviewSection::Storage => "Storage",
         }
     }
+}
+
+/// Settings of the terminal UI.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct TuiConfig {
+    /// Boxes of the host view not to draw (`v` toggles them and saves the
+    /// choice here). The CPU box is always drawn.
+    pub hidden_panels: Vec<OverviewSection>,
 }
 
 /// Settings of the multi-host overview.
@@ -591,6 +606,36 @@ impl Config {
     /// one.
     ///
     /// Used by the GUI's sensor editor.
+    /// Writes `[tui] hidden_panels`, leaving the rest of the file as it is.
+    pub fn save_hidden_panels(path: &Path, hidden: &[OverviewSection]) -> Result<(), ConfigError> {
+        edit_file(path, |document| {
+            if !document.contains_key("tui") {
+                if hidden.is_empty() {
+                    return Ok(());
+                }
+                document["tui"] = toml_edit::table();
+            }
+            let Some(table) = document["tui"].as_table_like_mut() else {
+                // Not a table: loading would have failed already.
+                return Ok(());
+            };
+            if hidden.is_empty() {
+                table.remove("hidden_panels");
+            } else {
+                let names: toml_edit::Array = hidden
+                    .iter()
+                    .filter_map(|section| {
+                        serde_json::to_value(section)
+                            .ok()
+                            .and_then(|v| v.as_str().map(str::to_owned))
+                    })
+                    .collect();
+                table.insert("hidden_panels", toml_edit::value(names));
+            }
+            Ok(())
+        })
+    }
+
     pub fn save_sensors(path: &Path, sensors: &SensorConfig) -> Result<(), ConfigError> {
         edit_file(path, |document| {
             if !document.contains_key("sensors") {
@@ -731,6 +776,12 @@ impl ConfigWatcher {
         &self.path
     }
 
+    /// Takes the file as it is now as already loaded, e.g. after rigtop
+    /// itself wrote to it.
+    pub fn mark_seen(&mut self) {
+        self.stamp = file_stamp(&self.path);
+    }
+
     /// When the file changed since the previous call, its new contents (or
     /// why they cannot be used, e.g. a file saved half-way). `None` when
     /// unchanged, checked less than a second ago, or removed: a missing
@@ -759,6 +810,25 @@ fn file_stamp(path: &Path) -> Option<(Option<SystemTime>, u64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hidden_panels_are_saved_and_loaded() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("config.toml");
+        fs::write(&path, "# mine\n[alerts]\ncpu_warning_celsius = 90\n").unwrap();
+        Config::save_hidden_panels(&path, &[OverviewSection::Gpu, OverviewSection::Network])
+            .unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(text.starts_with("# mine"), "{text}");
+        let config = Config::load(&path).unwrap();
+        assert_eq!(
+            config.tui.hidden_panels,
+            vec![OverviewSection::Gpu, OverviewSection::Network]
+        );
+        assert_eq!(config.alerts.cpu_warning_celsius, 90.0);
+        Config::save_hidden_panels(&path, &[]).unwrap();
+        assert!(Config::load(&path).unwrap().tui.hidden_panels.is_empty());
+    }
 
     #[test]
     fn update_checks_can_be_tuned_or_turned_off() {
