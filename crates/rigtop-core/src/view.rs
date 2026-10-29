@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::AlertsConfig;
 use crate::format;
-use crate::snapshot::{ProcessInfo, Snapshot};
+use crate::snapshot::{GpuStats, PcieLink, ProcessInfo, Snapshot};
 use crate::source::ProcessSignal;
 
 /// Number of samples kept for graphs: over an hour at the default interval
@@ -520,6 +520,46 @@ pub fn event_time(at_ms: u64, now: SystemTime) -> String {
     }
 }
 
+/// Short notes for a GPU's title line, with how much attention each needs
+/// (`None`: just information): running at its power limit, slowed down by
+/// the hardware, ECC memory errors.
+pub fn gpu_notes(gpu: &GpuStats) -> Vec<(String, Option<Severity>)> {
+    let mut notes = Vec::new();
+    let slowdown: Vec<&str> = gpu.slowdown_reasons().collect();
+    if !slowdown.is_empty() {
+        notes.push((
+            format!("slowed: {}", slowdown.join(", ")),
+            Some(Severity::Warning),
+        ));
+    } else if !gpu.throttle_reasons.is_empty() {
+        notes.push(("power cap".to_owned(), None));
+    }
+    if let Some(ecc) = gpu.ecc {
+        if ecc.uncorrected > 0 {
+            notes.push((
+                format!("ECC {} uncorrected", ecc.uncorrected),
+                Some(Severity::Critical),
+            ));
+        } else if ecc.corrected > 0 {
+            notes.push((format!("ECC {} corrected", ecc.corrected), None));
+        }
+    }
+    notes
+}
+
+/// A GPU's PCIe link for a tooltip: "PCIe gen 4 x8 (up to gen 4 x16)".
+pub fn pcie_text(link: &PcieLink) -> String {
+    let now = format!("PCIe gen {} x{}", link.generation, link.width);
+    if (link.generation, link.width) == (link.max_generation, link.max_width) {
+        now
+    } else {
+        format!(
+            "{now} (up to gen {} x{}; the link slows down when idle)",
+            link.max_generation, link.max_width
+        )
+    }
+}
+
 /// How long it has been since `since` (e.g. a host's last data) and when
 /// that was, in local time: "5m (since 14:03)", "2d03h (since Tue 14:03)".
 pub fn since_note(since: SystemTime, now: SystemTime) -> String {
@@ -696,6 +736,22 @@ pub fn alerts_with(snapshot: &Snapshot, limits: &AlertsConfig) -> Vec<Alert> {
             .filter(|t| reached(*t as f64, limits.gpu_warning_celsius as f64))
         {
             add(Severity::Warning, format!("GPU {} at {t:.0}°C", gpu.index));
+        }
+        let slowdown: Vec<&str> = gpu.slowdown_reasons().collect();
+        if !slowdown.is_empty() {
+            add(
+                Severity::Warning,
+                format!("GPU {} slowed down ({})", gpu.index, slowdown.join(", ")),
+            );
+        }
+        if let Some(ecc) = gpu.ecc.filter(|e| e.uncorrected > 0) {
+            add(
+                Severity::Critical,
+                format!(
+                    "GPU {}: {} uncorrected ECC errors",
+                    gpu.index, ecc.uncorrected
+                ),
+            );
         }
     }
     for (device, celsius) in drive_temperatures(snapshot) {
@@ -964,7 +1020,41 @@ pub fn default_interface(snapshot: &Snapshot) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::snapshot::{GpuProcess, GpuStats, NetworkStats};
+    use crate::snapshot::{EccErrors, GpuProcess, NetworkStats};
+
+    #[test]
+    fn gpu_notes_and_pcie() {
+        let mut gpu = GpuStats {
+            throttle_reasons: vec!["power cap".to_owned()],
+            ..Default::default()
+        };
+        assert_eq!(gpu_notes(&gpu), [("power cap".to_owned(), None)]);
+        gpu.throttle_reasons.push("thermal".to_owned());
+        gpu.ecc = Some(EccErrors {
+            corrected: 3,
+            uncorrected: 0,
+        });
+        assert_eq!(
+            gpu_notes(&gpu),
+            [
+                ("slowed: thermal".to_owned(), Some(Severity::Warning)),
+                ("ECC 3 corrected".to_owned(), None)
+            ]
+        );
+        let full = PcieLink {
+            generation: 4,
+            width: 16,
+            max_generation: 4,
+            max_width: 16,
+        };
+        assert_eq!(pcie_text(&full), "PCIe gen 4 x16");
+        let idle = PcieLink {
+            generation: 1,
+            width: 8,
+            ..full
+        };
+        assert!(pcie_text(&idle).starts_with("PCIe gen 1 x8 (up to gen 4 x16;"));
+    }
 
     fn process(pid: u32, name: &str, cpu: f32, kernel: bool) -> ProcessInfo {
         ProcessInfo {
@@ -1484,6 +1574,12 @@ mod tests {
             ..Default::default()
         };
         snapshot.cpu.temperatures = vec![temp("Tctl", 97.0), temp("Tccd1", 90.0)];
+        let texts_of = |snapshot: &Snapshot| -> Vec<String> {
+            alerts_with(snapshot, &AlertsConfig::default())
+                .into_iter()
+                .map(|a| a.text)
+                .collect()
+        };
         let texts = |limits: &AlertsConfig| -> Vec<String> {
             alerts_with(&snapshot, limits)
                 .into_iter()
@@ -1507,6 +1603,27 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(texts(&custom), ["GPU 0 at 80°C", "nvme1 at 74°C"]);
+
+        // Hardware slowdowns warn; running at the power limit does not.
+        let mut gpu = snapshot.gpus[0].clone();
+        gpu.throttle_reasons = vec!["power cap".to_owned()];
+        let mut capped = snapshot.clone();
+        capped.gpus = vec![gpu.clone()];
+        assert!(!texts_of(&capped).iter().any(|t| t.contains("slowed")));
+        gpu.throttle_reasons.push("hw thermal".to_owned());
+        gpu.ecc = Some(EccErrors {
+            corrected: 5,
+            uncorrected: 2,
+        });
+        capped.gpus = vec![gpu];
+        let alerts = alerts_with(&capped, &AlertsConfig::default());
+        assert_eq!(alerts[0].text, "GPU 0: 2 uncorrected ECC errors");
+        assert_eq!(alerts[0].severity, Severity::Critical);
+        assert!(
+            alerts
+                .iter()
+                .any(|a| a.text == "GPU 0 slowed down (hw thermal)")
+        );
         let critical = AlertsConfig {
             filesystem_critical_percent: 90.0,
             ..custom

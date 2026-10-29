@@ -6,11 +6,12 @@
 use std::collections::HashMap;
 
 use nvml_wrapper::Nvml;
-use nvml_wrapper::enum_wrappers::device::{Clock, TemperatureSensor};
+use nvml_wrapper::bitmasks::device::ThrottleReasons;
+use nvml_wrapper::enum_wrappers::device::{Clock, EccCounter, MemoryError, TemperatureSensor};
 use nvml_wrapper::enums::device::UsedGpuMemory;
 use nvml_wrapper::{Device, struct_wrappers::device::ProcessInfo as NvmlProcessInfo};
 
-use crate::snapshot::{GpuProcess, GpuStats};
+use crate::snapshot::{EccErrors, GpuProcess, GpuStats, PcieLink};
 
 /// Collects per-GPU and per-process statistics from NVML.
 pub struct NvmlCollector {
@@ -24,6 +25,8 @@ pub struct NvmlCollector {
     /// Whether to query per-process utilization, the costliest NVML call
     /// (about 2 ms per GPU). Only the full process table shows it.
     process_utilization: bool,
+    /// Whether ECC is on, per GPU index (changing it takes a reboot).
+    ecc_enabled: HashMap<u32, bool>,
 }
 
 impl NvmlCollector {
@@ -36,6 +39,7 @@ impl NvmlCollector {
             init_error,
             last_sample_ts: HashMap::new(),
             process_utilization: true,
+            ecc_enabled: HashMap::new(),
         }
     }
 
@@ -78,8 +82,16 @@ impl NvmlCollector {
                 continue;
             };
             let last_ts = self.last_sample_ts.get(&index).copied();
-            let (stats, newest_ts) =
+            let ecc = *self.ecc_enabled.entry(index).or_insert_with(|| {
+                device
+                    .is_ecc_enabled()
+                    .is_ok_and(|mode| mode.currently_enabled)
+            });
+            let (mut stats, newest_ts) =
                 collect_device(index, &device, last_ts, self.process_utilization);
+            if ecc {
+                stats.ecc = ecc_errors(&device);
+            }
             if let Some(ts) = newest_ts {
                 self.last_sample_ts.insert(index, ts);
             }
@@ -127,9 +139,60 @@ fn collect_device(
             .map(|mw| mw as f32 / 1000.0),
         fan_percent: device.fan_speed(0).ok().map(|p| p as f32),
         clock_mhz: device.clock_info(Clock::Graphics).ok(),
+        throttle_reasons: device
+            .current_throttle_reasons()
+            .map(throttle_reasons)
+            .unwrap_or_default(),
+        ecc: None,
+        pcie: pcie_link(device),
         processes,
     };
     (stats, newest_ts)
+}
+
+/// The reasons worth showing: idling, application or display clock
+/// settings and sync boost are not held-down clocks.
+fn throttle_reasons(reasons: ThrottleReasons) -> Vec<String> {
+    let mut names = Vec::new();
+    if reasons.contains(ThrottleReasons::SW_POWER_CAP) {
+        names.push("power cap");
+    }
+    if reasons.contains(ThrottleReasons::SW_THERMAL_SLOWDOWN) {
+        names.push("thermal");
+    }
+    if reasons.contains(ThrottleReasons::HW_THERMAL_SLOWDOWN) {
+        names.push("hw thermal");
+    }
+    if reasons.contains(ThrottleReasons::HW_POWER_BRAKE_SLOWDOWN) {
+        names.push("power brake");
+    }
+    // Set together with the two above; alone, its cause is not known.
+    if reasons.contains(ThrottleReasons::HW_SLOWDOWN)
+        && !reasons.intersects(
+            ThrottleReasons::HW_THERMAL_SLOWDOWN | ThrottleReasons::HW_POWER_BRAKE_SLOWDOWN,
+        )
+    {
+        names.push("hw slowdown");
+    }
+    names.into_iter().map(str::to_owned).collect()
+}
+
+/// ECC errors since the driver loaded.
+fn ecc_errors(device: &Device<'_>) -> Option<EccErrors> {
+    let count = |kind| device.total_ecc_errors(kind, EccCounter::Volatile).ok();
+    Some(EccErrors {
+        corrected: count(MemoryError::Corrected)?,
+        uncorrected: count(MemoryError::Uncorrected)?,
+    })
+}
+
+fn pcie_link(device: &Device<'_>) -> Option<PcieLink> {
+    Some(PcieLink {
+        generation: device.current_pcie_link_gen().ok()?,
+        width: device.current_pcie_link_width().ok()?,
+        max_generation: device.max_pcie_link_gen().ok()?,
+        max_width: device.max_pcie_link_width().ok()?,
+    })
 }
 
 /// Merges compute and graphics process lists with per-process utilization
@@ -191,5 +254,28 @@ fn used_memory(info: &NvmlProcessInfo) -> Option<u64> {
     match info.used_gpu_memory {
         UsedGpuMemory::Used(bytes) => Some(bytes),
         UsedGpuMemory::Unavailable => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn throttle_reasons_worth_showing() {
+        assert!(throttle_reasons(ThrottleReasons::GPU_IDLE).is_empty());
+        assert!(throttle_reasons(ThrottleReasons::NONE).is_empty());
+        assert_eq!(
+            throttle_reasons(ThrottleReasons::SW_POWER_CAP | ThrottleReasons::GPU_IDLE),
+            ["power cap"]
+        );
+        assert_eq!(
+            throttle_reasons(ThrottleReasons::HW_SLOWDOWN | ThrottleReasons::HW_THERMAL_SLOWDOWN),
+            ["hw thermal"]
+        );
+        assert_eq!(
+            throttle_reasons(ThrottleReasons::HW_SLOWDOWN),
+            ["hw slowdown"]
+        );
     }
 }

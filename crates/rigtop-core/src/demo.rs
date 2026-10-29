@@ -12,9 +12,9 @@ use crate::config::Config;
 use crate::hosts::{HostKind, HostSpec};
 use crate::snapshot::{
     BatteryStats, BtrfsAllocation, BtrfsDeviceStats, BtrfsFilesystem, BtrfsScrub, CpuStats, DiskIo,
-    Fan, FilesystemUsage, GpuProcess, GpuStats, HostInfo, MdArray, MdMember, MdSync, MemoryStats,
-    NetworkStats, PowerStats, ProcessInfo, RaidStats, SensorChip, SmartDevice, Snapshot,
-    Temperature, WirelessLink, ZfsPool,
+    EccErrors, Fan, FilesystemUsage, GpuProcess, GpuStats, HostInfo, MdArray, MdMember, MdSync,
+    MemoryStats, NetworkStats, PcieLink, PowerStats, ProcessInfo, RaidStats, SensorChip,
+    SmartDevice, Snapshot, Temperature, WirelessLink, ZfsPool,
 };
 use crate::source::{DataSource, ProcessSignal, SourceError};
 
@@ -624,6 +624,18 @@ fn workstation(t: f64) -> Snapshot {
                 power_limit_w: Some(450.0),
                 fan_percent: Some((30.0 + 0.3 * gpu0_util) as f32),
                 clock_mhz: Some(2_520),
+                // Training keeps it at its power limit.
+                throttle_reasons: if gpu0_util > 90.0 {
+                    vec!["power cap".to_owned()]
+                } else {
+                    Vec::new()
+                },
+                pcie: Some(PcieLink {
+                    generation: 4,
+                    width: 8,
+                    max_generation: 4,
+                    max_width: 16,
+                }),
                 processes: vec![GpuProcess {
                     pid: train_pid,
                     memory_bytes: Some(21 * GIB),
@@ -644,6 +656,7 @@ fn workstation(t: f64) -> Snapshot {
                 power_limit_w: Some(130.0),
                 fan_percent: Some((30.0 + 0.4 * gpu1_util) as f32),
                 clock_mhz: Some(if gpu1_util > 5.0 { 2_175 } else { 210 }),
+                ecc: Some(EccErrors::default()),
                 processes: vec![GpuProcess {
                     pid: ollama_pid,
                     memory_bytes: Some(9 * GIB + GIB / 2),

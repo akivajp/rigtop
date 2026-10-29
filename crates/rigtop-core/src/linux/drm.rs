@@ -94,7 +94,7 @@ impl DrmGpuReader {
             power_limit_w: hwmon.power_cap_w.filter(|_| !integrated),
             fan_percent: hwmon.fan_percent,
             clock_mhz: hwmon.clock_mhz.or_else(|| current_sclk(device)),
-            processes: Vec::new(),
+            ..Default::default()
         }
     }
 

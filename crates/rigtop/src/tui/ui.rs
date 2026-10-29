@@ -28,7 +28,7 @@ use super::app::{App, ProcTableHit};
 use super::graph::{self, BrailleGraph};
 use rigtop_core::format;
 use rigtop_core::view::{
-    GraphSpan, LHM_HINT, SortKey, disk_rate_text, is_virtual_interface, signal_name,
+    GraphSpan, LHM_HINT, Severity, SortKey, disk_rate_text, is_virtual_interface, signal_name,
 };
 
 /// Box border color.
@@ -754,7 +754,14 @@ fn draw_gpus(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
             line1.push(dim(format!("{w:.0}{limit}W ")));
         }
         if let Some(fan) = gpu.fan_percent {
-            line1.push(dim(format!("fan {fan:.0}%")));
+            line1.push(dim(format!("fan {fan:.0}% ")));
+        }
+        for (note, severity) in rigtop_core::view::gpu_notes(gpu) {
+            line1.push(match severity {
+                Some(Severity::Critical) => colored(format!("{note} "), BAD),
+                Some(Severity::Warning) => colored(format!("{note} "), WARN),
+                None => dim(format!("{note} ")),
+            });
         }
 
         let mut line2 = vec![dim("util ")];

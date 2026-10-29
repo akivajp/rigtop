@@ -21,6 +21,12 @@ include breaking changes).
   from their cgroup. Names come from `docker ps` / `podman ps` when the user
   may run them (otherwise the short id); the column is hidden on hosts
   without containers. It can be sorted, and the filter matches it.
+- NVIDIA: the GPU title shows why its clocks are held down ("power cap"
+  when it runs at its power limit; "slowed: thermal", "hw thermal", "power
+  brake" or "hw slowdown" when the hardware slows it down, which is also a
+  warning) and ECC memory errors since the driver loaded (uncorrected ones
+  are a critical alert). The GUI shows the PCIe link in the GPU name's
+  tooltip.
 
 ## [0.17.0] - 2026-10-29
 

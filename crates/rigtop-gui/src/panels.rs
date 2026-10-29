@@ -11,7 +11,7 @@ use rigtop_core::snapshot::{
     BtrfsFilesystem, GpuStats, NetworkStats, SmartDevice, Snapshot, ZfsPool, device_matches_disk,
 };
 use rigtop_core::view::{
-    LHM_HINT, SortKey, disk_rate_text, is_virtual_interface, lhm_help, signal_name,
+    self, LHM_HINT, Severity, SortKey, disk_rate_text, is_virtual_interface, lhm_help, signal_name,
 };
 use rigtop_core::worker::Command;
 
@@ -593,7 +593,10 @@ fn gpus(ui: &mut Ui, state: &GuiState) {
         // Wraps on narrow panels instead of cutting off power and clocks.
         ui.horizontal_wrapped(|ui| {
             ui.label(colored(gpu.index.to_string(), widgets::GPU_TITLE));
-            ui.label(gpu.name.trim_start_matches("NVIDIA "));
+            let name = ui.label(gpu.name.trim_start_matches("NVIDIA "));
+            if let Some(link) = &gpu.pcie {
+                name.on_hover_text(view::pcie_text(link));
+            }
             if let Some(t) = gpu.temperature_c {
                 ui.label(colored(format!("{t:.0}°C"), temperature_color(t)));
             }
@@ -608,6 +611,13 @@ fn gpus(ui: &mut Ui, state: &GuiState) {
             }
             if let Some(clock) = gpu.clock_mhz {
                 ui.label(dim(format!("{clock}MHz")));
+            }
+            for (note, severity) in view::gpu_notes(gpu) {
+                ui.label(match severity {
+                    Some(Severity::Critical) => colored(note, BAD),
+                    Some(Severity::Warning) => colored(note, WARN),
+                    None => dim(note),
+                });
             }
         });
         let util = gpu.utilization_percent.unwrap_or(0.0);

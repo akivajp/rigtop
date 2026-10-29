@@ -169,8 +169,49 @@ pub struct GpuStats {
     pub fan_percent: Option<f32>,
     /// Graphics clock in MHz.
     pub clock_mhz: Option<u32>,
+    /// Why the clocks are held down right now (NVIDIA): "power cap",
+    /// "thermal", "hw thermal", "power brake" or "hw slowdown". Empty when
+    /// the GPU runs freely or idles. Text, so that newer agents can add
+    /// reasons older clients do not know.
+    pub throttle_reasons: Vec<String>,
+    /// ECC memory errors since the driver loaded (NVIDIA, with ECC on).
+    pub ecc: Option<EccErrors>,
+    /// The PCIe link (NVIDIA).
+    pub pcie: Option<PcieLink>,
     /// Processes currently using this GPU.
     pub processes: Vec<GpuProcess>,
+}
+
+impl GpuStats {
+    /// Throttle reasons that mean the hardware is slowing the GPU down, as
+    /// opposed to running at its power limit as designed.
+    pub fn slowdown_reasons(&self) -> impl Iterator<Item = &str> {
+        self.throttle_reasons
+            .iter()
+            .map(String::as_str)
+            .filter(|r| *r != "power cap")
+    }
+}
+
+/// ECC memory error counts of a GPU.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EccErrors {
+    /// Errors the ECC corrected.
+    pub corrected: u64,
+    /// Errors it could not correct (data was corrupted).
+    pub uncorrected: u64,
+}
+
+/// A GPU's PCIe link: what it runs at now (lower when idle, to save power)
+/// and the most the GPU and its slot allow.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PcieLink {
+    pub generation: u32,
+    pub width: u32,
+    pub max_generation: u32,
+    pub max_width: u32,
 }
 
 /// GPU usage attributed to one process.
