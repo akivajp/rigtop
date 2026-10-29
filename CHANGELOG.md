@@ -15,6 +15,9 @@ include breaking changes).
   one that went away at that moment). GPU memory has
   `gpu_memory_warning_percent`, off by default since PyTorch, JAX and
   TensorFlow reserve most of the VRAM up front.
+- "reboot needed" next to the uptime (Linux) when an update waits for a
+  reboot: `/run/reboot-required` on Debian and Ubuntu (the packages in the
+  tooltip), or a running kernel whose modules are gone (Arch and others).
 
 ## [0.18.0] - 2026-10-29
 

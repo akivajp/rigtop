@@ -698,6 +698,19 @@ pub fn version_hint(snapshot: &Snapshot) -> String {
     )
 }
 
+/// Shown next to the uptime of a host that needs a reboot to finish an
+/// update ([`crate::snapshot::HostInfo::reboot_required`]).
+pub const REBOOT_NOTE: &str = "reboot needed";
+
+/// Hover text for [`REBOOT_NOTE`], with the reason when known.
+pub fn reboot_hint(reason: &str) -> String {
+    let mut hint = "a reboot is needed to finish an update".to_owned();
+    if !reason.is_empty() {
+        hint.push_str(&format!(" ({reason})"));
+    }
+    hint
+}
+
 /// [`alerts_with`] the default thresholds.
 pub fn alerts(snapshot: &Snapshot) -> Vec<Alert> {
     alerts_with(snapshot, &AlertsConfig::default())

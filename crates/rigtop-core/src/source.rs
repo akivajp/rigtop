@@ -302,6 +302,13 @@ impl LocalSource {
         snapshot.raid.md = linux::mdstat::read_arrays(&self.roots);
         snapshot.raid.zfs = linux::zfs::read_pools(&self.roots);
         snapshot.failed_units = self.failed_units.read(now);
+        let release = std::fs::read_to_string(self.roots.proc.join("sys/kernel/osrelease"))
+            .unwrap_or_default();
+        snapshot.host.reboot_required = linux::reboot::reboot_required(
+            std::path::Path::new("/run"),
+            std::path::Path::new("/usr/lib/modules"),
+            &release,
+        );
         // sysinfo no longer lists threads (see SystemCollector::refresh).
         for process in &mut snapshot.processes {
             process.threads = linux::procstat::thread_count(&self.roots, process.pid);

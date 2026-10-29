@@ -208,6 +208,12 @@ fn draw_host_box(frame: &mut Frame, area: Rect, host: &HostTui, processes: usize
         if let Some(note) = rigtop_core::view::version_note(snapshot) {
             title_right.push(colored(format!(" {note}"), WARN));
         }
+        if snapshot.host.reboot_required.is_some() {
+            title_right.push(colored(
+                format!(" {}", rigtop_core::view::REBOOT_NOTE),
+                WARN,
+            ));
+        }
         title_right.push(dim(format!(
             " up {} ",
             format::duration(snapshot.host.uptime_secs)

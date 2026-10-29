@@ -303,6 +303,10 @@ fn card(
                             "up {}",
                             format::duration(snapshot.host.uptime_secs)
                         )));
+                        if let Some(reason) = &snapshot.host.reboot_required {
+                            ui.label(colored(rigtop_core::view::REBOOT_NOTE, WARN))
+                                .on_hover_text(rigtop_core::view::reboot_hint(reason));
+                        }
                         if snapshot.host.hostname != host.spec.name {
                             ui.label(dim(snapshot.host.hostname.clone()));
                         }

@@ -490,6 +490,9 @@ fn draw_cpu(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect, layou
                             };
                         colored(format!(" {note}{key}"), WARN)
                     }),
+                    host.reboot_required
+                        .as_ref()
+                        .map(|_| colored(format!(" {}", rigtop_core::view::REBOOT_NOTE), WARN)),
                     Some(dim(" ")),
                     Some(colored(host.hostname.clone(), Color::White)),
                     Some(dim(format!(" up {} ", format::duration(host.uptime_secs)))),

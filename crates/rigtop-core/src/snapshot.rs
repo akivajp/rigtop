@@ -95,6 +95,9 @@ pub struct HostInfo {
     /// remote host). Agents before 0.9.1 leave it out; the remote source
     /// fills it in from the agent's greeting.
     pub rigtop_version: String,
+    /// A reboot is needed to finish an update (Linux), with the reason
+    /// (possibly empty), e.g. "updated: linux-image-7.0.0-39-generic".
+    pub reboot_required: Option<String>,
 }
 
 /// CPU-wide and per-core statistics.
