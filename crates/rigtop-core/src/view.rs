@@ -349,12 +349,16 @@ pub fn alert_key(alert: &Alert) -> String {
     key
 }
 
-/// Whether an [`AlertEvent`] is an alert appearing or going away.
+/// Whether an [`AlertEvent`] is an alert appearing or going away, or
+/// something that happened once.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AlertChange {
     Raised,
     Cleared,
+    /// A one-off event, not a lasting condition (a watched process exited):
+    /// never cleared. Older rigtops skip these lines of a saved log.
+    Notice,
 }
 
 /// One entry of the [`AlertLog`].
@@ -409,7 +413,7 @@ impl AlertLog {
             })
             .unwrap_or_default();
         let keep = loaded.len().saturating_sub(ALERT_LOG_LEN);
-        for event in &loaded {
+        for event in loaded.iter().filter(|e| e.change != AlertChange::Notice) {
             let active = log.active.entry(event.host.clone()).or_default();
             let key = alert_key(&event.alert);
             active.retain(|a| alert_key(a) != key);
@@ -468,25 +472,41 @@ impl AlertLog {
         changes.sort_by_key(|(change, _)| *change == AlertChange::Raised);
         let mut new_events = Vec::with_capacity(changes.len());
         for (change, alert) in changes {
-            if change == AlertChange::Raised {
-                self.unread.0 += 1;
-                self.unread.1 = self.unread.1.max(Some(alert.severity));
-            }
-            if self.events.len() == ALERT_LOG_LEN {
-                self.events.pop_front();
-            }
-            let event = AlertEvent {
+            new_events.push(self.push(AlertEvent {
                 at_ms,
                 host: host.to_owned(),
                 change,
                 alert: alert.clone(),
-            };
-            self.save(&event);
-            new_events.push(event.clone());
-            self.events.push_back(event);
+            }));
         }
         self.active.insert(host.to_owned(), alerts.to_vec());
         new_events
+    }
+
+    /// Records a one-off event of `host` ([`AlertChange::Notice`]), such as
+    /// a watched process exiting, and returns it.
+    pub fn record(&mut self, host: &str, alert: Alert, at_ms: u64) -> AlertEvent {
+        self.push(AlertEvent {
+            at_ms,
+            host: host.to_owned(),
+            change: AlertChange::Notice,
+            alert,
+        })
+    }
+
+    /// Adds `event` to the log (and its file), counting it as unread unless
+    /// it is a clearing.
+    fn push(&mut self, event: AlertEvent) -> AlertEvent {
+        if event.change != AlertChange::Cleared {
+            self.unread.0 += 1;
+            self.unread.1 = self.unread.1.max(Some(event.alert.severity));
+        }
+        if self.events.len() == ALERT_LOG_LEN {
+            self.events.pop_front();
+        }
+        self.save(&event);
+        self.events.push_back(event.clone());
+        event
     }
 
     /// All events, oldest first.
@@ -517,6 +537,107 @@ pub fn event_time(at_ms: u64, now: SystemTime) -> String {
         at.format("%a %H:%M").to_string()
     } else {
         at.format("%b %d %H:%M").to_string()
+    }
+}
+
+/// A process to announce when it exits.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WatchedProcess {
+    pub pid: u32,
+    /// Its name when the watch began; another name under the same pid
+    /// means it exited and the pid was reused.
+    pub name: String,
+    /// When it started (milliseconds since the Unix epoch, by the host's
+    /// run time).
+    pub started_ms: u64,
+}
+
+/// What is known about a [`WatchedProcess`] from a snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WatchState {
+    Running,
+    Exited,
+    /// The source does not report it (yet): an agent before 0.19, or the
+    /// request has not reached the source.
+    Unknown,
+}
+
+/// The processes of one host to announce when they exit. The front-end
+/// passes [`ExitWatch::pids`] to the source
+/// ([`crate::DataSource::watch_processes`]), which then keeps them in
+/// snapshots whatever the process limit.
+#[derive(Debug, Clone, Default)]
+pub struct ExitWatch {
+    processes: Vec<WatchedProcess>,
+}
+
+impl ExitWatch {
+    /// Whether `pid` is watched.
+    pub fn contains(&self, pid: u32) -> bool {
+        self.processes.iter().any(|w| w.pid == pid)
+    }
+
+    /// Starts or stops watching `process`; true when it is now watched.
+    pub fn toggle(&mut self, process: &ProcessInfo, now_ms: u64) -> bool {
+        if self.contains(process.pid) {
+            self.processes.retain(|w| w.pid != process.pid);
+            return false;
+        }
+        self.processes.push(WatchedProcess {
+            pid: process.pid,
+            name: process.name.clone(),
+            started_ms: now_ms.saturating_sub(process.run_time_secs * 1000),
+        });
+        true
+    }
+
+    /// The watched pids, for the source.
+    pub fn pids(&self) -> Vec<u32> {
+        self.processes.iter().map(|w| w.pid).collect()
+    }
+
+    /// What `snapshot` says about the watched process `pid`.
+    pub fn state(&self, snapshot: &Snapshot, pid: u32) -> WatchState {
+        match self.processes.iter().find(|w| w.pid == pid) {
+            Some(watched) => watch_state(snapshot, watched),
+            None => WatchState::Unknown,
+        }
+    }
+
+    /// Stops watching the processes that exited by `snapshot` and returns
+    /// an alert for each: "train.py (pid 1234) exited after 3h12m".
+    pub fn check(&mut self, snapshot: &Snapshot, now_ms: u64) -> Vec<Alert> {
+        let mut exited = Vec::new();
+        self.processes.retain(|watched| {
+            if watch_state(snapshot, watched) != WatchState::Exited {
+                return true;
+            }
+            let ran = now_ms.saturating_sub(watched.started_ms) / 1000;
+            exited.push(Alert {
+                severity: Severity::Warning,
+                text: format!(
+                    "{} (pid {}) exited after {}",
+                    watched.name,
+                    watched.pid,
+                    format::duration(ran)
+                ),
+            });
+            false
+        });
+        exited
+    }
+}
+
+/// Whether `watched` still runs according to `snapshot`. Running only
+/// when the source reports it, since only then will its exit be seen.
+fn watch_state(snapshot: &Snapshot, watched: &WatchedProcess) -> WatchState {
+    let reported = snapshot.watched_pids.contains(&watched.pid);
+    match snapshot.processes.iter().find(|p| p.pid == watched.pid) {
+        // The pid now belongs to another program.
+        Some(process) if process.name != watched.name => WatchState::Exited,
+        Some(_) if reported => WatchState::Running,
+        None if reported => WatchState::Exited,
+        _ => WatchState::Unknown,
     }
 }
 
@@ -1673,7 +1794,63 @@ mod tests {
         assert_eq!(changes[0].alert, degraded);
         let last = log.events().last().unwrap();
         assert_eq!((last.change, last.at_ms), (AlertChange::Cleared, 4_000));
-        assert_eq!(AlertLog::persistent(path).events().count(), 4);
+        assert_eq!(AlertLog::persistent(path.clone()).events().count(), 4);
+
+        // A one-off notice is unread, kept, and not taken for a lasting
+        // alert by the next run (which would log it cleared).
+        let exited = Alert {
+            severity: Severity::Warning,
+            text: "train.py (pid 7) exited after 3h".to_owned(),
+        };
+        let mut log = AlertLog::persistent(path.clone());
+        log.record("nas", exited.clone(), 5_000);
+        assert_eq!(log.unread(), (1, Some(Severity::Warning)));
+        let mut log = AlertLog::persistent(path);
+        assert!(log.update("nas", &[], 6_000).is_empty());
+        let last = log.events().last().unwrap();
+        assert_eq!((last.change, &last.alert), (AlertChange::Notice, &exited));
+    }
+
+    #[test]
+    fn exit_watch_reports_exits_it_can_tell() {
+        let process = |pid: u32, name: &str| ProcessInfo {
+            pid,
+            name: name.to_owned(),
+            run_time_secs: 3_600,
+            ..Default::default()
+        };
+        let mut watch = ExitWatch::default();
+        assert!(watch.toggle(&process(7, "train.py"), 10_000_000));
+        assert!(watch.toggle(&process(8, "make"), 10_000_000));
+        assert!(!watch.toggle(&process(8, "make"), 10_000_000));
+        assert_eq!(watch.pids(), [7]);
+
+        // An agent that does not watch (before 0.19): gone from a limited
+        // list says nothing.
+        let mut snapshot = Snapshot::default();
+        assert_eq!(watch.state(&snapshot, 7), WatchState::Unknown);
+        assert!(watch.check(&snapshot, 10_000_000).is_empty());
+        // Listed but not reported: its exit would go unnoticed.
+        snapshot.processes = vec![process(7, "train.py")];
+        assert_eq!(watch.state(&snapshot, 7), WatchState::Unknown);
+
+        snapshot.watched_pids = vec![7];
+        snapshot.processes = vec![process(7, "train.py")];
+        assert_eq!(watch.state(&snapshot, 7), WatchState::Running);
+        assert!(watch.check(&snapshot, 10_000_000).is_empty());
+
+        // Gone while watched: exited, after its run time plus the wait.
+        snapshot.processes.clear();
+        assert_eq!(watch.state(&snapshot, 7), WatchState::Exited);
+        let alerts = watch.check(&snapshot, 10_000_000 + 1_800_000);
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(alerts[0].text, "train.py (pid 7) exited after 1h30m");
+        assert_eq!(watch.pids(), Vec::<u32>::new(), "reported once");
+
+        // The pid taken by another program also means it exited.
+        watch.toggle(&process(9, "rsync"), 0);
+        snapshot.processes = vec![process(9, "bash")];
+        assert_eq!(watch.check(&snapshot, 0).len(), 1);
     }
 
     #[test]

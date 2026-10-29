@@ -119,6 +119,7 @@ cargo run --release -p rigtop -- --help  # options (--interval-ms, --config, --d
 | `t` | show or hide kernel threads |
 | `v` | show or hide boxes of the host view: `m` memory, `g` GPU, `s` storage, `n` network, `p` processes (saved as `[tui] hidden_panels`), and `w` the widget column; the others take the room |
 | `Enter` | details of the selected process: its parents, user, container, start time, usage and whole command line (`Enter` or `Esc` closes) |
+| `x` | tell me when the selected process exits (e.g. a training run): in the alert history (`a`), the status line and the terminal bell. Remote hosts need rigtop 0.19 or later |
 | `k` / `K` | send SIGTERM / SIGKILL to the selected process (asks first) |
 | `n` | switch the network interface |
 | `+` / `-` | slower / faster updates |
@@ -137,7 +138,7 @@ cargo run --release -p rigtop -- --help  # options (--interval-ms, --config, --d
 cargo run --release -p rigtop-gui            # same options: --interval-ms, --config
 ```
 
-Drag panel borders to resize and panel titles to rearrange. Click a column header to sort, tick "tree" to show processes under their parents, double-click a process (or right-click → "Details…") for its details, right-click a process to terminate or kill it (asks first), and pick the network interface from the list.
+Drag panel borders to resize and panel titles to rearrange. Click a column header to sort, tick "tree" to show processes under their parents, double-click a process (or right-click → "Details…") for its details, right-click a process to terminate or kill it (asks first) or for "Notify when it exits" (a desktop notification and an entry in the alert history; remote hosts need rigtop 0.19 or later), and pick the network interface from the list.
 
 Zoom with Ctrl + mouse wheel, Ctrl + `+` / `-` / `0`, or the `A-` / `A+` buttons in the CPU panel title. The zoom level and panel layout are restored on the next start; "panels…" shows or hides each panel (the others take the room), and "reset layout" brings back the default arrangement with every panel. The "graph" button next to them sets the time the graphs cover (fit to the width, or the last 1, 5, 15 minutes, 1, 6 or 24 hours), also restored on the next start. "alerts…" lists the alerts of every host as they appeared and cleared, kept between runs (in `~/.local/state/rigtop/`); it shows the number of new ones, in their color, until you look. "sensors…" under the CPU cores (or a click on a sensor's name) opens a window listing every temperature and fan, to name or hide them; it saves `[sensors]` in the [configuration](#configuration) file.
 

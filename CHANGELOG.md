@@ -18,6 +18,13 @@ include breaking changes).
 - "reboot needed" next to the uptime (Linux) when an update waits for a
   reboot: `/run/reboot-required` on Debian and Ubuntu (the packages in the
   tooltip), or a running kernel whose modules are gone (Arch and others).
+- Notify when a process exits, e.g. a training run: `x` in the TUI (alert
+  history, status line and terminal bell), "Notify when it exits" in the
+  GUI's process menu (desktop notification, whatever the notification
+  level, and alert history). Also works for hosts in the overview: the
+  agent keeps watched processes in its limited process list
+  (`watch_processes` in the agent protocol, announced in its greeting;
+  older agents are left alone and the details say they cannot tell).
 
 ## [0.18.0] - 2026-10-29
 

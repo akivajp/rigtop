@@ -9,7 +9,8 @@ use ratatui::crossterm::event::{
 use ratatui::layout::{Position, Rect};
 use ratatui::widgets::TableState;
 use rigtop_core::view::{
-    self, GraphSpan, MetricHistory, ProcessQuery, ProcessRow, Severity, SortKey, signal_name,
+    self, ExitWatch, GraphSpan, MetricHistory, ProcessQuery, ProcessRow, Severity, SortKey,
+    signal_name,
 };
 use rigtop_core::worker::{Command, Event};
 use rigtop_core::{Config, ProcessSignal, Snapshot};
@@ -62,6 +63,8 @@ pub struct App {
     pub confirm: Option<ConfirmSignal>,
     /// Whether the selected process's details are open (`Enter`).
     pub details: bool,
+    /// Processes to announce when they exit (`x`).
+    pub exit_watch: ExitWatch,
     /// Process table geometry from the last frame.
     pub proc_hit: Option<ProcTableHit>,
     status: Option<(String, Instant)>,
@@ -105,6 +108,7 @@ impl App {
             table_state: TableState::default(),
             confirm: None,
             details: false,
+            exit_watch: ExitWatch::default(),
             proc_hit: None,
             status: None,
             interval,
@@ -282,6 +286,7 @@ impl App {
                 self.set_status(if self.tree { "tree view" } else { "list view" }.to_owned());
             }
             KeyCode::Char('n') => self.cycle_interface(),
+            KeyCode::Char('x') => self.toggle_exit_watch(),
             KeyCode::Char('g') => {
                 self.graph_span = self.graph_span.next();
                 let span = match self.graph_span {
@@ -377,6 +382,29 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    /// Starts or stops watching the selected process for its exit.
+    fn toggle_exit_watch(&mut self) {
+        let Some(process) = self.selected_pid.and_then(|pid| {
+            self.snapshot
+                .as_ref()?
+                .processes
+                .iter()
+                .find(|p| p.pid == pid)
+        }) else {
+            return;
+        };
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as u64);
+        let name = process.name.clone();
+        let status = if self.exit_watch.toggle(process, now_ms) {
+            format!("you will be notified when {name} exits")
+        } else {
+            format!("no longer watching {name}")
+        };
+        self.set_status(status);
     }
 
     fn cycle_interface(&mut self) {
@@ -559,6 +587,19 @@ mod tests {
         assert!(app.details);
         app.handle_key(key(KeyCode::Esc));
         assert!(!app.details);
+    }
+
+    #[test]
+    fn x_watches_the_selected_process_for_its_exit() {
+        let mut app = app_with(vec![process(30, "python", 2.0, false)]);
+        app.handle_key(key(KeyCode::Char('x')));
+        assert!(app.exit_watch.pids().is_empty(), "nothing selected");
+        app.selected_pid = Some(30);
+        app.handle_key(key(KeyCode::Char('x')));
+        assert_eq!(app.exit_watch.pids(), [30]);
+        assert_eq!(app.status(), Some("you will be notified when python exits"));
+        app.handle_key(key(KeyCode::Char('x')));
+        assert!(app.exit_watch.pids().is_empty());
     }
 
     #[test]

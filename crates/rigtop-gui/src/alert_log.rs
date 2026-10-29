@@ -68,7 +68,7 @@ fn contents(ui: &mut Ui, log: &AlertLog, screen_height: f32) {
                         ui.label(RichText::new(when).color(DIM).monospace());
                         ui.label(RichText::new(&event.host).color(TEXT));
                         match event.change {
-                            AlertChange::Raised => ui.label(
+                            AlertChange::Raised | AlertChange::Notice => ui.label(
                                 RichText::new(&event.alert.text)
                                     .color(severity_color(event.alert.severity)),
                             ),

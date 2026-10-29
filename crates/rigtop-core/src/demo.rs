@@ -67,6 +67,8 @@ pub struct DemoSource {
     time: f64,
     rx_total: f64,
     tx_total: f64,
+    /// See [`DataSource::watch_processes`]; demo processes never exit.
+    watched_pids: Vec<u32>,
 }
 
 impl DemoSource {
@@ -78,6 +80,7 @@ impl DemoSource {
             // Some traffic since boot.
             rx_total: 412.0 * GIB as f64,
             tx_total: 38.0 * GIB as f64,
+            watched_pids: Vec::new(),
         }
     }
 }
@@ -100,12 +103,17 @@ impl DataSource for DemoSource {
         }
         snapshot.timestamp_ms = now_ms();
         snapshot.process_count = snapshot.processes.len();
+        snapshot.watched_pids = self.watched_pids.clone();
         Ok(snapshot)
     }
 
     fn signal_process(&mut self, _pid: u32, _signal: ProcessSignal) -> Result<(), SourceError> {
         // Nothing to stop: pretend it worked.
         Ok(())
+    }
+
+    fn watch_processes(&mut self, pids: Vec<u32>) {
+        self.watched_pids = pids;
     }
 }
 

@@ -262,14 +262,14 @@ fn wanted(event: &AlertEvent, watch: &WatchConfig) -> bool {
         NotifyLevel::Warning => Severity::Warning,
         NotifyLevel::Critical => Severity::Critical,
     };
-    event.alert.severity >= min && (event.change == AlertChange::Raised || watch.cleared)
+    event.alert.severity >= min && (event.change != AlertChange::Cleared || watch.cleared)
 }
 
 /// One line for the event: "[critical] nas: md0 (raid1) degraded",
 /// "[cleared] nas: md0 (raid1) degraded".
 fn message(event: &AlertEvent) -> String {
     let tag = match event.change {
-        AlertChange::Raised => severity_name(event.alert.severity),
+        AlertChange::Raised | AlertChange::Notice => severity_name(event.alert.severity),
         AlertChange::Cleared => "cleared",
     };
     format!("[{tag}] {}: {}", event.host, event.alert.text)
@@ -287,6 +287,7 @@ fn command_env(event: &AlertEvent) -> Vec<(&'static str, String)> {
     let change = match event.change {
         AlertChange::Raised => "raised",
         AlertChange::Cleared => "cleared",
+        AlertChange::Notice => "notice",
     };
     vec![
         ("RIGTOP_HOST", event.host.clone()),

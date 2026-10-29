@@ -46,6 +46,8 @@ pub struct HostTui {
     pub app: App,
     /// Process limit last sent to the worker (`None` = all processes).
     sent_limit: Option<Option<usize>>,
+    /// Watched processes last sent to the worker.
+    sent_watch: Option<Vec<u32>>,
 }
 
 impl HostTui {
@@ -61,6 +63,7 @@ impl HostTui {
             worker,
             app,
             sent_limit: None,
+            sent_watch: None,
         }
     }
 }
@@ -311,7 +314,12 @@ fn event_loop(
                 received = true;
             }
             if received {
-                screen.alert_log.record(host);
+                if screen.alert_log.record(host) > 0 {
+                    // The terminal's bell: a beep, or a mark on its tab.
+                    use std::io::Write;
+                    let mut out = stdout();
+                    let _ = out.write_all(b"\x07").and_then(|()| out.flush());
+                }
                 dirty = true;
             }
         }
@@ -428,6 +436,11 @@ fn event_loop(
                 host.worker.send(Command::SetProcessLimit(limit));
                 host.sent_limit = Some(limit);
             }
+            let pids = host.app.exit_watch.pids();
+            if host.sent_watch.as_ref() != Some(&pids) {
+                host.worker.send(Command::WatchProcesses(pids.clone()));
+                host.sent_watch = Some(pids);
+            }
         }
     }
     Ok(())
@@ -477,6 +490,7 @@ fn apply_config(
             let worker = spawn_worker(&host.spec, config, host.app.interval);
             stopped.push(std::mem::replace(&mut host.worker, worker));
             host.sent_limit = None;
+            host.sent_watch = None;
         }
     }
     stop_workers(stopped);
@@ -648,6 +662,7 @@ fn finish_update(screen: &mut Screen, hosts: &mut [HostTui]) -> bool {
                     let worker = spawn_worker(&entry.spec, &entry.app.config, entry.app.interval);
                     stop_workers(vec![std::mem::replace(&mut entry.worker, worker)]);
                     entry.sent_limit = None;
+                    entry.sent_watch = None;
                 }
             }
             Target::Local { version } => screen.releases.installed = Some(version.clone()),

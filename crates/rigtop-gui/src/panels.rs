@@ -1185,6 +1185,7 @@ fn processes(ui: &mut Ui, state: &mut GuiState) {
     let mut select = None;
     let mut ask = None;
     let mut details = None;
+    let mut watch = None;
     // Rows are computed once per frame; the closures below only read them.
     let rows = state.process_rows();
     let (sort_key, descending, selected_pid) =
@@ -1223,7 +1224,12 @@ fn processes(ui: &mut Ui, state: &mut GuiState) {
                                 if !process.tree_prefix.is_empty() {
                                     ui.label(dim(&process.tree_prefix));
                                 }
-                                ui.label(&p.name)
+                                if state.exit_watch.contains(p.pid) {
+                                    ui.label(colored(&p.name, WARN))
+                                        .on_hover_text("you will be notified when it exits")
+                                } else {
+                                    ui.label(&p.name)
+                                }
                             }
                             "Command" => ui.label(dim(&p.command)),
                             "Thr" => ui.label(p.threads.map_or(String::new(), |t| t.to_string())),
@@ -1272,6 +1278,15 @@ fn processes(ui: &mut Ui, state: &mut GuiState) {
                         details = Some(p.pid);
                         ui.close();
                     }
+                    let label = if state.exit_watch.contains(p.pid) {
+                        "Stop notifying on exit"
+                    } else {
+                        "Notify when it exits"
+                    };
+                    if ui.button(label).clicked() {
+                        watch = Some(p.pid);
+                        ui.close();
+                    }
                     if ui.button("Terminate (SIGTERM)").clicked() {
                         ask = Some((p.pid, p.name.clone(), ProcessSignal::Terminate));
                         ui.close();
@@ -1295,6 +1310,9 @@ fn processes(ui: &mut Ui, state: &mut GuiState) {
         state.selected_pid = Some(pid);
         state.details_pid = Some(pid);
     }
+    if let Some(pid) = watch {
+        state.toggle_exit_watch(pid);
+    }
     if let Some((pid, name, signal)) = ask {
         state.selected_pid = Some(pid);
         state.ask_signal(pid, &name, signal);
@@ -1307,10 +1325,13 @@ pub fn details_window(ctx: &egui::Context, state: &mut GuiState) {
     let Some(pid) = state.details_pid else {
         return;
     };
-    let rows = state
-        .snapshot
-        .as_ref()
-        .and_then(|s| view::process_details(s, pid, std::time::SystemTime::now()));
+    let rows = state.snapshot.as_ref().and_then(|s| {
+        let mut rows = view::process_details(s, pid, std::time::SystemTime::now())?;
+        if state.exit_watch.contains(pid) {
+            rows.push(("On exit", exit_watch_text(state.exit_watch.state(s, pid))));
+        }
+        Some(rows)
+    });
     let mut open = true;
     egui::Window::new(format!("process {pid}"))
         .id(egui::Id::unique(("process_details", pid)))
@@ -1338,6 +1359,18 @@ pub fn details_window(ctx: &egui::Context, state: &mut GuiState) {
         });
     if !open {
         state.details_pid = None;
+    }
+}
+
+/// What the details say about a watched process.
+fn exit_watch_text(state: view::WatchState) -> String {
+    match state {
+        view::WatchState::Running | view::WatchState::Exited => "notify".to_owned(),
+        // Older agents do not report exits; a new watch is confirmed by
+        // the next snapshot.
+        view::WatchState::Unknown => {
+            "notify, once the host confirms (needs rigtop 0.19 or later there)".to_owned()
+        }
     }
 }
 

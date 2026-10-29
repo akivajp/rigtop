@@ -23,6 +23,8 @@ pub enum Command {
     SetInterval(Duration),
     /// Limit snapshots to the top processes (`None`: all).
     SetProcessLimit(Option<usize>),
+    /// Processes to report the exit of (see [`DataSource::watch_processes`]).
+    WatchProcesses(Vec<u32>),
 }
 
 /// Messages from the worker to the UI.
@@ -170,6 +172,7 @@ fn run<S: DataSource, N: Fn()>(
                 next_poll = last_poll + interval;
             }
             Ok(Command::SetProcessLimit(limit)) => source.set_process_limit(limit),
+            Ok(Command::WatchProcesses(pids)) => source.watch_processes(pids),
             Err(RecvTimeoutError::Timeout) => {
                 let event = match source.poll() {
                     Ok(snapshot) => Event::Snapshot(Box::new(snapshot)),

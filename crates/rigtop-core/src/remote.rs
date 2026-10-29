@@ -13,7 +13,9 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::agent::{AgentMessage, ClientMessage, PROTOCOL_VERSION, write_message};
+use crate::agent::{
+    AgentMessage, ClientMessage, FEATURE_WATCH_PROCESSES, PROTOCOL_VERSION, write_message,
+};
 use crate::snapshot::Snapshot;
 use crate::source::{DataSource, ProcessSignal, SourceError};
 
@@ -224,6 +226,10 @@ pub struct RemoteSource {
     last_attempt: Option<Instant>,
     interval: Duration,
     process_limit: Option<usize>,
+    /// See [`DataSource::watch_processes`].
+    watched_pids: Vec<u32>,
+    /// The connected agent understands [`ClientMessage::WatchProcesses`].
+    agent_watches: bool,
     /// Snapshots received while waiting for something else (signal results).
     pending: VecDeque<Snapshot>,
     /// rigtop version from the agent's greeting.
@@ -246,6 +252,8 @@ impl RemoteSource {
             last_attempt: None,
             interval: Duration::from_secs(1),
             process_limit: None,
+            watched_pids: Vec::new(),
+            agent_watches: false,
             pending: VecDeque::new(),
             agent_version: String::new(),
             last_error: None,
@@ -292,6 +300,8 @@ impl RemoteSource {
                     return Err(err);
                 }
             };
+            // Known from the greeting of this agent.
+            self.agent_watches = false;
             // Agents start with their own default; send our settings.
             let sent = connection
                 .send(&ClientMessage::SetInterval {
@@ -353,9 +363,20 @@ impl RemoteSource {
 
     /// Handles messages that are not what the caller waits for. Returns an
     /// error for fatal ones (protocol mismatch).
+    /// Sends the watched processes to the connected agent.
+    fn send_watched(&mut self) {
+        if let Some(connection) = self.connection.as_mut() {
+            let _ = connection.send(&ClientMessage::WatchProcesses {
+                pids: self.watched_pids.clone(),
+            });
+        }
+    }
+
     fn absorb(&mut self, message: AgentMessage) -> Result<(), SourceError> {
         match message {
-            AgentMessage::Hello { protocol, version } if protocol != PROTOCOL_VERSION => {
+            AgentMessage::Hello {
+                protocol, version, ..
+            } if protocol != PROTOCOL_VERSION => {
                 let reason = format!(
                     "agent speaks protocol {protocol} (rigtop {version}), this client speaks {PROTOCOL_VERSION}; \
                      install the same rigtop version on both sides"
@@ -364,8 +385,14 @@ impl RemoteSource {
                 self.last_attempt = Some(Instant::now());
                 Err(self.disconnect(Some(reason)))
             }
-            AgentMessage::Hello { version, .. } => {
+            AgentMessage::Hello {
+                version, features, ..
+            } => {
                 self.agent_version = version;
+                self.agent_watches = features.iter().any(|f| f == FEATURE_WATCH_PROCESSES);
+                if self.agent_watches && !self.watched_pids.is_empty() {
+                    self.send_watched();
+                }
                 Ok(())
             }
             AgentMessage::SignalResult { .. } => Ok(()),
@@ -477,6 +504,15 @@ impl DataSource for RemoteSource {
         self.process_limit = limit;
         if let Some(connection) = self.connection.as_mut() {
             let _ = connection.send(&ClientMessage::SetProcessLimit { limit });
+        }
+    }
+
+    fn watch_processes(&mut self, pids: Vec<u32>) {
+        self.watched_pids = pids;
+        // Older agents would answer with an error; their snapshots leave
+        // `watched_pids` empty, so the client knows it cannot tell.
+        if self.agent_watches {
+            self.send_watched();
         }
     }
 }

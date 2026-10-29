@@ -24,11 +24,13 @@ pub struct AlertLogView {
 }
 
 impl AlertLogView {
-    /// Records the alerts of `host`'s latest snapshot.
-    pub fn record(&mut self, host: &HostTui) {
-        let app = &host.app;
+    /// Records the alerts of `host`'s latest snapshot, and the watched
+    /// processes that exited (also shown in its status line). Returns how
+    /// many exited.
+    pub fn record(&mut self, host: &mut HostTui) -> usize {
+        let app = &mut host.app;
         let Some(snapshot) = &app.snapshot else {
-            return;
+            return 0;
         };
         let alerts = alerts_with(snapshot, &app.config.alerts);
         // "local" says little in a list of hosts; use the host name.
@@ -42,6 +44,14 @@ impl AlertLogView {
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_millis() as u64);
         self.log.update(name, &alerts, now_ms);
+        let exited = app.exit_watch.check(snapshot, now_ms);
+        let name = name.clone();
+        let count = exited.len();
+        for alert in exited {
+            app.set_status(alert.text.clone());
+            self.log.record(&name, alert, now_ms);
+        }
+        count
     }
 
     /// Opens the window.
@@ -97,7 +107,7 @@ impl AlertLogView {
         for event in events.iter().skip(self.scroll) {
             let when = event_time(event.at_ms, now);
             let text = match event.change {
-                AlertChange::Raised => colored(
+                AlertChange::Raised | AlertChange::Notice => colored(
                     event.alert.text.clone(),
                     severity_color(event.alert.severity),
                 ),

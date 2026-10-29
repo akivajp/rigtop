@@ -5,10 +5,11 @@
 //! JSON object per line, tagged by `"type"`:
 //!
 //! ```text
-//! agent  -> client  {"type":"hello","protocol":1,"version":"0.1.0"}
+//! agent  -> client  {"type":"hello","protocol":1,"version":"0.1.0","features":["watch_processes"]}
 //! agent  -> client  {"type":"snapshot","snapshot":{...}}
 //! client -> agent   {"type":"set_interval","ms":2000}
 //! client -> agent   {"type":"set_process_limit","limit":10}
+//! client -> agent   {"type":"watch_processes","pids":[1234]}
 //! client -> agent   {"type":"signal","pid":1234,"signal":"Terminate"}
 //! agent  -> client  {"type":"signal_result","pid":1234,"signal":"Terminate","error":null}
 //! ```
@@ -31,6 +32,11 @@ use crate::source::{DataSource, MIN_POLL_INTERVAL, ProcessSignal};
 /// missing fields).
 pub const PROTOCOL_VERSION: u32 = 1;
 
+/// [`AgentMessage::Hello`] feature: the agent understands
+/// [`ClientMessage::WatchProcesses`] (0.19 and later). Older agents answer
+/// commands they do not know with an error, so clients check first.
+pub const FEATURE_WATCH_PROCESSES: &str = "watch_processes";
+
 /// Messages from the agent to the client.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -41,6 +47,10 @@ pub enum AgentMessage {
         protocol: u32,
         /// rigtop version of the agent.
         version: String,
+        /// Commands added since protocol 1 that the agent understands
+        /// (e.g. [`FEATURE_WATCH_PROCESSES`]); empty before 0.19.
+        #[serde(default)]
+        features: Vec<String>,
     },
     /// A new measurement.
     Snapshot {
@@ -68,6 +78,10 @@ pub enum ClientMessage {
     /// Send only the top `limit` processes by CPU (`None`: all). Used for
     /// hosts shown in an overview rather than in detail.
     SetProcessLimit { limit: Option<usize> },
+    /// Always send these processes, and list them in
+    /// [`Snapshot::watched_pids`], so the client can tell when they exit.
+    /// Only for agents with [`FEATURE_WATCH_PROCESSES`].
+    WatchProcesses { pids: Vec<u32> },
     /// Send a signal to a process on the agent's host.
     Signal { pid: u32, signal: ProcessSignal },
 }
@@ -125,6 +139,7 @@ where
     let hello = AgentMessage::Hello {
         protocol: PROTOCOL_VERSION,
         version: env!("CARGO_PKG_VERSION").to_owned(),
+        features: vec![FEATURE_WATCH_PROCESSES.to_owned()],
     };
     // A failed write means the client went away: stop quietly.
     if write_message(&mut output, &hello).is_err() {
@@ -145,6 +160,10 @@ where
                 process_limit = limit;
                 // The source can skip work only the full list needs.
                 source.set_process_limit(limit);
+                None
+            }
+            Ok(Input::Command(ClientMessage::WatchProcesses { pids })) => {
+                source.watch_processes(pids);
                 None
             }
             Ok(Input::Command(ClientMessage::Signal { pid, signal })) => {
@@ -190,11 +209,15 @@ mod tests {
     use std::io::Cursor;
     use std::sync::{Arc, Mutex};
 
-    struct FakeSource;
+    #[derive(Default)]
+    struct FakeSource {
+        watched_pids: Vec<u32>,
+    }
 
     impl DataSource for FakeSource {
         fn poll(&mut self) -> Result<Snapshot, SourceError> {
             Ok(Snapshot {
+                watched_pids: self.watched_pids.clone(),
                 processes: (1..=20)
                     .map(|pid| ProcessInfo {
                         pid,
@@ -213,6 +236,10 @@ mod tests {
             } else {
                 Ok(())
             }
+        }
+
+        fn watch_processes(&mut self, pids: Vec<u32>) {
+            self.watched_pids = pids;
         }
     }
 
@@ -256,7 +283,13 @@ mod tests {
              not json\n",
         );
         let output = SharedBuffer::default();
-        run_agent(FakeSource, Duration::from_secs(1), input, output.clone()).unwrap();
+        run_agent(
+            FakeSource::default(),
+            Duration::from_secs(1),
+            input,
+            output.clone(),
+        )
+        .unwrap();
 
         let text = String::from_utf8(output.0.lock().unwrap().clone()).unwrap();
         let messages: Vec<AgentMessage> = text
@@ -264,11 +297,12 @@ mod tests {
             .map(|l| serde_json::from_str(l).unwrap())
             .collect();
         assert!(matches!(
-            messages[0],
+            &messages[0],
             AgentMessage::Hello {
                 protocol: PROTOCOL_VERSION,
+                features,
                 ..
-            }
+            } if features.iter().any(|f| f == FEATURE_WATCH_PROCESSES)
         ));
         assert!(matches!(
             &messages[1],
@@ -292,13 +326,15 @@ mod tests {
         let out = output.clone();
         let agent = thread::spawn(move || {
             run_agent(
-                FakeSource,
+                FakeSource::default(),
                 MIN_POLL_INTERVAL,
                 io::BufReader::new(reader),
                 out,
             )
         });
         writeln!(writer, r#"{{"type":"set_process_limit","limit":3}}"#).unwrap();
+        // pid 2 uses little CPU but is watched: sent anyway.
+        writeln!(writer, r#"{{"type":"watch_processes","pids":[2]}}"#).unwrap();
         let deadline = Instant::now() + Duration::from_secs(5);
         let snapshot = loop {
             let text = String::from_utf8(output.0.lock().unwrap().clone()).unwrap();
@@ -312,8 +348,9 @@ mod tests {
             assert!(Instant::now() < deadline, "no snapshot: {text}");
             thread::sleep(Duration::from_millis(20));
         };
-        assert_eq!(snapshot.processes.len(), 3);
-        assert_eq!(snapshot.processes[0].pid, 20, "top CPU first");
+        let pids: Vec<u32> = snapshot.processes.iter().map(|p| p.pid).collect();
+        assert_eq!(pids, [20, 19, 18, 2], "top CPU first, then watched ones");
+        assert_eq!(snapshot.watched_pids, [2]);
         assert_eq!(snapshot.process_count, 20);
         drop(writer);
         agent.join().unwrap().unwrap();

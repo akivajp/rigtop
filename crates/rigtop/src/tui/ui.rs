@@ -172,7 +172,7 @@ fn draw_screen(
     if app.details
         && let Some(pid) = app.selected_pid
     {
-        draw_details(frame, right, snapshot, pid);
+        draw_details(frame, right, app, snapshot, pid);
     }
     if let Some(confirm) = &app.confirm {
         draw_confirm(
@@ -1256,7 +1256,7 @@ fn draw_processes(
     let footer = match app.status() {
         Some(status) => Line::from(colored(format!(" {status} "), WARN)),
         None => Line::from(dim(
-            " ↑↓ select  Enter details  ←→ sort  r reverse  / filter  e tree  t kthreads  v panels  U update  k term  K kill  +- interval  g graph span  a alerts  q quit ",
+            " ↑↓ select  Enter details  x notify on exit  ←→ sort  r reverse  / filter  e tree  t kthreads  v panels  U update  k term  K kill  +- interval  g graph span  a alerts  q quit ",
         )),
     };
     let block = panel("proc", PROC_TITLE)
@@ -1297,7 +1297,12 @@ fn draw_processes(
                 ProcColumn::Pid => Cell::from(p.pid.to_string()),
                 ProcColumn::Program => Cell::from(Line::from(vec![
                     dim(row.tree_prefix.clone()),
-                    Span::raw(p.name.clone()),
+                    // Watched for its exit (`x`).
+                    if app.exit_watch.contains(p.pid) {
+                        colored(p.name.clone(), WARN)
+                    } else {
+                        Span::raw(p.name.clone())
+                    },
                 ])),
                 ProcColumn::Command => {
                     Cell::from(Span::styled(p.command.clone(), Style::default().fg(DIM)))
@@ -1522,8 +1527,28 @@ fn process_columns(width: u16, has: Optional, tree: bool) -> Vec<ProcColumn> {
 
 /// The selected process's details over the lower part of `area` (the
 /// process box), so the selected row usually stays in sight above.
-fn draw_details(frame: &mut Frame, area: Rect, snapshot: &Snapshot, pid: u32) {
-    let rows = rigtop_core::view::process_details(snapshot, pid, std::time::SystemTime::now());
+/// What the details say about a watched process.
+fn exit_watch_text(state: rigtop_core::view::WatchState) -> String {
+    match state {
+        rigtop_core::view::WatchState::Unknown => {
+            // Older agents do not report exits; a new watch is confirmed
+            // by the next snapshot.
+            "notify, once the host confirms (needs rigtop 0.19 or later there)".to_owned()
+        }
+        _ => "notify (in the alert history, a)".to_owned(),
+    }
+}
+
+fn draw_details(frame: &mut Frame, area: Rect, app: &App, snapshot: &Snapshot, pid: u32) {
+    let rows = rigtop_core::view::process_details(snapshot, pid, std::time::SystemTime::now()).map(
+        |mut rows| {
+            if app.exit_watch.contains(pid) {
+                let state = app.exit_watch.state(snapshot, pid);
+                rows.push(("On exit", exit_watch_text(state)));
+            }
+            rows
+        },
+    );
     let mut lines: Vec<Line> = match rows {
         Some(rows) => rows
             .into_iter()
@@ -1536,7 +1561,9 @@ fn draw_details(frame: &mut Frame, area: Rect, snapshot: &Snapshot, pid: u32) {
             .collect(),
         None => vec![Line::from(dim(format!("process {pid} has exited")))],
     };
-    lines.push(Line::from(dim("Enter/Esc: close   ↑↓: other processes")));
+    lines.push(Line::from(dim(
+        "Enter/Esc: close   ↑↓: other processes   x: notify on exit",
+    )));
     // Rows after wrapping (long command lines), plus the borders.
     let inner_width = area.width.saturating_sub(2).max(1) as usize;
     let wrapped: usize = lines

@@ -14,8 +14,8 @@ use rigtop_core::hosts::{HostKind, HostSpec, host_specs};
 use rigtop_core::remote::RemoteSource;
 use rigtop_core::update::ReleaseChecker;
 use rigtop_core::view::{
-    AlertLog, GraphSpan, MetricHistory, ProcessQuery, ProcessRow, Severity, SortKey, process_rows,
-    signal_name,
+    AlertLog, ExitWatch, GraphSpan, MetricHistory, ProcessQuery, ProcessRow, Severity, SortKey,
+    process_rows, signal_name,
 };
 use rigtop_core::worker::{Command, Event, Worker};
 use rigtop_core::{Config, DataSource, LocalSource, ProcessSignal, Snapshot};
@@ -158,6 +158,8 @@ pub struct GuiState {
     pub confirm: Option<ConfirmSignal>,
     /// The process whose details window is open.
     pub details_pid: Option<u32>,
+    /// Processes to announce when they exit.
+    pub exit_watch: ExitWatch,
     /// Commands queued for the worker during this frame.
     pub commands: Vec<Command>,
     /// View changes queued during this frame.
@@ -214,6 +216,7 @@ impl GuiState {
             selected_pid: None,
             confirm: None,
             details_pid: None,
+            exit_watch: ExitWatch::default(),
             commands: Vec::new(),
             view_actions: Vec::new(),
             zoom: 1.0,
@@ -300,6 +303,22 @@ impl GuiState {
         }
     }
 
+    /// Starts or stops watching `pid` for its exit (sent to the worker by
+    /// [`HostEntry::flush`]).
+    pub fn toggle_exit_watch(&mut self, pid: u32) {
+        let Some(process) = self
+            .snapshot
+            .as_ref()
+            .and_then(|s| s.processes.iter().find(|p| p.pid == pid))
+        else {
+            return;
+        };
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as u64);
+        self.exit_watch.toggle(process, now_ms);
+    }
+
     /// Asks for confirmation before sending `signal` to `pid`.
     pub fn ask_signal(&mut self, pid: u32, name: &str, signal: ProcessSignal) {
         self.confirm = Some(ConfirmSignal {
@@ -331,6 +350,8 @@ pub struct HostEntry {
     pub state: GuiState,
     /// Process limit last sent to the worker (`None` = all processes).
     sent_limit: Option<Option<usize>>,
+    /// Watched processes last sent to the worker.
+    sent_watch: Option<Vec<u32>>,
 }
 
 impl HostEntry {
@@ -358,6 +379,11 @@ impl HostEntry {
         if self.sent_limit != Some(limit) {
             worker.send(Command::SetProcessLimit(limit));
             self.sent_limit = Some(limit);
+        }
+        let pids = self.state.exit_watch.pids();
+        if self.sent_watch.as_ref() != Some(&pids) {
+            worker.send(Command::WatchProcesses(pids.clone()));
+            self.sent_watch = Some(pids);
         }
     }
 
@@ -556,6 +582,7 @@ impl RigtopApp {
             worker,
             state,
             sent_limit: None,
+            sent_watch: None,
         }
     }
 
@@ -738,6 +765,7 @@ impl RigtopApp {
         let fresh = self.start_host(self.hosts[index].spec.clone());
         let host = &mut self.hosts[index];
         host.sent_limit = None;
+        host.sent_watch = None;
         std::mem::replace(&mut host.worker, fresh.worker)
     }
 
@@ -880,6 +908,13 @@ impl RigtopApp {
                 if self.repaint.is_some() {
                     notify::send(name, &alert);
                 }
+            }
+            // Asked for explicitly: announced whatever the notification level.
+            for alert in host.state.exit_watch.check(snapshot, now_ms) {
+                if self.repaint.is_some() {
+                    notify::send(name, &alert);
+                }
+                self.alert_log.record(name, alert, now_ms);
             }
         }
     }
@@ -1494,6 +1529,19 @@ mod tests {
         harness.run();
         assert_eq!(harness.state().primary().details_pid, Some(4242));
         harness.get_by_label("Running");
+
+        // Watching for the exit: marked in the details, undone the same way.
+        harness.get_by_label("python").click_secondary();
+        harness.run();
+        harness.get_by_label("Notify when it exits").click();
+        harness.run();
+        assert!(harness.state().primary().exit_watch.contains(4242));
+        harness.get_by_label("On exit");
+        harness.get_by_label("python").click_secondary();
+        harness.run();
+        harness.get_by_label("Stop notifying on exit").click();
+        harness.run();
+        assert!(!harness.state().primary().exit_watch.contains(4242));
     }
 
     #[test]

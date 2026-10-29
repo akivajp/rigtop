@@ -76,6 +76,11 @@ pub trait DataSource {
     /// Limits snapshots to the top `limit` processes by CPU (`None`: all).
     /// Remote sources use this to save bandwidth for hosts in an overview.
     fn set_process_limit(&mut self, _limit: Option<usize>) {}
+
+    /// Processes to always include in snapshots, whatever the process
+    /// limit, and to list in [`Snapshot::watched_pids`], so that the client
+    /// can tell when they exit. Replaces the previous list.
+    fn watch_processes(&mut self, _pids: Vec<u32>) {}
 }
 
 /// Boxed sources, so front-ends can choose local or remote at run time.
@@ -95,6 +100,10 @@ impl<T: DataSource + ?Sized> DataSource for Box<T> {
     fn set_process_limit(&mut self, limit: Option<usize>) {
         (**self).set_process_limit(limit);
     }
+
+    fn watch_processes(&mut self, pids: Vec<u32>) {
+        (**self).watch_processes(pids);
+    }
 }
 
 /// Collects snapshots of the machine rigtop runs on.
@@ -103,6 +112,8 @@ pub struct LocalSource {
     nvml: NvmlCollector,
     smart: SmartReader,
     last_poll: Option<Instant>,
+    /// See [`DataSource::watch_processes`].
+    watched_pids: Vec<u32>,
     #[cfg(target_os = "linux")]
     roots: SysRoots,
     #[cfg(target_os = "linux")]
@@ -146,6 +157,7 @@ impl LocalSource {
             nvml: NvmlCollector::new(),
             smart: SmartReader::new(&config.smart.dir),
             last_poll: None,
+            watched_pids: Vec::new(),
             #[cfg(target_os = "linux")]
             roots: SysRoots::default(),
             #[cfg(target_os = "linux")]
@@ -206,6 +218,7 @@ impl LocalSource {
             filesystems: self.system.filesystems(),
             process_count: processes.len(),
             processes,
+            watched_pids: self.watched_pids.clone(),
             gpus,
             smart: self.smart.read(),
             power: PowerStats {
@@ -339,6 +352,10 @@ impl DataSource for LocalSource {
     /// not include per-process GPU utilization: skip that NVML query.
     fn set_process_limit(&mut self, limit: Option<usize>) {
         self.nvml.set_process_utilization(limit.is_none());
+    }
+
+    fn watch_processes(&mut self, pids: Vec<u32>) {
+        self.watched_pids = pids;
     }
 }
 

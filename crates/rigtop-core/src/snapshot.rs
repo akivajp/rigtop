@@ -49,6 +49,11 @@ pub struct Snapshot {
     pub processes: Vec<ProcessInfo>,
     /// Total number of processes on the host, even if `processes` was truncated.
     pub process_count: usize,
+    /// Processes the client asked to hear about when they exit (see
+    /// [`crate::DataSource::watch_processes`]): listed in `processes`
+    /// whatever the limit while they run, so one of them missing has
+    /// exited. Empty from agents before 0.19.
+    pub watched_pids: Vec<u32>,
     /// Linux: systemd units in the failed state (e.g. `"nginx.service"`).
     pub failed_units: Vec<String>,
     /// Windows: why LibreHardwareMonitor, the source of temperatures, fans
@@ -64,18 +69,24 @@ impl Snapshot {
     /// than in detail. Kernel threads are dropped first: the overview does not
     /// show them, and busy `kworker`s would otherwise take places in the top
     /// `limit` and leave the list short. `process_count` keeps the original
-    /// total.
+    /// total. Processes in `watched_pids` stay, after the top `limit`.
     pub fn truncate_processes(&mut self, limit: usize) {
         self.processes.retain(|p| !p.kernel_thread);
         if self.processes.len() <= limit {
             return;
         }
-        // Partial sort is enough: only the top `limit` entries matter.
-        self.processes
-            .select_nth_unstable_by(limit, |a, b| b.cpu_percent.total_cmp(&a.cpu_percent));
-        self.processes.truncate(limit);
-        self.processes
-            .sort_unstable_by(|a, b| b.cpu_percent.total_cmp(&a.cpu_percent));
+        let (watched, mut others): (Vec<ProcessInfo>, Vec<ProcessInfo>) =
+            std::mem::take(&mut self.processes)
+                .into_iter()
+                .partition(|p| self.watched_pids.contains(&p.pid));
+        if others.len() > limit {
+            // Partial sort is enough: only the top `limit` entries matter.
+            others.select_nth_unstable_by(limit, |a, b| b.cpu_percent.total_cmp(&a.cpu_percent));
+            others.truncate(limit);
+        }
+        others.sort_unstable_by(|a, b| b.cpu_percent.total_cmp(&a.cpu_percent));
+        others.extend(watched);
+        self.processes = others;
     }
 }
 
@@ -833,6 +844,18 @@ mod tests {
         let pids: Vec<u32> = snapshot.processes.iter().map(|p| p.pid).collect();
         assert_eq!(pids, vec![2, 4, 5], "busy kworkers take no places");
         assert_eq!(snapshot.process_count, 5);
+    }
+
+    #[test]
+    fn truncate_keeps_watched_processes() {
+        let mut snapshot = Snapshot {
+            processes: (1..=6).map(|pid| process(pid, pid as f32)).collect(),
+            watched_pids: vec![1, 99],
+            ..Default::default()
+        };
+        snapshot.truncate_processes(2);
+        let pids: Vec<u32> = snapshot.processes.iter().map(|p| p.pid).collect();
+        assert_eq!(pids, vec![6, 5, 1]);
     }
 
     #[test]
