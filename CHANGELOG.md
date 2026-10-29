@@ -7,6 +7,8 @@ include breaking changes).
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-10-29
+
 ### Added
 - `rigtop --watch`: watches this machine and the configured hosts without
   a screen and runs the `[watch] command` when an alert appears or clears
@@ -396,7 +398,8 @@ First release.
 - Windows support (CPU, memory, processes, network with link speeds, drives,
   NVIDIA GPUs; temperatures, fans and CPU power are not available yet)
 
-[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.17.0...HEAD
+[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.18.0...HEAD
+[0.18.0]: https://github.com/akivajp/rigtop/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/akivajp/rigtop/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/akivajp/rigtop/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/akivajp/rigtop/compare/v0.14.0...v0.15.0
