@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::AlertsConfig;
 use crate::format;
-use crate::snapshot::{GpuStats, PcieLink, ProcessInfo, Snapshot};
+use crate::snapshot::{GpuStats, OomKill, PcieLink, ProcessInfo, Snapshot};
 use crate::source::ProcessSignal;
 
 /// Number of samples kept for graphs: over an hour at the default interval
@@ -704,8 +704,9 @@ pub fn alerts(snapshot: &Snapshot) -> Vec<Alert> {
 }
 
 /// Conditions in `snapshot` that need attention, most severe first:
-/// storage errors and failing drives, degraded RAID, full filesystems, hot
-/// CPUs, GPUs and drives, judged by `limits` (0 turns a threshold off).
+/// storage errors and failing drives, degraded RAID, full filesystems, OOM
+/// kills, full memory, hot CPUs, GPUs and drives, judged by `limits` (0
+/// turns a threshold off).
 pub fn alerts_with(snapshot: &Snapshot, limits: &AlertsConfig) -> Vec<Alert> {
     // A threshold of 0 (or less) is turned off.
     let reached = |value: f64, limit: f64| limit > 0.0 && value >= limit;
@@ -819,6 +820,14 @@ pub fn alerts_with(snapshot: &Snapshot, limits: &AlertsConfig) -> Vec<Alert> {
             add(Severity::Warning, format!("{name} {percent:.0}% full"));
         }
     }
+    if let Some(text) = oom_alert(&snapshot.memory.oom_kills) {
+        add(Severity::Critical, text);
+    }
+    let memory = &snapshot.memory;
+    let percent = memory.used_bytes as f64 / memory.total_bytes.max(1) as f64 * 100.0;
+    if memory.total_bytes > 0 && reached(percent, limits.memory_warning_percent) {
+        add(Severity::Warning, format!("memory {percent:.0}% used"));
+    }
     let hottest_cpu = snapshot
         .cpu
         .temperatures
@@ -834,6 +843,17 @@ pub fn alerts_with(snapshot: &Snapshot, limits: &AlertsConfig) -> Vec<Alert> {
             .filter(|t| reached(*t as f64, limits.gpu_warning_celsius as f64))
         {
             add(Severity::Warning, format!("GPU {} at {t:.0}°C", gpu.index));
+        }
+        if let (Some(used), Some(total)) = (gpu.memory_used_bytes, gpu.memory_total_bytes)
+            && total > 0
+        {
+            let percent = used as f64 / total as f64 * 100.0;
+            if reached(percent, limits.gpu_memory_warning_percent) {
+                add(
+                    Severity::Warning,
+                    format!("GPU {} memory {percent:.0}% used", gpu.index),
+                );
+            }
         }
         let slowdown: Vec<&str> = gpu.slowdown_reasons().collect();
         if !slowdown.is_empty() {
@@ -860,6 +880,35 @@ pub fn alerts_with(snapshot: &Snapshot, limits: &AlertsConfig) -> Vec<Alert> {
     // Stable sort keeps the order above within each severity.
     alerts.sort_by_key(|a| std::cmp::Reverse(a.severity));
     alerts
+}
+
+/// The alert for processes the OOM killer stopped: the likely ones by
+/// name ("OOM killer stopped python3 (likely)"), so that another victim is
+/// a new alert.
+fn oom_alert(kills: &[OomKill]) -> Option<String> {
+    let mut names: Vec<&str> = Vec::new();
+    for name in kills
+        .iter()
+        .rev()
+        .filter_map(|k| k.likely_process.as_deref())
+    {
+        if !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    let likely = if names.is_empty() {
+        String::new()
+    } else {
+        format!(" (likely {})", names.join(", "))
+    };
+    match kills.len() {
+        0 => None,
+        1 => Some(match names.first() {
+            Some(name) => format!("OOM killer stopped {name} (likely)"),
+            None => "OOM killer stopped a process".to_owned(),
+        }),
+        n => Some(format!("OOM killer stopped {n} processes{likely}")),
+    }
 }
 
 /// (device, °C) of each drive: SMART results, then NVMe drives without
@@ -1792,6 +1841,65 @@ mod tests {
                 text: "/data 92% full".to_owned()
             }
         );
+    }
+
+    #[test]
+    fn memory_alerts() {
+        use crate::snapshot::{MemoryStats, OomKill};
+        let kill = |name: Option<&str>| OomKill {
+            at_ms: 1,
+            likely_process: name.map(str::to_owned),
+        };
+        let mut snapshot = Snapshot {
+            memory: MemoryStats {
+                total_bytes: 100,
+                used_bytes: 93,
+                oom_kills: vec![kill(Some("python3"))],
+                ..Default::default()
+            },
+            gpus: vec![GpuStats {
+                index: 1,
+                memory_used_bytes: Some(99),
+                memory_total_bytes: Some(100),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let texts = |snapshot: &Snapshot, limits: &AlertsConfig| -> Vec<(Severity, String)> {
+            alerts_with(snapshot, limits)
+                .into_iter()
+                .map(|a| (a.severity, a.text))
+                .collect()
+        };
+        // VRAM is off by default (frameworks reserve it all).
+        assert_eq!(
+            texts(&snapshot, &AlertsConfig::default()),
+            [
+                (
+                    Severity::Critical,
+                    "OOM killer stopped python3 (likely)".to_owned()
+                ),
+                (Severity::Warning, "memory 93% used".to_owned()),
+            ]
+        );
+        let vram = AlertsConfig {
+            memory_warning_percent: 0.0,
+            gpu_memory_warning_percent: 98.0,
+            ..Default::default()
+        };
+        snapshot.memory.oom_kills = vec![kill(Some("bash")), kill(None), kill(Some("python3"))];
+        assert_eq!(
+            texts(&snapshot, &vram),
+            [
+                (
+                    Severity::Critical,
+                    "OOM killer stopped 3 processes (likely python3, bash)".to_owned()
+                ),
+                (Severity::Warning, "GPU 1 memory 99% used".to_owned()),
+            ]
+        );
+        snapshot.memory.oom_kills = vec![kill(None)];
+        assert_eq!(texts(&snapshot, &vram)[0].1, "OOM killer stopped a process");
     }
 
     #[test]

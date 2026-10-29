@@ -339,6 +339,8 @@ filesystem_critical_percent = 97
 cpu_warning_celsius = 96    # hottest CPU reading
 gpu_warning_celsius = 85
 drive_warning_celsius = 70  # SMART or NVMe sensor
+memory_warning_percent = 90 # memory in use (without cache)
+gpu_memory_warning_percent = 0  # VRAM; off: PyTorch, JAX etc. reserve most of it
 ignored_units = []          # failed systemd units not to warn about, e.g. ["foo.service"]
 
 [notifications]

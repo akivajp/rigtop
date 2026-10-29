@@ -135,6 +135,21 @@ pub struct MemoryStats {
     pub swap_total_bytes: u64,
     /// Swap space in use.
     pub swap_used_bytes: u64,
+    /// Processes the kernel's OOM killer stopped in the last hour, seen
+    /// since rigtop started (Linux), oldest first.
+    pub oom_kills: Vec<OomKill>,
+}
+
+/// One process stopped by the kernel for lack of memory.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OomKill {
+    /// When it was noticed (milliseconds since the Unix epoch).
+    pub at_ms: u64,
+    /// Name of the process that most likely was stopped: the largest one
+    /// that went away at the same time (the kernel log saying which needs
+    /// root).
+    pub likely_process: Option<String>,
 }
 
 /// A single GPU.

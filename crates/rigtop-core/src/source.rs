@@ -115,6 +115,8 @@ pub struct LocalSource {
     failed_units: linux::systemd::FailedUnitsReader,
     #[cfg(target_os = "linux")]
     containers: linux::containers::ContainerTracker,
+    #[cfg(target_os = "linux")]
+    oom: linux::oom::OomTracker,
     /// Directories searched for btrfs scrub status files, in order.
     #[cfg(target_os = "linux")]
     scrub_dirs: Vec<std::path::PathBuf>,
@@ -156,6 +158,8 @@ impl LocalSource {
             failed_units: linux::systemd::FailedUnitsReader::new(),
             #[cfg(target_os = "linux")]
             containers: linux::containers::ContainerTracker::new(),
+            #[cfg(target_os = "linux")]
+            oom: linux::oom::OomTracker::new(),
             #[cfg(target_os = "linux")]
             drm_gpus: linux::drm::DrmGpuReader::new(),
             // The copy made by the root collector first, then btrfs-progs'
@@ -263,6 +267,9 @@ impl LocalSource {
             .flat_map(|c| c.chip.temperatures.iter().cloned())
             .collect();
         snapshot.memory.cached_bytes = linux::meminfo::read_cached_bytes(&self.roots);
+        snapshot.memory.oom_kills =
+            self.oom
+                .sample(&self.roots, &snapshot.processes, snapshot.timestamp_ms);
         snapshot.power.cpu_package_w = self.rapl.sample(&self.roots, now);
         // The APU's amdgpu power covers the whole SoC (see PowerStats).
         // Discrete AMD GPUs are not reported yet.

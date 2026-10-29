@@ -7,6 +7,15 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Added
+- Memory alerts: memory in use above `[alerts] memory_warning_percent`
+  (90%, page cache not counted) is a warning, and a process stopped by the
+  kernel's OOM killer is a critical alert for an hour (Linux; counted from
+  `/proc/vmstat` while rigtop runs, with the likely process: the largest
+  one that went away at that moment). GPU memory has
+  `gpu_memory_warning_percent`, off by default since PyTorch, JAX and
+  TensorFlow reserve most of the VRAM up front.
+
 ## [0.18.0] - 2026-10-29
 
 ### Added

@@ -150,6 +150,7 @@ impl SystemCollector {
             cached_bytes,
             swap_total_bytes: s.total_swap(),
             swap_used_bytes: s.used_swap(),
+            oom_kills: Vec::new(),
         }
     }
 

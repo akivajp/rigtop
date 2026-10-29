@@ -609,6 +609,7 @@ fn workstation(t: f64) -> Snapshot {
             cached_bytes: Some(44 * GIB),
             swap_total_bytes: 8 * GIB,
             swap_used_bytes: 256 << 20,
+            ..Default::default()
         },
         gpus: vec![
             GpuStats {
@@ -828,6 +829,7 @@ fn laptop(t: f64) -> Snapshot {
             cached_bytes: Some(10 * GIB),
             swap_total_bytes: 30 * GIB,
             swap_used_bytes: 0,
+            ..Default::default()
         },
         gpus: vec![GpuStats {
             index: 0,

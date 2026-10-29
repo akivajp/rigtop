@@ -26,6 +26,8 @@
 //! cpu_warning_celsius = 96    # hottest CPU reading
 //! gpu_warning_celsius = 85
 //! drive_warning_celsius = 70  # SMART or NVMe sensor
+//! memory_warning_percent = 90 # memory in use (without cache)
+//! gpu_memory_warning_percent = 0  # VRAM; off: frameworks reserve most of it
 //! ignored_units = []          # failed systemd units not to warn about
 //!
 //! [notifications]
@@ -383,6 +385,12 @@ pub struct AlertsConfig {
     pub gpu_warning_celsius: f32,
     /// Drive temperature (°C, from SMART or the NVMe sensor) for a warning.
     pub drive_warning_celsius: f32,
+    /// Memory in use (%, page cache not counted) for a warning.
+    pub memory_warning_percent: f64,
+    /// GPU memory in use (%) for a warning. Off by default: PyTorch, JAX
+    /// and TensorFlow reserve most of the VRAM up front, so a busy GPU
+    /// always looks full.
+    pub gpu_memory_warning_percent: f64,
     /// systemd units whose failure is not worth a warning (e.g. a
     /// `systemd-networkd-wait-online.service` that fails on every boot).
     pub ignored_units: Vec<String>,
@@ -396,6 +404,8 @@ impl Default for AlertsConfig {
             cpu_warning_celsius: 96.0,
             gpu_warning_celsius: 85.0,
             drive_warning_celsius: 70.0,
+            memory_warning_percent: 90.0,
+            gpu_memory_warning_percent: 0.0,
             ignored_units: Vec::new(),
         }
     }
@@ -1024,6 +1034,7 @@ level = "warning"
 [alerts]
 drive_warning_celsius = 65
 cpu_warning_celsius = 0
+gpu_memory_warning_percent = 98
 "#,
         )
         .unwrap();
@@ -1051,6 +1062,8 @@ cpu_warning_celsius = 0
         assert_eq!(config.alerts.cpu_warning_celsius, 0.0);
         // Unset thresholds keep their defaults.
         assert_eq!(config.alerts.gpu_warning_celsius, 85.0);
+        assert_eq!(config.alerts.memory_warning_percent, 90.0);
+        assert_eq!(config.alerts.gpu_memory_warning_percent, 98.0);
     }
 
     #[test]
