@@ -1,13 +1,13 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.12.0.schema.json
 
 PackageIdentifier: akivajp.rigtop
-PackageVersion: 0.18.0
+PackageVersion: 0.19.0
 InstallerType: zip
 NestedInstallerType: portable
 NestedInstallerFiles:
-- RelativeFilePath: rigtop-v0.18.0-x86_64-pc-windows-msvc\rigtop.exe
+- RelativeFilePath: rigtop-v0.19.0-x86_64-pc-windows-msvc\rigtop.exe
   PortableCommandAlias: rigtop
-- RelativeFilePath: rigtop-v0.18.0-x86_64-pc-windows-msvc\rigtop-gui.exe
+- RelativeFilePath: rigtop-v0.19.0-x86_64-pc-windows-msvc\rigtop-gui.exe
   PortableCommandAlias: rigtop-gui
 Commands:
 - rigtop
@@ -18,7 +18,7 @@ Dependencies:
 ReleaseDate: 2026-10-29
 Installers:
 - Architecture: x64
-  InstallerUrl: https://github.com/akivajp/rigtop/releases/download/v0.18.0/rigtop-v0.18.0-x86_64-pc-windows-msvc.zip
-  InstallerSha256: 2F7BE95DD1A701BD7D41F8B05143ADBCC007AF854E8A97DF5A539C12C43C9B31
+  InstallerUrl: https://github.com/akivajp/rigtop/releases/download/v0.19.0/rigtop-v0.19.0-x86_64-pc-windows-msvc.zip
+  InstallerSha256: 9811BC2BAB20C92DA2F9E2E3F76CF751EED54A63B12DB46027B7BF71F75D9EB4
 ManifestType: installer
 ManifestVersion: 1.12.0
