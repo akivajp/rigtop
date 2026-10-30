@@ -26,6 +26,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 [dev-dependencies]
 egui_kittest = { version = "0.37.0", features = ["wgpu", "snapshot"] }
 tempfile = "3.27.0"
+toml = "1.1.8"
 
 # Not on Windows: there notify-rust shows toasts under PowerShell's app id,
 # which got the unsigned executable quarantined by Microsoft Defender.

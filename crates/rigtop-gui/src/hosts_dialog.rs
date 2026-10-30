@@ -46,6 +46,7 @@ impl HostForm {
             ssh: optional(&self.ssh),
             command: optional(&self.command),
             sections: previous.and_then(|h| h.sections.clone()),
+            alerts: previous.and_then(|h| h.alerts.clone()),
         }
     }
 

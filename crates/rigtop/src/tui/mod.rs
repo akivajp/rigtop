@@ -54,7 +54,9 @@ impl HostTui {
     /// Starts collecting from `spec`.
     fn start(spec: HostSpec, config: &Config, interval: Duration) -> Self {
         let worker = spawn_worker(&spec, config, interval);
-        let mut app = App::new(config.clone(), interval);
+        let mut host_config = config.clone();
+        host_config.alerts = spec.alerts.clone();
+        let mut app = App::new(host_config, interval);
         if !spec.is_local() {
             app.waiting_message = format!("connecting to {}…", spec.name);
         }
@@ -496,6 +498,7 @@ fn apply_config(
     stop_workers(stopped);
     for host in hosts.iter_mut() {
         host.app.config = config.clone();
+        host.app.config.alerts = host.spec.alerts.clone();
         host.app.set_status("configuration reloaded".to_owned());
     }
     if old.widgets != config.widgets {

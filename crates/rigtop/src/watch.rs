@@ -186,7 +186,7 @@ pub fn run(
                 match event {
                     Event::Snapshot(snapshot) => {
                         host.state
-                            .on_snapshot(alerts_with(&snapshot, &config.alerts), now);
+                            .on_snapshot(alerts_with(&snapshot, &host.spec.alerts), now);
                         changed = true;
                     }
                     Event::Error(err) => host.state.error = Some(err),
@@ -214,8 +214,8 @@ pub fn run(
     }
 }
 
-/// Keeps the hosts whose specification did not change and starts the new
-/// ones; the others stop in the background.
+/// Keeps the hosts still configured (with their new thresholds) and starts
+/// the new ones; the others stop in the background.
 fn restart_hosts(
     mut old: Vec<Watched>,
     specs: Vec<HostSpec>,
@@ -225,9 +225,13 @@ fn restart_hosts(
 ) -> Vec<Watched> {
     let mut hosts = Vec::with_capacity(specs.len());
     for spec in specs {
-        match old.iter().position(|h| h.spec == spec) {
+        match old
+            .iter()
+            .position(|h| h.spec.name == spec.name && h.spec.kind == spec.kind)
+        {
             Some(i) => {
-                let host = old.swap_remove(i);
+                let mut host = old.swap_remove(i);
+                host.spec = spec;
                 host.worker.send(Command::SetInterval(interval));
                 hosts.push(host);
             }

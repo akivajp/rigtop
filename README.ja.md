@@ -190,6 +190,9 @@ name = "nas"
 ssh = "admin@nas.local"
 command = "/usr/local/bin/rigtop --agent"
 sections = ["storage", "cpu", "network"]   # このホストのオーバービューで先に出す項目
+[hosts.alerts]                 # このホストだけのしきい値（書いた項目だけ [alerts] を上書き）
+filesystem_warning_percent = 95
+drive_warning_celsius = 55
 ```
 
 ```sh

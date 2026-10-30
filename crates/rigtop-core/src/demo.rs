@@ -55,6 +55,7 @@ pub fn host_specs(config: &Config) -> Vec<HostSpec> {
             name: host.name().to_owned(),
             kind: HostKind::Demo(host),
             sections: config.overview.sections.clone(),
+            alerts: config.alerts.clone(),
         })
         .collect()
 }

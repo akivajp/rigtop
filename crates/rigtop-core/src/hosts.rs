@@ -1,7 +1,7 @@
 //! The hosts a front-end monitors: this machine plus remote hosts from the
 //! configuration and the command line.
 
-use crate::config::{Config, HostConfig, OverviewSection};
+use crate::config::{AlertsConfig, Config, HostConfig, OverviewSection};
 use crate::demo::DemoHost;
 use crate::remote::{DEFAULT_REMOTE_COMMAND, RemoteTarget};
 
@@ -20,13 +20,15 @@ pub enum HostKind {
 }
 
 /// One monitored host.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct HostSpec {
     /// Name for tabs and cards.
     pub name: String,
     pub kind: HostKind,
     /// Overview sections in priority order (host override or the default).
     pub sections: Vec<OverviewSection>,
+    /// Alert thresholds (the host's own over `[alerts]`).
+    pub alerts: AlertsConfig,
 }
 
 impl HostSpec {
@@ -49,6 +51,7 @@ pub fn host_specs(
         name: LOCAL_NAME.to_owned(),
         kind: HostKind::Local,
         sections: default_sections.clone(),
+        alerts: config.alerts.clone(),
     }];
     let mut hosts: Vec<HostConfig> = config.hosts.clone();
     for destination in extra_destinations {
@@ -66,6 +69,10 @@ pub fn host_specs(
         let mut target = RemoteTarget::ssh(host.destination(), command);
         target.name = host.name.clone();
         specs.push(HostSpec {
+            // Checked when the configuration was loaded.
+            alerts: config
+                .alerts_for(&host)
+                .unwrap_or_else(|_| config.alerts.clone()),
             sections: host
                 .sections
                 .clone()
@@ -89,6 +96,7 @@ mod tests {
             ssh: Some("admin@nas.local".to_owned()),
             command: Some("/opt/rigtop --agent".to_owned()),
             sections: Some(vec![OverviewSection::Storage]),
+            alerts: Some(toml::from_str("cpu_warning_celsius = 100").unwrap()),
         });
         let extra = vec!["admin@nas.local".to_owned(), "zefat".to_owned()];
         let specs = host_specs(&config, &extra, Some("~/bin/rigtop --agent"));
@@ -98,6 +106,9 @@ mod tests {
         assert!(specs[0].is_local());
         assert_eq!(specs[1].sections, vec![OverviewSection::Storage]);
         assert_eq!(specs[2].sections, OverviewSection::ALL.to_vec());
+        // Thresholds: the host's own over [alerts].
+        assert_eq!(specs[1].alerts.cpu_warning_celsius, 100.0);
+        assert_eq!(specs[2].alerts, config.alerts);
         match (&specs[1].kind, &specs[2].kind) {
             (HostKind::Remote(nas), HostKind::Remote(zefat)) => {
                 assert_eq!(nas.name, "nas");

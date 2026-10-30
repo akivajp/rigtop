@@ -190,6 +190,9 @@ name = "nas"
 ssh = "admin@nas.local"
 command = "/usr/local/bin/rigtop --agent"
 sections = ["storage", "cpu", "network"]   # what this host's overview card shows first
+[hosts.alerts]                 # this host's thresholds, over those of [alerts]
+filesystem_warning_percent = 95
+drive_warning_celsius = 55
 ```
 
 ```sh

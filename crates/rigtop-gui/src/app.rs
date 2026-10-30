@@ -574,7 +574,9 @@ impl RigtopApp {
                 move || repaint.request_repaint(),
             )
         });
-        let mut state = GuiState::new(self.config.clone());
+        let mut config = self.config.clone();
+        config.alerts = spec.alerts.clone();
+        let mut state = GuiState::new(config);
         state.is_local = spec.is_local();
         state.remote = matches!(spec.kind, HostKind::Remote(_));
         HostEntry {
@@ -683,6 +685,7 @@ impl RigtopApp {
         }
         for host in &mut self.hosts {
             host.state.config = self.config.clone();
+            host.state.config.alerts = host.spec.alerts.clone();
             host.state.set_status("configuration reloaded".to_owned());
         }
         if old.widgets != self.config.widgets
@@ -853,6 +856,7 @@ impl RigtopApp {
                         ))
                     },
                     sections: app.config.overview.sections.clone(),
+                    alerts: app.config.alerts.clone(),
                 })
             })
             .collect();
@@ -1637,6 +1641,7 @@ mod tests {
             name: "nas".to_owned(),
             kind: HostKind::Local,
             sections: vec![OverviewSection::Cpu],
+            alerts: Default::default(),
         };
         assert_eq!(settings.sections_for(&spec), vec![OverviewSection::Cpu]);
         settings.sections.insert(
@@ -1920,6 +1925,7 @@ mod tests {
             ssh: None,
             command: None,
             sections: None,
+            alerts: Some(toml::from_str("gpu_warning_celsius = 70").unwrap()),
         });
         config.alerts.cpu_warning_celsius = 80.0;
         harness.state_mut().apply_config(config);
@@ -1932,6 +1938,13 @@ mod tests {
                 .iter()
                 .all(|h| h.state.config.alerts.cpu_warning_celsius == 80.0)
         );
+        // The nas has its own GPU threshold.
+        let gpu: Vec<f32> = app
+            .hosts
+            .iter()
+            .map(|h| h.state.config.alerts.gpu_warning_celsius)
+            .collect();
+        assert_eq!(gpu, [85.0, 70.0]);
         assert_eq!(app.hosts[0].state.status(), Some("configuration reloaded"));
         assert!(
             app.hosts[0].state.snapshot.is_some(),

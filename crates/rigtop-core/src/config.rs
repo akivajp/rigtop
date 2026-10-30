@@ -78,6 +78,8 @@
 //! ssh = "admin@nas.local"
 //! command = "/usr/local/bin/rigtop --agent"
 //! sections = ["storage", "cpu", "network"]
+//! [hosts.alerts]       # this host's thresholds, over those of [alerts]
+//! filesystem_warning_percent = 95
 //!
 //! [[widgets]]
 //! name = "Clock"
@@ -132,6 +134,17 @@ pub enum ConfigError {
     /// The configuration could not be serialized.
     #[error("cannot serialize config: {0}")]
     Serialize(#[from] toml::ser::Error),
+    /// A host's `alerts` table has a key `[alerts]` does not, or a value of
+    /// the wrong type.
+    #[error("invalid alerts of host {host} in {path}: {source}")]
+    HostAlerts {
+        /// File that failed.
+        path: PathBuf,
+        /// Name of the host.
+        host: String,
+        /// Underlying error (boxed: it would make every result large).
+        source: Box<toml::de::Error>,
+    },
     /// The file is not valid TOML, so it cannot be edited in place.
     #[error("cannot edit {path}: {source}")]
     Edit {
@@ -312,6 +325,11 @@ pub struct HostConfig {
     /// (e.g. storage first for a file server).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sections: Option<Vec<OverviewSection>>,
+    /// Alert thresholds of this host: the keys given replace those of
+    /// `[alerts]` (e.g. a higher CPU temperature for a laptop). Checked when
+    /// the file is loaded; see [`Config::alerts_for`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alerts: Option<toml::Table>,
 }
 
 impl HostConfig {
@@ -322,6 +340,7 @@ impl HostConfig {
             ssh: None,
             command: None,
             sections: None,
+            alerts: None,
         }
     }
 
@@ -619,10 +638,33 @@ impl Config {
                 });
             }
         };
-        toml::from_str(&text).map_err(|source| ConfigError::Parse {
+        let config: Self = toml::from_str(&text).map_err(|source| ConfigError::Parse {
             path: path.to_owned(),
             source,
-        })
+        })?;
+        // A typo in a host's thresholds fails now, like one in [alerts].
+        for host in &config.hosts {
+            config
+                .alerts_for(host)
+                .map_err(|source| ConfigError::HostAlerts {
+                    path: path.to_owned(),
+                    host: host.name.clone(),
+                    source: Box::new(source),
+                })?;
+        }
+        Ok(config)
+    }
+
+    /// The alert thresholds of `host`: `[alerts]` with the keys of the
+    /// host's own `alerts` table in place of its own.
+    pub fn alerts_for(&self, host: &HostConfig) -> Result<AlertsConfig, toml::de::Error> {
+        let Some(overrides) = &host.alerts else {
+            return Ok(self.alerts.clone());
+        };
+        // Serializing plain numbers and strings cannot fail.
+        let mut merged = toml::Table::try_from(&self.alerts).unwrap_or_default();
+        merged.extend(overrides.clone());
+        merged.try_into()
     }
 
     /// Loads from [`Config::default_path`], or returns the defaults when the
@@ -684,6 +726,16 @@ impl Config {
                         }
                     }
                     table["sections"] = toml_edit::value(array);
+                }
+                if let Some(alerts) = &host.alerts {
+                    // Written as [hosts.alerts] under the host's keys.
+                    let mut sub = toml_edit::Table::new();
+                    for (key, value) in alerts {
+                        if let Ok(value) = value.to_string().parse::<toml_edit::Value>() {
+                            sub[key.as_str()] = toml_edit::value(value);
+                        }
+                    }
+                    table["alerts"] = toml_edit::Item::Table(sub);
                 }
                 tables.push(table);
             }
@@ -1149,6 +1201,10 @@ interval_secs = 60
                 ssh: Some("admin@nas.local".to_owned()),
                 command: Some("/opt/rigtop --agent".to_owned()),
                 sections: Some(vec![OverviewSection::Storage, OverviewSection::Cpu]),
+                alerts: Some(
+                    toml::from_str("cpu_warning_celsius = 90.0\nignored_units = [\"a.service\"]")
+                        .unwrap(),
+                ),
             },
         ];
         Config::save_hosts(&path, &hosts).unwrap();
@@ -1167,6 +1223,38 @@ interval_secs = 60
         Config::save_hosts(&path, &[]).unwrap();
         assert!(Config::load(&path).unwrap().hosts.is_empty());
         assert!(fs::read_to_string(&path).unwrap().contains("# keep me"));
+    }
+
+    #[test]
+    fn host_alerts_replace_the_keys_they_give() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("config.toml");
+        fs::write(
+            &path,
+            "[alerts]\nmemory_warning_percent = 80\n\n\
+             [[hosts]]\nname = \"laptop\"\n[hosts.alerts]\ncpu_warning_celsius = 100\n\n\
+             [[hosts]]\nname = \"nas\"\n",
+        )
+        .unwrap();
+        let config = Config::load(&path).unwrap();
+        let laptop = config.alerts_for(&config.hosts[0]).unwrap();
+        assert_eq!(laptop.cpu_warning_celsius, 100.0);
+        // The others come from [alerts], set or default.
+        assert_eq!(laptop.memory_warning_percent, 80.0);
+        assert_eq!(laptop.gpu_warning_celsius, 85.0);
+        assert_eq!(config.alerts_for(&config.hosts[1]).unwrap(), config.alerts);
+
+        // A typo fails the load, naming the host.
+        fs::write(
+            &path,
+            "[[hosts]]\nname = \"laptop\"\n[hosts.alerts]\ncpu_warning_celsus = 100\n",
+        )
+        .unwrap();
+        let err = Config::load(&path).unwrap_err().to_string();
+        assert!(
+            err.contains("laptop") && err.contains("cpu_warning_celsus"),
+            "{err}"
+        );
     }
 
     #[test]

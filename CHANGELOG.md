@@ -16,6 +16,10 @@ include breaking changes).
   `[alerts] memory_pressure_warning_percent` (10%) of the last minute, and
   every task waiting for I/O over `io_pressure_warning_percent` (30%), are
   warnings.
+- Alert thresholds per host: `[hosts.alerts]` under a `[[hosts]]` entry
+  replaces the keys of `[alerts]` it gives for that host (a laptop that
+  runs hot, a file server kept fuller). Typos fail the load, naming the
+  host. The GUI's host editor keeps them.
 
 ## [0.20.0] - 2026-10-30
 
