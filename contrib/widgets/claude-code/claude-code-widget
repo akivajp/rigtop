@@ -49,8 +49,10 @@ ACTIVE_SECS = int(os.environ.get("RIGTOP_CLAUDE_ACTIVE_SECS", "120"))
 STALE_LIMITS_SECS = 15 * 60
 # "remaining" (100% when unused) or "used".
 QUOTA_MODE = os.environ.get("RIGTOP_CLAUDE_QUOTA", "remaining")
-# An idle session waiting for you longer than this is greyed out.
-QUIET_SECS = 60 * 60
+# A session waiting for you is yellow for this long, then grey...
+FRESH_SECS = int(os.environ.get("RIGTOP_CLAUDE_FRESH_SECS", str(30 * 60)))
+# ...and left out (counted on one line) after this long; 0 keeps it.
+HIDE_SECS = int(os.environ.get("RIGTOP_CLAUDE_HIDE_SECS", str(2 * 60 * 60)))
 
 WINDOWS = (("five_hour", "5h"), ("seven_day", "week"))
 
@@ -298,20 +300,26 @@ def tokens(count):
     return str(count)
 
 
-def context_row(session):
-    """How full the session's context window is, as a gauge row."""
+def context_row(session, level):
+    """How full the session's context window is, as a gauge row in the
+    session's `level`, yellow or red instead when it fills up."""
     found = context_use(session)
     if not found:
         return None
+    session_level = level
     used, model = found
     window = context_window(model, used)
     if not window:
-        return row(f"{tokens(used)} tokens", label="  ctx", level="dim")
+        return row(f"{tokens(used)} tokens", label="  ctx", level=level, label_level=level)
     fraction = min(used / window, 1.0)
-    level = "bad" if fraction >= CONTEXT_FULL else "warn" if fraction >= CONTEXT_WARN else "ok"
+    if fraction >= CONTEXT_FULL:
+        level = "bad"
+    elif fraction >= CONTEXT_WARN:
+        level = "warn"
     return row(
         f"{fraction * 100:.0f}% · {tokens(used)}/{tokens(window)}",
         label="  ctx",
+        label_level=session_level,
         gauge=round(fraction, 3),
         gauge_style="level",
         level=level,
@@ -325,7 +333,8 @@ def duration(secs):
     if secs < 3600:
         return f"{secs // 60}m"
     if secs < 86400:
-        return f"{secs // 3600}h{secs % 3600 // 60:02d}m"
+        minutes = secs % 3600 // 60
+        return f"{secs // 3600}h{minutes:02d}m" if minutes else f"{secs // 3600}h"
     return f"{secs // 86400}d"
 
 
@@ -381,18 +390,27 @@ def short_name(session):
 
 
 def session_line(session, agents, now):
-    """(label, text, level) for a session: what it is doing, and for an
-    idle one how long and whether it waits for you or for background work."""
+    """(label, text, level, rank) for a session: what it is doing, and for
+    an idle one how long and whether it waits for you or for background
+    work. `rank` orders sessions (working first, then those waiting for you,
+    most recent first); None when the session is to be left out."""
     status = session.get("status", "?")
     name = short_name(session)
     since = status_since(session)
-    elapsed = f" · {duration(now - since)}" if since else ""
+    waited = now - since if since else 0
+    elapsed = f" · {duration(waited)}" if since else ""
+    # Waiting for you: yellow while fresh, then grey, then left out.
+    if HIDE_SECS and waited > HIDE_SECS:
+        stale_level = None
+    else:
+        stale_level = "dim" if waited > FRESH_SECS else "warn"
     if status == "busy":
         extra = f" · {len(agents)} agent{'s' if len(agents) != 1 else ''}" if agents else ""
-        return status, f"{name}{extra}", "ok"
+        return status, f"{name}{extra}", "ok", (0, 0)
     if status == "waiting":
         what = session.get("waitingFor") or "you"
-        return status, f"{name} · needs {what}{elapsed}", "warn"
+        # Kept (as yellow) however long: it cannot go on without you.
+        return status, f"{name} · needs {what}{elapsed}", stale_level or "dim", (1, waited)
     if status == "idle":
         commands = running_commands(int(session.get("pid", 0) or 0)) or 0
         pending = []
@@ -402,34 +420,48 @@ def session_line(session, agents, now):
             pending.append(f"{len(agents)} agent{'s' if len(agents) != 1 else ''}")
         if pending:
             # Its turn ended, but background work it started still runs.
-            return status, f"{name} · waiting on {', '.join(pending)}{elapsed}", "ok"
-        quiet = since is not None and now - since > QUIET_SECS
-        return status, f"{name} · your turn{elapsed}", "dim" if quiet else "normal"
-    return status, name, "normal"
+            return status, f"{name} · waiting on {', '.join(pending)}{elapsed}", "ok", (0, 1)
+        if stale_level is None:
+            return None
+        return status, f"{name} · your turn{elapsed}", stale_level, (2, waited)
+    return status, name, "normal", (3, 0)
 
 
 def session_rows(now):
     found = sessions()
     if not found:
         return [row("no running sessions", level="dim")]
+    listed, hidden = [], 0
+    for session in found:
+        agents = active_subagents(session, now)
+        line = session_line(session, agents, now)
+        if line is None:
+            hidden += 1
+            continue
+        label, text, level, rank = line
+        listed.append((rank, session.get("startedAt", 0), session, agents, label, text, level))
+    listed.sort(key=lambda item: item[:2])
     rows = []
     previous = None
-    for session in sorted(found, key=lambda s: (s.get("cwd", ""), s.get("startedAt", 0))):
-        # One heading per project, its sessions under it.
+    for _, _, session, agents, label, text, level in listed:
+        # The project's name above its sessions, again where the order
+        # moves on to another project and back.
         cwd = session.get("cwd", "")
         if cwd != previous:
-            rows.append(row(os.path.basename(cwd.rstrip("/\\")) or "?", heading=True))
+            name = os.path.basename(cwd.rstrip("/\\")) or "?"
+            rows.append(row(name, heading=True, level=level))
             previous = cwd
-        agents = active_subagents(session, now)
-        label, text, level = session_line(session, agents, now)
-        rows.append(row(text, label=label, level=level))
-        context = context_row(session)
+        rows.append(row(text, label=label, level=level, label_level=level))
+        context = context_row(session, level)
         if context:
             rows.append(context)
         for age, kind, description in agents:
             text = f"{kind}: {description}" if description else kind
-            rows.append(row(text, label="  agent", level="normal" if age < 30 else "dim"))
-    return rows
+            agent_level = level if age < 30 else "dim"
+            rows.append(row(text, label="  agent", level=agent_level, label_level=agent_level))
+    if hidden:
+        rows.append(row(f"+{hidden} idle over {duration(HIDE_SECS)}", level="dim"))
+    return rows or [row("no running sessions", level="dim")]
 
 
 def main():

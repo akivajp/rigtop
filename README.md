@@ -172,7 +172,7 @@ The command prints plain text (one row per line) or JSON rows, every field optio
 ]}
 ```
 
-`gauge` is a fraction drawn as a bar (green to red along its length, or in the row's color with `"gauge_style": "level"`, for amounts left), `level` one of `normal`, `dim`, `ok`, `warn`, `bad`. When a run fails, the widget keeps the last rows and shows the last line of the command's stderr.
+`gauge` is a fraction drawn as a bar (green to red along its length, or in the row's color with `"gauge_style": "level"`, for amounts left), `level` one of `normal`, `dim`, `ok`, `warn`, `bad` (the color of the value, or of a heading), `label_level` the same for the label (dim when left out). When a run fails, the widget keeps the last rows and shows the last line of the command's stderr.
 
 Example: [`contrib/widgets/claude-code/`](contrib/widgets/claude-code/) shows Claude Code's usage limits, running sessions and subagents.
 

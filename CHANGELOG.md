@@ -7,6 +7,17 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Added
+- Widget rows can color their label (`label_level`), and headings take the
+  row's `level`.
+
+### Changed
+- Claude Code widget: working sessions come first and are green from the
+  project's name to the context bar; sessions waiting for you follow, most
+  recent first, yellow for 30 minutes and grey after that, and are left out
+  (counted on one line) after 2 hours. Both times can be changed
+  (`RIGTOP_CLAUDE_FRESH_SECS`, `RIGTOP_CLAUDE_HIDE_SECS`).
+
 ## [0.19.0] - 2026-10-30
 
 ### Added

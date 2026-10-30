@@ -56,8 +56,10 @@ pub struct WidgetRow {
     pub gauge: Option<f32>,
     /// How the bar is colored.
     pub gauge_style: GaugeStyle,
-    /// Color of the value.
+    /// Color of the value (and of a heading's text).
     pub level: Level,
+    /// Color of the label; dim when not given.
+    pub label_level: Option<Level>,
     /// A section title (e.g. a project name) rather than a reading.
     pub heading: bool,
 }

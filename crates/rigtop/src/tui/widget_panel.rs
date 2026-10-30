@@ -73,15 +73,23 @@ fn widget_lines(widget: &Widget, width: usize) -> Vec<Line<'static>> {
 
 fn row_line(row: &WidgetRow, width: usize) -> Line<'static> {
     if row.heading {
-        return Line::from(Span::styled(
-            format::truncate(&row.value, width),
-            Style::default().add_modifier(Modifier::BOLD),
-        ));
+        let mut style = Style::default().add_modifier(Modifier::BOLD);
+        if let Some(color) = level_color(row.level) {
+            style = style.fg(color);
+        }
+        return Line::from(Span::styled(format::truncate(&row.value, width), style));
     }
     let mut spans = Vec::new();
     let mut used = 0;
     if !row.label.is_empty() {
-        spans.push(dim(format!("{} ", format::pad(&row.label, LABEL_WIDTH))));
+        let label = format!("{} ", format::pad(&row.label, LABEL_WIDTH));
+        spans.push(match row.label_level {
+            None => dim(label),
+            Some(level) => match level_color(level) {
+                Some(color) => colored(label, color),
+                None => Span::raw(label),
+            },
+        });
         used += LABEL_WIDTH + 1;
     }
     if let Some(gauge) = row.gauge {
@@ -224,5 +232,25 @@ mod tests {
         let spans = row_line(&left, 40).spans;
         assert_eq!(spans[0].content, "■■■■■■■■");
         assert_eq!(spans[0].style.fg, Some(OK));
+
+        // Labels are dim unless colored; headings take the row's level.
+        let busy = WidgetRow {
+            label: "busy".to_owned(),
+            label_level: Some(Level::Ok),
+            ..Default::default()
+        };
+        assert_eq!(row_line(&busy, 40).spans[0].style.fg, Some(OK));
+        let plain = WidgetRow {
+            label: "idle".to_owned(),
+            ..Default::default()
+        };
+        assert_eq!(row_line(&plain, 40).spans[0].style.fg, Some(DIM));
+        let heading = WidgetRow {
+            value: "rigtop".to_owned(),
+            heading: true,
+            level: Level::Warn,
+            ..Default::default()
+        };
+        assert_eq!(row_line(&heading, 40).spans[0].style.fg, Some(WARN));
     }
 }

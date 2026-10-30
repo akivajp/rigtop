@@ -93,7 +93,11 @@ fn content(ui: &mut Ui, widget: &Widget, state: &WidgetState) {
 
 fn row_ui(ui: &mut Ui, row: &WidgetRow) {
     if row.heading {
-        ui.label(RichText::new(&row.value).color(TEXT).strong());
+        ui.label(
+            RichText::new(&row.value)
+                .color(level_color(row.level))
+                .strong(),
+        );
         return;
     }
     ui.horizontal(|ui| {
@@ -104,7 +108,8 @@ fn row_ui(ui: &mut Ui, row: &WidgetRow) {
                 egui::Layout::left_to_right(egui::Align::Center),
                 |ui| {
                     ui.set_min_width(LABEL_WIDTH);
-                    ui.add(egui::Label::new(RichText::new(&row.label).color(DIM)).truncate());
+                    let color = row.label_level.map_or(DIM, level_color);
+                    ui.add(egui::Label::new(RichText::new(&row.label).color(color)).truncate());
                 },
             );
         }
