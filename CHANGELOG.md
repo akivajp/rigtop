@@ -7,17 +7,21 @@ include breaking changes).
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-10-30
+
 ### Added
 - Widget rows can color their label (`label_level`), and headings take the
   row's `level`. A `"separator": true` row draws a line between sections.
 
 ### Changed
-- Claude Code widget: working sessions come first and are green from the
-  project's name to the context bar; sessions waiting for you follow, most
-  recent first. A permission prompt stays yellow; a session whose turn
-  ended is yellow for an hour, then grey on one line, and left out
-  (counted on one line) after 2 hours. Both times can be changed
-  (`RIGTOP_CLAUDE_FRESH_SECS`, `RIGTOP_CLAUDE_HIDE_SECS`).
+- Claude Code widget: working sessions come first, in green down to the
+  context bar; sessions waiting for you follow, most recent first. A
+  permission prompt stays yellow; a session whose turn ended is yellow for
+  an hour, then grey on one line, and left out (counted on one line) after
+  2 hours. Both times can be changed (`RIGTOP_CLAUDE_FRESH_SECS`,
+  `RIGTOP_CLAUDE_HIDE_SECS`). A project's name is yellow while one of its
+  sessions waits for you, else green while one works, else grey. A line
+  separates the usage limits from the sessions.
 
 ## [0.19.0] - 2026-10-30
 
@@ -435,7 +439,8 @@ First release.
 - Windows support (CPU, memory, processes, network with link speeds, drives,
   NVIDIA GPUs; temperatures, fans and CPU power are not available yet)
 
-[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.19.0...HEAD
+[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.20.0...HEAD
+[0.20.0]: https://github.com/akivajp/rigtop/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/akivajp/rigtop/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/akivajp/rigtop/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/akivajp/rigtop/compare/v0.16.0...v0.17.0
