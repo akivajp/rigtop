@@ -13,8 +13,8 @@ use crate::hosts::{HostKind, HostSpec};
 use crate::snapshot::{
     BatteryStats, BtrfsAllocation, BtrfsDeviceStats, BtrfsFilesystem, BtrfsScrub, CpuStats, DiskIo,
     EccErrors, Fan, FilesystemUsage, GpuProcess, GpuStats, HostInfo, MdArray, MdMember, MdSync,
-    MemoryStats, NetworkStats, PcieLink, PowerStats, ProcessInfo, RaidStats, SensorChip,
-    SmartDevice, Snapshot, Temperature, WirelessLink, ZfsPool,
+    MemoryStats, NetworkStats, PcieLink, PowerStats, Pressure, PressureLevels, ProcessInfo,
+    RaidStats, SensorChip, SmartDevice, Snapshot, Temperature, WirelessLink, ZfsPool,
 };
 use crate::source::{DataSource, ProcessSignal, SourceError};
 
@@ -586,6 +586,15 @@ fn workstation(t: f64) -> Snapshot {
     };
     let used_memory = 38.0 + 6.0 * build + 1.5 * wobble(11, t, 20.0);
     Snapshot {
+        // A build keeps every core busy: tasks queue for the CPU.
+        pressure: Some(Pressure {
+            cpu: PressureLevels {
+                some_avg10: (25.0 * build) as f32,
+                some_avg60: (20.0 * build) as f32,
+                ..Default::default()
+            },
+            ..Default::default()
+        }),
         host: HostInfo {
             hostname: "workstation".to_owned(),
             os: "Linux (Ubuntu 26.04)".to_owned(),
@@ -973,6 +982,16 @@ fn nas(t: f64) -> Snapshot {
         ..Default::default()
     };
     Snapshot {
+        // The RAID resync keeps the disks busy.
+        pressure: Some(Pressure {
+            io: PressureLevels {
+                some_avg10: 14.0,
+                some_avg60: 12.0,
+                full_avg10: 6.0,
+                full_avg60: 5.0,
+            },
+            ..Default::default()
+        }),
         host: HostInfo {
             hostname: "nas".to_owned(),
             os: "Linux (Debian 13)".to_owned(),

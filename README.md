@@ -343,6 +343,8 @@ gpu_warning_celsius = 85
 drive_warning_celsius = 70  # SMART or NVMe sensor
 memory_warning_percent = 90 # memory in use (without cache)
 gpu_memory_warning_percent = 0  # VRAM; off: PyTorch, JAX etc. reserve most of it
+memory_pressure_warning_percent = 10  # time tasks waited for memory, last minute (Linux)
+io_pressure_warning_percent = 30      # time all tasks waited for I/O, last minute (Linux)
 ignored_units = []          # failed systemd units not to warn about, e.g. ["foo.service"]
 
 [notifications]

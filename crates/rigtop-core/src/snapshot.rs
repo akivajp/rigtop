@@ -56,6 +56,10 @@ pub struct Snapshot {
     pub watched_pids: Vec<u32>,
     /// Linux: systemd units in the failed state (e.g. `"nginx.service"`).
     pub failed_units: Vec<String>,
+    /// Linux: how much of the time tasks waited for CPU, memory or I/O
+    /// (pressure stall information). `None` without it (other platforms,
+    /// kernels built or booted without PSI, agents before 0.21).
+    pub pressure: Option<Pressure>,
     /// Windows: why LibreHardwareMonitor, the source of temperatures, fans
     /// and CPU power, could not be read. `None` when it was read, when it is
     /// disabled in the configuration, and on other platforms.
@@ -152,6 +156,28 @@ pub struct MemoryStats {
     /// Processes the kernel's OOM killer stopped in the last hour, seen
     /// since rigtop started (Linux), oldest first.
     pub oom_kills: Vec<OomKill>,
+}
+
+/// Pressure stall information: the share of time tasks were stalled
+/// waiting for a resource, from `/proc/pressure/`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Pressure {
+    pub cpu: PressureLevels,
+    pub memory: PressureLevels,
+    pub io: PressureLevels,
+}
+
+/// Stall percentages of one resource. `some`: at least one task waited
+/// (others may have run); `full`: every task that wanted to run waited, so
+/// the time was lost. The kernel's 10- and 60-second averages.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PressureLevels {
+    pub some_avg10: f32,
+    pub some_avg60: f32,
+    pub full_avg10: f32,
+    pub full_avg60: f32,
 }
 
 /// One process stopped by the kernel for lack of memory.

@@ -29,6 +29,8 @@
 //! drive_warning_celsius = 70  # SMART or NVMe sensor
 //! memory_warning_percent = 90 # memory in use (without cache)
 //! gpu_memory_warning_percent = 0  # VRAM; off: frameworks reserve most of it
+//! memory_pressure_warning_percent = 10  # time tasks waited for memory (Linux)
+//! io_pressure_warning_percent = 30      # time all tasks waited for I/O (Linux)
 //! ignored_units = []          # failed systemd units not to warn about
 //!
 //! [notifications]
@@ -395,6 +397,14 @@ pub struct AlertsConfig {
     /// and TensorFlow reserve most of the VRAM up front, so a busy GPU
     /// always looks full.
     pub gpu_memory_warning_percent: f64,
+    /// Share of the last minute (%) in which some task waited for memory
+    /// (Linux pressure stall information) for a warning: reclaim or swap
+    /// is slowing work down.
+    pub memory_pressure_warning_percent: f64,
+    /// Share of the last minute (%) in which every runnable task waited for
+    /// I/O for a warning. Not "some" task: that is near 100% during any
+    /// large copy.
+    pub io_pressure_warning_percent: f64,
     /// systemd units whose failure is not worth a warning (e.g. a
     /// `systemd-networkd-wait-online.service` that fails on every boot).
     pub ignored_units: Vec<String>,
@@ -411,6 +421,8 @@ impl Default for AlertsConfig {
             drive_warning_celsius: 70.0,
             memory_warning_percent: 90.0,
             gpu_memory_warning_percent: 0.0,
+            memory_pressure_warning_percent: 10.0,
+            io_pressure_warning_percent: 30.0,
             ignored_units: Vec::new(),
         }
     }

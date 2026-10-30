@@ -318,6 +318,7 @@ impl LocalSource {
         snapshot.raid.md = linux::mdstat::read_arrays(&self.roots);
         snapshot.raid.zfs = linux::zfs::read_pools(&self.roots);
         snapshot.failed_units = self.failed_units.read(now);
+        snapshot.pressure = linux::pressure::read_pressure(&self.roots);
         let release = std::fs::read_to_string(self.roots.proc.join("sys/kernel/osrelease"))
             .unwrap_or_default();
         snapshot.host.reboot_required = linux::reboot::reboot_required(

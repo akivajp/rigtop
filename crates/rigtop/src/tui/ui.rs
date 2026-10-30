@@ -614,6 +614,24 @@ fn cpu_info_lines(app: &App, snapshot: &Snapshot) -> Vec<Line<'static>> {
             load[0], load[1], load[2]
         )));
     }
+    // Only resources tasks waited for, to keep the line short.
+    let stalls = snapshot
+        .pressure
+        .as_ref()
+        .map(|p| rigtop_core::view::pressure_items(p, &config.alerts))
+        .unwrap_or_default();
+    if !stalls.is_empty() {
+        let gap = if first.is_empty() { "" } else { "  " };
+        first.push(dim(format!("{gap}{}", rigtop_core::view::PRESSURE_LABEL)));
+        for item in stalls {
+            first.push(dim(format!(" {} ", item.name)));
+            first.push(if item.warn {
+                colored(item.value, WARN)
+            } else {
+                Span::raw(item.value)
+            });
+        }
+    }
     let cpu_temps = cpu.temperatures.iter();
     // Other sensors appear only once the user has named them.
     let named_temps = snapshot

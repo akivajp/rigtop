@@ -399,6 +399,24 @@ fn cpu_info(ui: &mut Ui, state: &GuiState, snapshot: &Snapshot) -> CpuRequests {
             ui.label(dim("Load"));
             ui.label(format!("{:.2} {:.2} {:.2}", load[0], load[1], load[2]));
         }
+        if let Some(pressure) = &snapshot.pressure {
+            // Only resources tasks waited for, to keep the line short.
+            let stalls = rigtop_core::view::pressure_items(pressure, &config.alerts);
+            if !stalls.is_empty() {
+                let details = rigtop_core::view::pressure_details(pressure);
+                ui.label(dim(format!(" {}", rigtop_core::view::PRESSURE_LABEL)))
+                    .on_hover_text(&details);
+                for item in stalls {
+                    ui.label(dim(item.name)).on_hover_text(&details);
+                    let value = if item.warn {
+                        RichText::new(item.value).color(WARN)
+                    } else {
+                        RichText::new(item.value)
+                    };
+                    ui.label(value).on_hover_text(&details);
+                }
+            }
+        }
         // CPU sensors, plus other sensors once the user has named them.
         let named = snapshot
             .sensors

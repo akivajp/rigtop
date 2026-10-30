@@ -3,7 +3,7 @@
 //! These cover what `sysinfo` does not expose: hwmon sensors, RAPL energy
 //! counters, per-device disk I/O, btrfs, mdadm and ZFS state, failed
 //! systemd units, OOM kills, pending reboots, the containers processes run
-//! in.
+//! in, pressure stall information.
 //!
 //! Every reader takes its root directories from [`SysRoots`] instead of
 //! hard-coding `/sys` and `/proc`, so tests can point them at a fixture tree.
@@ -19,6 +19,7 @@ pub mod meminfo;
 pub mod mounts;
 pub mod net;
 pub mod oom;
+pub mod pressure;
 pub mod procstat;
 pub mod rapl;
 pub mod reboot;

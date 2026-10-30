@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::AlertsConfig;
 use crate::format;
-use crate::snapshot::{GpuStats, OomKill, PcieLink, ProcessInfo, Snapshot};
+use crate::snapshot::{GpuStats, OomKill, PcieLink, Pressure, ProcessInfo, Snapshot};
 use crate::source::ProcessSignal;
 
 /// Number of samples kept for graphs: over an hour at the default interval
@@ -832,6 +832,72 @@ pub fn reboot_hint(reason: &str) -> String {
     hint
 }
 
+/// Label before the pressure readings ("Stall cpu 3% mem 0% io 6%").
+pub const PRESSURE_LABEL: &str = "Stall";
+
+/// One pressure reading for display: the share of the last 10 seconds in
+/// which some task waited for the resource.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PressureItem {
+    /// "cpu", "mem" or "io".
+    pub name: &'static str,
+    /// e.g. "6%".
+    pub value: String,
+    /// Its alert threshold is reached.
+    pub warn: bool,
+}
+
+/// The readings shown next to the load average: those of at least 1%, or
+/// raising an alert under `limits` (marked). Empty while nothing waits.
+pub fn pressure_items(pressure: &Pressure, limits: &AlertsConfig) -> Vec<PressureItem> {
+    let over = |value: f32, limit: f64| limit > 0.0 && value as f64 >= limit;
+    let item = |name, value: f32, warn| PressureItem {
+        name,
+        value: format!("{value:.0}%"),
+        warn,
+    };
+    let items = [
+        item("cpu", pressure.cpu.some_avg10, false),
+        item(
+            "mem",
+            pressure.memory.some_avg10,
+            over(
+                pressure.memory.some_avg60,
+                limits.memory_pressure_warning_percent,
+            ),
+        ),
+        item(
+            "io",
+            pressure.io.some_avg10,
+            over(pressure.io.full_avg60, limits.io_pressure_warning_percent),
+        ),
+    ];
+    items
+        .into_iter()
+        .filter(|item| item.warn || item.value != "0%")
+        .collect()
+}
+
+/// Hover text for the pressure readings: what they mean, with the "full"
+/// figures and the minute averages.
+pub fn pressure_details(pressure: &Pressure) -> String {
+    let line = |name: &str, levels: &crate::snapshot::PressureLevels| {
+        format!(
+            "{name}: some {:.0}% / {:.0}%, full {:.0}% / {:.0}%",
+            levels.some_avg10, levels.some_avg60, levels.full_avg10, levels.full_avg60
+        )
+    };
+    [
+        "Share of time tasks waited (10 s / 60 s averages); some: at least one \
+         task, full: all of them"
+            .to_owned(),
+        line("cpu", &pressure.cpu),
+        line("memory", &pressure.memory),
+        line("io", &pressure.io),
+    ]
+    .join("\n")
+}
+
 /// [`alerts_with`] the default thresholds.
 pub fn alerts(snapshot: &Snapshot) -> Vec<Alert> {
     alerts_with(snapshot, &AlertsConfig::default())
@@ -971,6 +1037,16 @@ pub fn alerts_with(snapshot: &Snapshot, limits: &AlertsConfig) -> Vec<Alert> {
     let percent = memory.used_bytes as f64 / memory.total_bytes.max(1) as f64 * 100.0;
     if memory.total_bytes > 0 && reached(percent, limits.memory_warning_percent) {
         add(Severity::Warning, format!("memory {percent:.0}% used"));
+    }
+    if let Some(pressure) = &snapshot.pressure {
+        let memory = pressure.memory.some_avg60 as f64;
+        if reached(memory, limits.memory_pressure_warning_percent) {
+            add(Severity::Warning, format!("memory pressure {memory:.0}%"));
+        }
+        let io = pressure.io.full_avg60 as f64;
+        if reached(io, limits.io_pressure_warning_percent) {
+            add(Severity::Warning, format!("I/O pressure {io:.0}%"));
+        }
     }
     let hottest_cpu = snapshot
         .cpu
@@ -2073,6 +2149,64 @@ mod tests {
                 severity: Severity::Critical,
                 text: "/data 92% full".to_owned()
             }
+        );
+    }
+
+    #[test]
+    fn pressure_alerts_and_readings() {
+        use crate::snapshot::PressureLevels;
+        let levels = |some: f32, full: f32| PressureLevels {
+            some_avg10: some,
+            some_avg60: some,
+            full_avg10: full,
+            full_avg60: full,
+        };
+        let mut snapshot = Snapshot {
+            pressure: Some(Pressure {
+                cpu: levels(40.0, 0.0),
+                memory: levels(0.2, 0.1),
+                io: levels(80.0, 12.0),
+            }),
+            ..Default::default()
+        };
+        let limits = AlertsConfig::default();
+        // A busy CPU and a long copy (some I/O, little full) are fine.
+        assert!(alerts_with(&snapshot, &limits).is_empty());
+        let names = |snapshot: &Snapshot| -> Vec<(&'static str, String, bool)> {
+            pressure_items(snapshot.pressure.as_ref().unwrap(), &limits)
+                .into_iter()
+                .map(|i| (i.name, i.value, i.warn))
+                .collect()
+        };
+        // Memory under 1% is left out.
+        assert_eq!(
+            names(&snapshot),
+            [
+                ("cpu", "40%".to_owned(), false),
+                ("io", "80%".to_owned(), false)
+            ]
+        );
+
+        snapshot.pressure = Some(Pressure {
+            cpu: levels(0.0, 0.0),
+            memory: levels(25.0, 4.0),
+            io: levels(90.0, 45.0),
+        });
+        let texts: Vec<String> = alerts_with(&snapshot, &limits)
+            .into_iter()
+            .map(|a| a.text)
+            .collect();
+        assert_eq!(texts, ["memory pressure 25%", "I/O pressure 45%"]);
+        assert_eq!(
+            names(&snapshot),
+            [
+                ("mem", "25%".to_owned(), true),
+                ("io", "90%".to_owned(), true)
+            ]
+        );
+        assert!(
+            pressure_details(snapshot.pressure.as_ref().unwrap())
+                .contains("io: some 90% / 90%, full 45% / 45%")
         );
     }
 

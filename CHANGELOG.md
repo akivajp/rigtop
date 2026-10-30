@@ -7,6 +7,16 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Added
+- "Stall" next to the load average (Linux): the share of time tasks waited
+  for the CPU, memory or I/O (pressure stall information, the last 10
+  seconds), for each one of at least 1%; the GUI's tooltip has the details.
+  It explains slowness the usage figures miss, such as memory reclaim or a
+  disk holding everything up. Waiting for memory over
+  `[alerts] memory_pressure_warning_percent` (10%) of the last minute, and
+  every task waiting for I/O over `io_pressure_warning_percent` (30%), are
+  warnings.
+
 ## [0.20.0] - 2026-10-30
 
 ### Added
