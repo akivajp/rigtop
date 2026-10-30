@@ -442,6 +442,14 @@ def session_rows(now):
         label, text, level, rank = line
         listed.append((rank, session.get("startedAt", 0), session, agents, label, text, level))
     listed.sort(key=lambda item: item[:2])
+    # A project's name: yellow while one of its sessions waits for you,
+    # else green while one works, grey when all are left waiting.
+    priority = {"warn": 0, "ok": 1, "normal": 2, "dim": 3}
+    project_level = {}
+    for *_, session, _, _, _, level in listed:
+        cwd = session.get("cwd", "")
+        current = project_level.get(cwd, "dim")
+        project_level[cwd] = min(current, level, key=priority.__getitem__)
     rows = []
     previous = None
     for _, _, session, agents, label, text, level in listed:
@@ -450,7 +458,7 @@ def session_rows(now):
         cwd = session.get("cwd", "")
         if cwd != previous:
             name = os.path.basename(cwd.rstrip("/\\")) or "?"
-            rows.append(row(name, heading=True, level=level))
+            rows.append(row(name, heading=True, level=project_level[cwd]))
             previous = cwd
         rows.append(row(text, label=label, level=level, label_level=level))
         # A session left waiting for a while keeps to one line.
