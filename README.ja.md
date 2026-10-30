@@ -222,7 +222,10 @@ rigtop は OS の `ssh`（Windows では標準の OpenSSH クライアント）�
 command = 'curl -s -d "$RIGTOP_MESSAGE" https://ntfy.sh/my-topic'
 level = "critical"     # または "warning"
 offline_after = "3m"   # この時間つながらないホストを critical の警告にする
+processes = ["train.py", "rsync"]  # これらが終わったときにも知らせる（全ホスト）
 ```
+
+`processes` には、終わったら知らせてほしいプログラムを、名前かコマンドラインに含まれるファイル名で書きます（`python3 jobs/train.py` なら `train.py`）。見つかったものは `zefat: watching train.py (pid 1234)` と出力し、終了（`train.py (pid 1234) exited after 3h12m`、`RIGTOP_CHANGE` = `notice`）は `level` に関係なくコマンドを実行します。遠隔のホストには rigtop 0.21 以降が必要です。
 
 `rigtop --test-alert` で、見本の警告でコマンドを1回実行できます。変化は日時付きで標準出力に出し、専用の警告の履歴に残すので、再起動しても同じ警告は送り直しません。監視を始めた時点で出ている警告は送ります。systemd のユーザーサービスとして動かし続けるには:
 
@@ -369,6 +372,7 @@ cleared = true         # 警告が消えたときも実行する
 interval = "10s"       # 各ホストの計測の間隔
 offline_after = "3m"   # この時間つながらないホストを critical の警告にする（"0s" で無効）
 timeout = "30s"        # これより長くかかった実行は止める
+processes = []         # 終わったら知らせるプログラム。例: ["train.py"]
 
 [tui]
 # ホストの画面で表示しない欄（`v` でも切り替えられる）

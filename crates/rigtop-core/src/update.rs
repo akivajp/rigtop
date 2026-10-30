@@ -41,6 +41,15 @@ pub fn agent_is_older(agent_version: &str) -> bool {
     }
 }
 
+/// Whether `version` (e.g. an agent's) is `minimum` or later; false when
+/// either cannot be read.
+pub fn version_at_least(version: &str, minimum: &str) -> bool {
+    match (parse_version(version), parse_version(minimum)) {
+        (Some(version), Some(minimum)) => version >= minimum,
+        _ => false,
+    }
+}
+
 /// Whether `version` (e.g. of the latest release) is newer than this rigtop.
 pub fn is_newer(version: &str) -> bool {
     match (parse_version(version), parse_version(target_version())) {
@@ -385,6 +394,10 @@ mod tests {
         assert!(!agent_is_older(target_version()));
         assert!(!agent_is_older("999.0.0"));
         assert!(!agent_is_older(""), "unknown versions are not offered");
+        assert!(version_at_least("0.21.0", "0.21.0"));
+        assert!(version_at_least("0.21.1", "0.21.0"));
+        assert!(!version_at_least("0.20.0", "0.21.0"));
+        assert!(!version_at_least("", "0.21.0"));
     }
 
     #[test]

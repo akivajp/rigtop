@@ -17,8 +17,11 @@ use anyhow::{Result, bail};
 use chrono::Local;
 use rigtop_core::config::{ConfigWatcher, NotifyLevel, WatchConfig};
 use rigtop_core::hosts::HostSpec;
+use rigtop_core::snapshot::Snapshot;
+use rigtop_core::update::version_at_least;
 use rigtop_core::view::{
-    Alert, AlertChange, AlertEvent, AlertLog, Severity, alert_log_path, alerts_with, event_time,
+    Alert, AlertChange, AlertEvent, AlertLog, ExitWatch, Severity, alert_log_path, alerts_with,
+    event_time, process_matches,
 };
 use rigtop_core::widget::run_command_with_env;
 use rigtop_core::worker::{Command, Event, Worker};
@@ -31,6 +34,9 @@ const TICK: Duration = Duration::from_millis(250);
 
 /// Longest failure reason kept in an "unreachable" alert.
 const MAX_REASON: usize = 120;
+
+/// First agent version that finds processes by name.
+const PROCESS_NAMES_SINCE: &str = "0.21.0";
 
 /// What the watch knows about one host.
 #[derive(Debug)]
@@ -118,19 +124,76 @@ struct Watched {
     spec: HostSpec,
     worker: Worker,
     state: HostState,
+    /// Processes of `[watch] processes` seen running, to announce their exit.
+    exits: ExitWatch,
+    /// The host was told its rigtop is too old to find processes by name.
+    told_too_old: bool,
 }
 
 impl Watched {
     fn start(spec: HostSpec, config: &Config, interval: Duration, now: SystemTime) -> Self {
         let worker = spawn_worker(&spec, config, interval);
         // Alerts do not need the process list: do not send it over SSH.
+        // Watched processes come anyway.
         worker.send(Command::SetProcessLimit(Some(0)));
+        worker.send(Command::WatchProcessNames(config.watch.processes.clone()));
         let state = HostState::new(&spec.name, now);
         Self {
             spec,
             worker,
             state,
+            exits: ExitWatch::default(),
+            told_too_old: false,
         }
+    }
+
+    /// Starts watching the processes of `snapshot` that match `names` and
+    /// the source reports, printing each, and returns the alerts for those
+    /// that exited.
+    fn check_processes(
+        &mut self,
+        snapshot: &Snapshot,
+        names: &[String],
+        now: SystemTime,
+    ) -> Vec<Alert> {
+        let now_ms = millis(now);
+        let exited = self.exits.check(snapshot, now_ms);
+        if names.is_empty() {
+            return exited;
+        }
+        let version = &snapshot.host.rigtop_version;
+        if !self.spec.is_local() && !version_at_least(version, PROCESS_NAMES_SINCE) {
+            if !self.told_too_old {
+                self.told_too_old = true;
+                print_line(&format!(
+                    "{}: rigtop {} there cannot find processes by name (needs {PROCESS_NAMES_SINCE} or later)",
+                    self.spec.name,
+                    if version.is_empty() {
+                        "(unknown)"
+                    } else {
+                        version
+                    },
+                ));
+            }
+            return exited;
+        }
+        for process in &snapshot.processes {
+            if !snapshot.watched_pids.contains(&process.pid) {
+                continue;
+            }
+            let Some(name) = names.iter().find(|n| process_matches(process, n)) else {
+                continue;
+            };
+            if self.exits.watch_as(process, Some(name.trim()), now_ms) {
+                print_line(&format!(
+                    "{}: watching {} (pid {})",
+                    self.spec.name,
+                    name.trim(),
+                    process.pid
+                ));
+            }
+        }
+        exited
     }
 }
 
@@ -182,11 +245,13 @@ pub fn run(
 
         for host in &mut hosts {
             let mut changed = false;
+            let mut exits = Vec::new();
             while let Some(event) = host.worker.try_recv() {
                 match event {
                     Event::Snapshot(snapshot) => {
                         host.state
                             .on_snapshot(alerts_with(&snapshot, &host.spec.alerts), now);
+                        exits.extend(host.check_processes(&snapshot, &config.watch.processes, now));
                         changed = true;
                     }
                     Event::Error(err) => host.state.error = Some(err),
@@ -197,7 +262,12 @@ pub fn run(
             if !changed {
                 continue;
             }
-            let events = log.update(&host.state.name, &host.state.current_alerts(), millis(now));
+            let mut events =
+                log.update(&host.state.name, &host.state.current_alerts(), millis(now));
+            // Exits are one-off notices, not alerts that clear.
+            for alert in exits {
+                events.push(log.record(&host.state.name, alert, millis(now)));
+            }
             for event in events {
                 let send = wanted(&event, &config.watch) && !config.watch.command.is_empty();
                 print_line(&format!(
@@ -232,6 +302,8 @@ fn restart_hosts(
             Some(i) => {
                 let mut host = old.swap_remove(i);
                 host.spec = spec;
+                host.worker
+                    .send(Command::WatchProcessNames(config.watch.processes.clone()));
                 host.worker.send(Command::SetInterval(interval));
                 hosts.push(host);
             }
@@ -259,8 +331,12 @@ fn announce(watch: &WatchConfig, hosts: &[Watched], interval: Duration) {
     }
 }
 
-/// Whether `event` is one the command runs for.
+/// Whether `event` is one the command runs for. The exit of a process
+/// asked for in `[watch] processes` is, whatever the level.
 fn wanted(event: &AlertEvent, watch: &WatchConfig) -> bool {
+    if event.change == AlertChange::Notice {
+        return watch.level != NotifyLevel::Off;
+    }
     let min = match watch.level {
         NotifyLevel::Off => return false,
         NotifyLevel::Warning => Severity::Warning,
@@ -435,8 +511,14 @@ mod tests {
         assert!(wanted(&warning, &watch));
         assert!(!wanted(&cleared, &watch));
 
+        // Exits asked for are sent whatever the level, but not when off.
+        let exit = event(AlertChange::Notice, Severity::Warning);
+        watch.level = NotifyLevel::Critical;
+        assert!(wanted(&exit, &watch));
+
         watch.level = NotifyLevel::Off;
         assert!(!wanted(&critical, &watch));
+        assert!(!wanted(&exit, &watch));
     }
 
     #[test]

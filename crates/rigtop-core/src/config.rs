@@ -53,6 +53,7 @@
 //! cleared = true         # also when an alert goes away
 //! interval = "10s"       # time between samples
 //! offline_after = "3m"   # a host unreachable this long is a critical alert
+//! processes = ["train.py"]  # also tell when these exit, on any host
 //!
 //! [lhm]
 //! # Windows: LibreHardwareMonitor's web server ("" to disable).
@@ -507,6 +508,10 @@ pub struct WatchConfig {
     /// Time a run of the command may take before it is killed.
     #[serde(with = "duration_text")]
     pub timeout: Duration,
+    /// Processes to announce the exit of, on every host, by name or by a
+    /// file in their command line (`"train.py"`, `"rsync"`); see
+    /// [`crate::view::process_matches`].
+    pub processes: Vec<String>,
 }
 
 impl Default for WatchConfig {
@@ -518,6 +523,7 @@ impl Default for WatchConfig {
             interval: Duration::from_secs(10),
             offline_after: Duration::from_secs(180),
             timeout: Duration::from_secs(30),
+            processes: Vec::new(),
         }
     }
 }

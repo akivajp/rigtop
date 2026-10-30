@@ -37,6 +37,10 @@ pub const PROTOCOL_VERSION: u32 = 1;
 /// commands they do not know with an error, so clients check first.
 pub const FEATURE_WATCH_PROCESSES: &str = "watch_processes";
 
+/// The agent finds processes by name for [`ClientMessage::WatchProcesses`]
+/// (`names`); agents before 0.21 ignore them.
+pub const FEATURE_WATCH_PROCESS_NAMES: &str = "watch_process_names";
+
 /// Messages from the agent to the client.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -80,8 +84,15 @@ pub enum ClientMessage {
     SetProcessLimit { limit: Option<usize> },
     /// Always send these processes, and list them in
     /// [`Snapshot::watched_pids`], so the client can tell when they exit.
-    /// Only for agents with [`FEATURE_WATCH_PROCESSES`].
-    WatchProcesses { pids: Vec<u32> },
+    /// Only for agents with [`FEATURE_WATCH_PROCESSES`]. `names`: also
+    /// watch every process they match (see
+    /// [`crate::DataSource::watch_process_names`]), for agents with
+    /// [`FEATURE_WATCH_PROCESS_NAMES`].
+    WatchProcesses {
+        pids: Vec<u32>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        names: Vec<String>,
+    },
     /// Send a signal to a process on the agent's host.
     Signal { pid: u32, signal: ProcessSignal },
 }
@@ -139,7 +150,10 @@ where
     let hello = AgentMessage::Hello {
         protocol: PROTOCOL_VERSION,
         version: env!("CARGO_PKG_VERSION").to_owned(),
-        features: vec![FEATURE_WATCH_PROCESSES.to_owned()],
+        features: vec![
+            FEATURE_WATCH_PROCESSES.to_owned(),
+            FEATURE_WATCH_PROCESS_NAMES.to_owned(),
+        ],
     };
     // A failed write means the client went away: stop quietly.
     if write_message(&mut output, &hello).is_err() {
@@ -162,8 +176,9 @@ where
                 source.set_process_limit(limit);
                 None
             }
-            Ok(Input::Command(ClientMessage::WatchProcesses { pids })) => {
+            Ok(Input::Command(ClientMessage::WatchProcesses { pids, names })) => {
                 source.watch_processes(pids);
+                source.watch_process_names(names);
                 None
             }
             Ok(Input::Command(ClientMessage::Signal { pid, signal })) => {
@@ -271,6 +286,25 @@ mod tests {
         let limit: ClientMessage =
             serde_json::from_str(r#"{"type":"set_process_limit","limit":null}"#).unwrap();
         assert_eq!(limit, ClientMessage::SetProcessLimit { limit: None });
+
+        // Names are left out when empty, as 0.19 and 0.20 clients send it.
+        let watch = ClientMessage::WatchProcesses {
+            pids: vec![7],
+            names: Vec::new(),
+        };
+        let line = serde_json::to_string(&watch).unwrap();
+        assert_eq!(line, r#"{"type":"watch_processes","pids":[7]}"#);
+        assert_eq!(serde_json::from_str::<ClientMessage>(&line).unwrap(), watch);
+        let named: ClientMessage =
+            serde_json::from_str(r#"{"type":"watch_processes","pids":[],"names":["rsync"]}"#)
+                .unwrap();
+        assert_eq!(
+            named,
+            ClientMessage::WatchProcesses {
+                pids: Vec::new(),
+                names: vec!["rsync".to_owned()]
+            }
+        );
     }
 
     #[test]

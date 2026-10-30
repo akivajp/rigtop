@@ -228,6 +228,8 @@ pub struct RemoteSource {
     process_limit: Option<usize>,
     /// See [`DataSource::watch_processes`].
     watched_pids: Vec<u32>,
+    /// See [`DataSource::watch_process_names`].
+    watched_names: Vec<String>,
     /// The connected agent understands [`ClientMessage::WatchProcesses`].
     agent_watches: bool,
     /// Snapshots received while waiting for something else (signal results).
@@ -253,6 +255,7 @@ impl RemoteSource {
             interval: Duration::from_secs(1),
             process_limit: None,
             watched_pids: Vec::new(),
+            watched_names: Vec::new(),
             agent_watches: false,
             pending: VecDeque::new(),
             agent_version: String::new(),
@@ -368,6 +371,8 @@ impl RemoteSource {
         if let Some(connection) = self.connection.as_mut() {
             let _ = connection.send(&ClientMessage::WatchProcesses {
                 pids: self.watched_pids.clone(),
+                // Agents without the feature ignore them.
+                names: self.watched_names.clone(),
             });
         }
     }
@@ -390,7 +395,9 @@ impl RemoteSource {
             } => {
                 self.agent_version = version;
                 self.agent_watches = features.iter().any(|f| f == FEATURE_WATCH_PROCESSES);
-                if self.agent_watches && !self.watched_pids.is_empty() {
+                if self.agent_watches
+                    && !(self.watched_pids.is_empty() && self.watched_names.is_empty())
+                {
                     self.send_watched();
                 }
                 Ok(())
@@ -511,6 +518,13 @@ impl DataSource for RemoteSource {
         self.watched_pids = pids;
         // Older agents would answer with an error; their snapshots leave
         // `watched_pids` empty, so the client knows it cannot tell.
+        if self.agent_watches {
+            self.send_watched();
+        }
+    }
+
+    fn watch_process_names(&mut self, names: Vec<String>) {
+        self.watched_names = names;
         if self.agent_watches {
             self.send_watched();
         }

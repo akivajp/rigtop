@@ -540,6 +540,18 @@ pub fn event_time(at_ms: u64, now: SystemTime) -> String {
     }
 }
 
+/// Whether `process` is one `pattern` names: its name, or the file name
+/// of a word of its command line (`train.py` for `python3 jobs/train.py`).
+pub fn process_matches(process: &ProcessInfo, pattern: &str) -> bool {
+    let pattern = pattern.trim();
+    !pattern.is_empty()
+        && (process.name == pattern
+            || process
+                .command
+                .split_whitespace()
+                .any(|word| word == pattern || word.rsplit(['/', '\\']).next() == Some(pattern)))
+}
+
 /// A process to announce when it exits.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WatchedProcess {
@@ -547,6 +559,8 @@ pub struct WatchedProcess {
     /// Its name when the watch began; another name under the same pid
     /// means it exited and the pid was reused.
     pub name: String,
+    /// What the exit names it by, when not `name` (e.g. the script).
+    pub label: Option<String>,
     /// When it started (milliseconds since the Unix epoch, by the host's
     /// run time).
     pub started_ms: u64,
@@ -583,9 +597,20 @@ impl ExitWatch {
             self.processes.retain(|w| w.pid != process.pid);
             return false;
         }
+        self.watch_as(process, None, now_ms);
+        true
+    }
+
+    /// Starts watching `process` unless it is watched already, naming it
+    /// `label` when it exits. True when it was not watched before.
+    pub fn watch_as(&mut self, process: &ProcessInfo, label: Option<&str>, now_ms: u64) -> bool {
+        if self.contains(process.pid) {
+            return false;
+        }
         self.processes.push(WatchedProcess {
             pid: process.pid,
             name: process.name.clone(),
+            label: label.map(str::to_owned),
             started_ms: now_ms.saturating_sub(process.run_time_secs * 1000),
         });
         true
@@ -617,7 +642,7 @@ impl ExitWatch {
                 severity: Severity::Warning,
                 text: format!(
                     "{} (pid {}) exited after {}",
-                    watched.name,
+                    watched.label.as_deref().unwrap_or(&watched.name),
                     watched.pid,
                     format::duration(ran)
                 ),
@@ -1898,6 +1923,22 @@ mod tests {
     }
 
     #[test]
+    fn processes_match_by_name_or_file() {
+        let process = ProcessInfo {
+            name: "python3".to_owned(),
+            command: "/usr/bin/python3 /home/me/jobs/train.py --epochs 3".to_owned(),
+            ..Default::default()
+        };
+        assert!(process_matches(&process, "python3"));
+        assert!(process_matches(&process, "train.py"));
+        assert!(process_matches(&process, " train.py "));
+        assert!(process_matches(&process, "/home/me/jobs/train.py"));
+        assert!(!process_matches(&process, "train"));
+        assert!(!process_matches(&process, "epochs"));
+        assert!(!process_matches(&process, ""));
+    }
+
+    #[test]
     fn exit_watch_reports_exits_it_can_tell() {
         let process = |pid: u32, name: &str| ProcessInfo {
             pid,
@@ -1937,6 +1978,17 @@ mod tests {
         watch.toggle(&process(9, "rsync"), 0);
         snapshot.processes = vec![process(9, "bash")];
         assert_eq!(watch.check(&snapshot, 0).len(), 1);
+
+        // Watched under another name (the script, not the interpreter).
+        let python = process(12, "python3");
+        assert!(watch.watch_as(&python, Some("train.py"), 0));
+        assert!(!watch.watch_as(&python, Some("train.py"), 0), "once");
+        snapshot.processes.clear();
+        snapshot.watched_pids = vec![12];
+        assert_eq!(
+            watch.check(&snapshot, 60_000)[0].text,
+            "train.py (pid 12) exited after 01:00"
+        );
     }
 
     #[test]

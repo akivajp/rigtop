@@ -222,7 +222,10 @@ rigtop starts `rigtop --agent` on each remote host through your system's `ssh` (
 command = 'curl -s -d "$RIGTOP_MESSAGE" https://ntfy.sh/my-topic'
 level = "critical"     # or "warning"
 offline_after = "3m"   # a host unreachable this long is a critical alert
+processes = ["train.py", "rsync"]  # also tell when these exit, on any host
 ```
+
+`processes` names programs to announce the end of, by name or by a file in their command line (`train.py` for `python3 jobs/train.py`): each one found running is printed (`zefat: watching train.py (pid 1234)`), and its exit (`train.py (pid 1234) exited after 3h12m`, `RIGTOP_CHANGE` = `notice`) runs the command whatever the `level`. Remote hosts need rigtop 0.21 or later for it.
 
 `rigtop --test-alert` runs the command once with a sample alert. Changes are printed with the time and kept in their own alert history, so a restart does not send them again; alerts already present when watching starts are sent. To keep it running as a systemd user service:
 
@@ -369,6 +372,7 @@ cleared = true         # also when an alert goes away
 interval = "10s"       # time between samples of each host
 offline_after = "3m"   # a host unreachable this long is a critical alert ("0s" turns it off)
 timeout = "30s"        # a run taking longer is stopped
+processes = []         # programs to announce the exit of, e.g. ["train.py"]
 
 [tui]
 # Boxes of the host view not to draw (also toggled with `v`).

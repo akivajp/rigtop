@@ -81,6 +81,12 @@ pub trait DataSource {
     /// limit, and to list in [`Snapshot::watched_pids`], so that the client
     /// can tell when they exit. Replaces the previous list.
     fn watch_processes(&mut self, _pids: Vec<u32>) {}
+
+    /// Like [`DataSource::watch_processes`] for every process matching one
+    /// of `names` (see [`crate::view::process_matches`]) while it runs, and
+    /// in the snapshot after it exited, so that the client sees it go.
+    /// Replaces the previous list.
+    fn watch_process_names(&mut self, _names: Vec<String>) {}
 }
 
 /// Boxed sources, so front-ends can choose local or remote at run time.
@@ -104,6 +110,10 @@ impl<T: DataSource + ?Sized> DataSource for Box<T> {
     fn watch_processes(&mut self, pids: Vec<u32>) {
         (**self).watch_processes(pids);
     }
+
+    fn watch_process_names(&mut self, names: Vec<String>) {
+        (**self).watch_process_names(names);
+    }
 }
 
 /// Collects snapshots of the machine rigtop runs on.
@@ -114,6 +124,10 @@ pub struct LocalSource {
     last_poll: Option<Instant>,
     /// See [`DataSource::watch_processes`].
     watched_pids: Vec<u32>,
+    /// See [`DataSource::watch_process_names`], and the pids they matched
+    /// in the last snapshot.
+    watched_names: Vec<String>,
+    name_matches: Vec<u32>,
     fill: crate::fill::FillTracker,
     #[cfg(target_os = "linux")]
     roots: SysRoots,
@@ -159,6 +173,8 @@ impl LocalSource {
             smart: SmartReader::new(&config.smart.dir),
             last_poll: None,
             watched_pids: Vec::new(),
+            watched_names: Vec::new(),
+            name_matches: Vec::new(),
             fill: crate::fill::FillTracker::new(),
             #[cfg(target_os = "linux")]
             roots: SysRoots::default(),
@@ -236,6 +252,10 @@ impl LocalSource {
         self.collect_portable(&mut snapshot, elapsed);
 
         self.fill.annotate(&mut snapshot.filesystems, now);
+        if !(self.watched_names.is_empty() && self.name_matches.is_empty()) {
+            self.name_matches =
+                report_name_matches(&self.watched_names, &self.name_matches, &mut snapshot);
+        }
         let power = &mut snapshot.power;
         power.total_w = sum_present([power.cpu_or_soc_w().1, power.gpus_w]);
         snapshot
@@ -361,6 +381,37 @@ impl DataSource for LocalSource {
     fn watch_processes(&mut self, pids: Vec<u32>) {
         self.watched_pids = pids;
     }
+
+    fn watch_process_names(&mut self, names: Vec<String>) {
+        self.watched_names = names;
+    }
+}
+
+/// Adds the processes of `snapshot` matching `names` (see
+/// [`DataSource::watch_process_names`]) to its `watched_pids`, and once
+/// more those of `previous` (last time's matches) that are gone, so the
+/// client sees them exit. Returns this time's matches.
+fn report_name_matches(names: &[String], previous: &[u32], snapshot: &mut Snapshot) -> Vec<u32> {
+    let matches: Vec<u32> = snapshot
+        .processes
+        .iter()
+        .filter(|p| {
+            !p.kernel_thread
+                && names
+                    .iter()
+                    .any(|name| crate::view::process_matches(p, name))
+        })
+        .map(|p| p.pid)
+        .collect();
+    let gone = previous
+        .iter()
+        .filter(|pid| !snapshot.processes.iter().any(|p| p.pid == **pid));
+    for pid in matches.iter().chain(gone) {
+        if !snapshot.watched_pids.contains(pid) {
+            snapshot.watched_pids.push(*pid);
+        }
+    }
+    matches
 }
 
 /// Sends a signal to a local process.
@@ -416,6 +467,41 @@ fn nvme_temperature(chips: &[linux::hwmon::HwmonChip], disk: &str) -> Option<f32
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::snapshot::ProcessInfo;
+
+    #[test]
+    fn named_processes_are_reported_until_seen_gone() {
+        let process = |pid, name: &str, command: &str| ProcessInfo {
+            pid,
+            name: name.to_owned(),
+            command: command.to_owned(),
+            ..Default::default()
+        };
+        let names = vec!["train.py".to_owned()];
+        let mut snapshot = Snapshot {
+            processes: vec![
+                process(10, "python3", "python3 jobs/train.py --epochs 3"),
+                process(11, "vim", "vim notes.txt"),
+            ],
+            watched_pids: vec![99],
+            ..Default::default()
+        };
+        let matches = report_name_matches(&names, &[], &mut snapshot);
+        assert_eq!(matches, [10]);
+        assert_eq!(snapshot.watched_pids, [99, 10]);
+
+        // Gone: reported once more, then forgotten.
+        let mut later = Snapshot {
+            processes: vec![process(11, "vim", "vim notes.txt")],
+            ..Default::default()
+        };
+        let matches = report_name_matches(&names, &matches, &mut later);
+        assert!(matches.is_empty());
+        assert_eq!(later.watched_pids, [10]);
+        let mut after = Snapshot::default();
+        assert!(report_name_matches(&names, &matches, &mut after).is_empty());
+        assert!(after.watched_pids.is_empty());
+    }
 
     #[cfg(unix)]
     #[test]

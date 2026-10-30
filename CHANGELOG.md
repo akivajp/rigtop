@@ -16,6 +16,10 @@ include breaking changes).
   `[alerts] memory_pressure_warning_percent` (10%) of the last minute, and
   every task waiting for I/O over `io_pressure_warning_percent` (30%), are
   warnings.
+- `[watch] processes = ["train.py", "rsync"]`: `rigtop --watch` finds
+  these programs on every host, by name or by a file in their command line,
+  and runs the command when one exits ("train.py (pid 1234) exited after
+  3h12m"), whatever the `level`. Remote hosts need rigtop 0.21 or later.
 - Alert thresholds per host: `[hosts.alerts]` under a `[[hosts]]` entry
   replaces the keys of `[alerts]` it gives for that host (a laptop that
   runs hot, a file server kept fuller). Typos fail the load, naming the
