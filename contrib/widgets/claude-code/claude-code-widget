@@ -50,7 +50,7 @@ STALE_LIMITS_SECS = 15 * 60
 # "remaining" (100% when unused) or "used".
 QUOTA_MODE = os.environ.get("RIGTOP_CLAUDE_QUOTA", "remaining")
 # A session waiting for you is yellow for this long, then grey...
-FRESH_SECS = int(os.environ.get("RIGTOP_CLAUDE_FRESH_SECS", str(30 * 60)))
+FRESH_SECS = int(os.environ.get("RIGTOP_CLAUDE_FRESH_SECS", str(60 * 60)))
 # ...and left out (counted on one line) after this long; 0 keeps it.
 HIDE_SECS = int(os.environ.get("RIGTOP_CLAUDE_HIDE_SECS", str(2 * 60 * 60)))
 
@@ -476,7 +476,8 @@ def session_rows(now):
 
 def main():
     now = time.time()
-    rows = limit_rows(now) + session_rows(now)
+    # A line between the usage limits and the sessions.
+    rows = limit_rows(now) + [row(separator=True)] + session_rows(now)
     json.dump({"rows": rows}, sys.stdout, ensure_ascii=False)
     print()
 

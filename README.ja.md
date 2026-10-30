@@ -172,7 +172,7 @@ timeout_secs = 10            # 既定 10
 ]}
 ```
 
-`gauge` は割合（0〜1）でバーとして描きます（長さに沿って緑から赤へ。残量のように満タンが良いものは `"gauge_style": "level"` で行の色1色）。`level` は `normal`・`dim`・`ok`・`warn`・`bad` のいずれかで、値（見出しなら見出し）の色です。`label_level` はラベルの色です（省略すると灰色）。実行に失敗したときは、前回の内容を残したまま、コマンドの stderr の最後の行を表示します。
+`gauge` は割合（0〜1）でバーとして描きます（長さに沿って緑から赤へ。残量のように満タンが良いものは `"gauge_style": "level"` で行の色1色）。`level` は `normal`・`dim`・`ok`・`warn`・`bad` のいずれかで、値（見出しなら見出し）の色です。`label_level` はラベルの色です（省略すると灰色）。`"separator": true` の行は区切り線になります。実行に失敗したときは、前回の内容を残したまま、コマンドの stderr の最後の行を表示します。
 
 例: [`contrib/widgets/claude-code/`](contrib/widgets/claude-code/) は、Claude Code の利用枠・稼働中のセッション・サブエージェントを表示します。
 

@@ -1738,6 +1738,7 @@ mod tests {
         let rows = r#"{"rows":[
             {"label":"5h","value":"58% left · 14:30","gauge":0.58,"gauge_style":"level","level":"ok"},
             {"label":"week","value":"22% left · Fri 09:00","gauge":0.22,"gauge_style":"level","level":"warn"},
+            {"separator":true},
             {"value":"rigtop","heading":true,"level":"ok"},
             {"label":"busy","value":"7a · 1 agent","level":"ok","label_level":"ok"},
             {"label":"  ctx","value":"61% · 606K/1M","gauge":0.61,"gauge_style":"level","level":"ok","label_level":"ok"},
@@ -1748,7 +1749,7 @@ mod tests {
             {"label":"idle","value":"d8 · your turn · 12m","level":"warn","label_level":"warn"},
             {"label":"  ctx","value":"12% · 24K/200K","gauge":0.12,"gauge_style":"level","level":"warn","label_level":"warn"},
             {"value":"notes","heading":true,"level":"dim"},
-            {"label":"idle","value":"5e · your turn · 48m","level":"dim","label_level":"dim"},
+            {"label":"idle","value":"5e · your turn · 1h12m","level":"dim","label_level":"dim"},
             {"value":"+2 idle over 2h","level":"dim"}
         ]}"#;
         vec![

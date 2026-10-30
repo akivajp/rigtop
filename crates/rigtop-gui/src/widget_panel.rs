@@ -92,6 +92,10 @@ fn content(ui: &mut Ui, widget: &Widget, state: &WidgetState) {
 }
 
 fn row_ui(ui: &mut Ui, row: &WidgetRow) {
+    if row.separator {
+        ui.separator();
+        return;
+    }
     if row.heading {
         ui.label(
             RichText::new(&row.value)

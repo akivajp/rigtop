@@ -10,7 +10,7 @@ use ratatui::widgets::Paragraph;
 use rigtop_core::format;
 use rigtop_core::widget::{GaugeStyle, Level, Widget, WidgetRow, WidgetSource};
 
-use super::ui::{BAD, DIM, METER_EMPTY, OK, WARN, colored, dim, meter, panel};
+use super::ui::{BAD, BORDER, DIM, METER_EMPTY, OK, WARN, colored, dim, meter, panel};
 
 /// Width of the column.
 pub const WIDTH: u16 = 42;
@@ -72,6 +72,9 @@ fn widget_lines(widget: &Widget, width: usize) -> Vec<Line<'static>> {
 }
 
 fn row_line(row: &WidgetRow, width: usize) -> Line<'static> {
+    if row.separator {
+        return Line::from(colored("─".repeat(width), BORDER));
+    }
     if row.heading {
         let mut style = Style::default().add_modifier(Modifier::BOLD);
         if let Some(color) = level_color(row.level) {
@@ -252,5 +255,12 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(row_line(&heading, 40).spans[0].style.fg, Some(WARN));
+
+        // A separator spans the column.
+        let separator = WidgetRow {
+            separator: true,
+            ..Default::default()
+        };
+        assert_eq!(row_line(&separator, 40).spans[0].content, "─".repeat(40));
     }
 }

@@ -9,13 +9,13 @@ include breaking changes).
 
 ### Added
 - Widget rows can color their label (`label_level`), and headings take the
-  row's `level`.
+  row's `level`. A `"separator": true` row draws a line between sections.
 
 ### Changed
 - Claude Code widget: working sessions come first and are green from the
   project's name to the context bar; sessions waiting for you follow, most
   recent first. A permission prompt stays yellow; a session whose turn
-  ended is yellow for 30 minutes, then grey on one line, and left out
+  ended is yellow for an hour, then grey on one line, and left out
   (counted on one line) after 2 hours. Both times can be changed
   (`RIGTOP_CLAUDE_FRESH_SECS`, `RIGTOP_CLAUDE_HIDE_SECS`).
 

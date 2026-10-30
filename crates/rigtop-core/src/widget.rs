@@ -62,6 +62,9 @@ pub struct WidgetRow {
     pub label_level: Option<Level>,
     /// A section title (e.g. a project name) rather than a reading.
     pub heading: bool,
+    /// A line between sections instead of a reading (an empty row where
+    /// rigtop does not know it).
+    pub separator: bool,
 }
 
 /// How a gauge is colored.
