@@ -895,6 +895,20 @@ fn storage_lines(snapshot: &Snapshot, width: u16) -> Vec<Line<'static>> {
                 format!(" {busy:>3.0}%"),
                 percent_color(busy as f64),
             ));
+            // Request time where busy time is known (Linux); blank while
+            // idle, so the columns stay aligned.
+            let latency = disk.latency_ms.map(format::latency).unwrap_or_default();
+            let text = format!(" {latency:>5}");
+            spans.push(
+                match disk
+                    .latency_ms
+                    .and_then(rigtop_core::view::latency_severity)
+                {
+                    Some(Severity::Critical) => colored(text, BAD),
+                    Some(Severity::Warning) => colored(text, WARN),
+                    None => dim(text),
+                },
+            );
         }
         if let Some(t) = disk.temperature_c {
             spans.push(colored(format!(" {t:.0}°C"), temperature_color(t)));

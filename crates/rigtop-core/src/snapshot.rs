@@ -414,6 +414,9 @@ pub struct DiskIo {
     /// Fraction of time the device had I/O in flight, where the platform
     /// reports it (Linux).
     pub busy_percent: Option<f32>,
+    /// Average time one request took (queue and service), over the requests
+    /// completed since the last sample (Linux). `None` without any.
+    pub latency_ms: Option<f32>,
     /// Drive temperature (NVMe composite sensor), if available.
     pub temperature_c: Option<f32>,
 }

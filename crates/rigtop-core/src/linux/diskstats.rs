@@ -20,6 +20,10 @@ const SECTOR_BYTES: f64 = 512.0;
 pub(crate) struct Counters {
     sectors_read: u64,
     sectors_written: u64,
+    /// Completed requests, and the milliseconds they took (summed over
+    /// requests, so overlapping ones each count).
+    requests: u64,
+    request_ms: u64,
     /// Milliseconds spent with I/O in flight.
     io_ticks_ms: u64,
 }
@@ -69,6 +73,11 @@ impl DiskStatsMeter {
                             / secs;
                     let busy_ms = cur.io_ticks_ms.saturating_sub(prev.io_ticks_ms) as f64;
                     io.busy_percent = Some((busy_ms / (secs * 1000.0) * 100.0).min(100.0) as f32);
+                    let requests = cur.requests.saturating_sub(prev.requests);
+                    if requests > 0 {
+                        let ms = cur.request_ms.saturating_sub(prev.request_ms);
+                        io.latency_ms = Some((ms as f64 / requests as f64) as f32);
+                    }
                 }
                 Some(io)
             })
@@ -102,6 +111,8 @@ pub(crate) fn parse(text: &str) -> HashMap<String, Counters> {
                 Counters {
                     sectors_read: num(5)?,
                     sectors_written: num(9)?,
+                    requests: num(3)? + num(7)?,
+                    request_ms: num(6)? + num(10)?,
                     io_ticks_ms: num(12)?,
                 },
             ))
@@ -129,6 +140,8 @@ mod tests {
             Counters {
                 sectors_read: 2000,
                 sectors_written: 4000,
+                requests: 1500,
+                request_ms: 30,
                 io_ticks_ms: 100
             }
         );
@@ -155,15 +168,22 @@ mod tests {
         assert_eq!(first[0].name, "nvme0n1");
         assert_eq!(first[0].read_bytes_per_sec, 0.0);
 
-        // +2048 sectors read (1 MiB), +1024 written, +250 ms busy, over 0.5 s.
+        // +2048 sectors read (1 MiB), +1024 written, +250 ms busy, over 0.5 s;
+        // +100 reads taking 50 ms and +100 writes taking 350 ms.
         write(
             root,
             "proc/diskstats",
-            " 259       0 nvme0n1 1100 0 4048 10 600 0 5024 20 0 350 30 0 0 0 0 0 0\n",
+            " 259       0 nvme0n1 1100 0 4048 60 600 0 5024 370 0 350 30 0 0 0 0 0 0\n",
         );
         let second = meter.sample(&roots, t0 + Duration::from_millis(500));
         assert!((second[0].read_bytes_per_sec - 2.0 * 1024.0 * 1024.0).abs() < 1e-6);
         assert!((second[0].write_bytes_per_sec - 1024.0 * 1024.0).abs() < 1e-6);
         assert!((second[0].busy_percent.unwrap() - 50.0).abs() < 1e-3);
+        assert_eq!(second[0].latency_ms, Some(2.0));
+        assert_eq!(first[0].latency_ms, None);
+
+        // Nothing completed: no latency to tell.
+        let third = meter.sample(&roots, t0 + Duration::from_millis(1000));
+        assert_eq!(third[0].latency_ms, None);
     }
 }

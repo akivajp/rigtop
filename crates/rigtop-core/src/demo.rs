@@ -566,6 +566,7 @@ fn workstation(t: f64) -> Snapshot {
             read_bytes_per_sec: train_read / 3.0 + 30e6 * busy + 1e6 * wobble(30 + i, t, 3.0),
             write_bytes_per_sec: 40e6 * busy + 40e6 / 3.0 * download,
             busy_percent: Some((25.0 * busy + 3.0 * download + 4.0 * train_read / 60e6) as f32),
+            latency_ms: Some((0.08 + 0.5 * busy) as f32),
             temperature_c: Some(drive_temp(i as u32) as f32),
         }
     };
@@ -886,6 +887,7 @@ fn laptop(t: f64) -> Snapshot {
             read_bytes_per_sec: 6e6 * busy,
             write_bytes_per_sec: 1e6 * busy,
             busy_percent: Some((4.0 * busy) as f32),
+            latency_ms: Some((0.1 + 0.3 * busy) as f32),
             temperature_c: Some((38.0 + 4.0 * busy) as f32),
         }],
         filesystems: vec![FilesystemUsage {
@@ -1024,6 +1026,12 @@ fn nas(t: f64) -> Snapshot {
                 read_bytes_per_sec: 150e6 + 20e6 * wobble(61 + i as u64, t, 4.0),
                 write_bytes_per_sec: if i == 3 { 148e6 } else { 1e6 },
                 busy_percent: Some(88.0 + 8.0 * wobble(65 + i as u64, t, 3.0) as f32),
+                // The drive with reallocated sectors retries reads: slow.
+                latency_ms: Some(if i == 2 {
+                    140.0 + 40.0 * wobble(69, t, 5.0) as f32
+                } else {
+                    9.0 + 3.0 * wobble(66 + i as u64, t, 4.0) as f32
+                }),
                 temperature_c: Some(38.0 + i as f32),
             })
             .collect(),

@@ -20,6 +20,10 @@ include breaking changes).
   these programs on every host, by name or by a file in their command line,
   and runs the command when one exits ("train.py (pid 1234) exited after
   3h12m"), whatever the `level`. Remote hosts need rigtop 0.21 or later.
+- Disk request time in the storage panel (Linux): the average time a
+  request took since the last sample (`0.3ms`, `12ms`), yellow from 100 ms
+  and red from 500 ms, so a member of a RAID that slowed down (retrying
+  reads, failing) stands out from the others.
 - Alert thresholds per host: `[hosts.alerts]` under a `[[hosts]]` entry
   replaces the keys of `[alerts]` it gives for that host (a laptop that
   runs hot, a file server kept fuller). Typos fail the load, naming the

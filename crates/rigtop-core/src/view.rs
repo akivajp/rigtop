@@ -857,6 +857,18 @@ pub fn reboot_hint(reason: &str) -> String {
     hint
 }
 
+/// How a disk's request time looks: yellow from 100 ms, red from 500 ms
+/// (an SSD answers in well under a millisecond, a busy hard disk in tens).
+pub fn latency_severity(ms: f32) -> Option<Severity> {
+    if ms >= 500.0 {
+        Some(Severity::Critical)
+    } else if ms >= 100.0 {
+        Some(Severity::Warning)
+    } else {
+        None
+    }
+}
+
 /// Label before the pressure readings ("Stall cpu 3% mem 0% io 6%").
 pub const PRESSURE_LABEL: &str = "Stall";
 

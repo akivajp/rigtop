@@ -746,6 +746,18 @@ fn storage(ui: &mut Ui, state: &GuiState) {
                     ui.label(format!("{:>8}", format::rate(disk.write_bytes_per_sec)));
                     if let Some(busy) = disk.busy_percent {
                         ui.label(colored(format!("{busy:>3.0}%"), percent_color(busy)));
+                        // Blank while idle, so the columns stay aligned.
+                        let latency = disk.latency_ms.map(format::latency).unwrap_or_default();
+                        let color = match disk
+                            .latency_ms
+                            .and_then(rigtop_core::view::latency_severity)
+                        {
+                            Some(rigtop_core::view::Severity::Critical) => BAD,
+                            Some(rigtop_core::view::Severity::Warning) => WARN,
+                            None => DIM,
+                        };
+                        ui.label(colored(format!("{latency:>5}"), color))
+                            .on_hover_text("average time per request");
                     }
                     if let Some(t) = disk.temperature_c {
                         ui.label(colored(format!("{t:.0}°C"), temperature_color(t)));

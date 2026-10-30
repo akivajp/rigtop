@@ -27,6 +27,17 @@ pub fn rate(bytes_per_sec: f64) -> String {
     format!("{}/s", bytes(bytes_per_sec.max(0.0) as u64))
 }
 
+/// Formats a request time: `"0.3ms"`, `"12ms"`, `"1.4s"`.
+pub fn latency(ms: f32) -> String {
+    if ms >= 1000.0 {
+        format!("{:.1}s", ms / 1000.0)
+    } else if ms >= 10.0 {
+        format!("{ms:.0}ms")
+    } else {
+        format!("{ms:.1}ms")
+    }
+}
+
 /// Formats a duration in seconds as `"3d04h"`, `"5h12m"` or `"12:34"`.
 pub fn duration(secs: u64) -> String {
     let days = secs / 86_400;
@@ -132,6 +143,14 @@ mod tests {
     fn rate_appends_per_second() {
         assert_eq!(rate(3_560_916.6), "3.4M/s");
         assert_eq!(rate(-1.0), "0B/s");
+    }
+
+    #[test]
+    fn latency_keeps_three_digits() {
+        assert_eq!(latency(0.04), "0.0ms");
+        assert_eq!(latency(2.345), "2.3ms");
+        assert_eq!(latency(12.6), "13ms");
+        assert_eq!(latency(1420.0), "1.4s");
     }
 
     #[test]
