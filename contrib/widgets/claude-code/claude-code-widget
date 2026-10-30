@@ -393,7 +393,8 @@ def session_line(session, agents, now):
     """(label, text, level, rank) for a session: what it is doing, and for
     an idle one how long and whether it waits for you or for background
     work. `rank` orders sessions (working first, then those waiting for you,
-    most recent first); None when the session is to be left out."""
+    a permission prompt or a reply alike, most recent first); None when the
+    session is to be left out."""
     status = session.get("status", "?")
     name = short_name(session)
     since = status_since(session)
@@ -409,8 +410,8 @@ def session_line(session, agents, now):
         return status, f"{name}{extra}", "ok", (0, 0)
     if status == "waiting":
         what = session.get("waitingFor") or "you"
-        # Kept (as yellow) however long: it cannot go on without you.
-        return status, f"{name} · needs {what}{elapsed}", stale_level or "dim", (1, waited)
+        # Yellow and kept however long: it cannot go on without you.
+        return status, f"{name} · needs {what}{elapsed}", "warn", (1, waited)
     if status == "idle":
         commands = running_commands(int(session.get("pid", 0) or 0)) or 0
         pending = []
@@ -423,8 +424,8 @@ def session_line(session, agents, now):
             return status, f"{name} · waiting on {', '.join(pending)}{elapsed}", "ok", (0, 1)
         if stale_level is None:
             return None
-        return status, f"{name} · your turn{elapsed}", stale_level, (2, waited)
-    return status, name, "normal", (3, 0)
+        return status, f"{name} · your turn{elapsed}", stale_level, (1, waited)
+    return status, name, "normal", (2, 0)
 
 
 def session_rows(now):
@@ -452,7 +453,8 @@ def session_rows(now):
             rows.append(row(name, heading=True, level=level))
             previous = cwd
         rows.append(row(text, label=label, level=level, label_level=level))
-        context = context_row(session, level)
+        # A session left waiting for a while keeps to one line.
+        context = context_row(session, level) if level != "dim" else None
         if context:
             rows.append(context)
         for age, kind, description in agents:

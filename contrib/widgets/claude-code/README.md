@@ -16,7 +16,6 @@ A rigtop [widget](../../../README.md#widgets) showing the subscription usage lim
 │idle     d8 · your turn · 12m           │
 │  ctx    ■········· 12% · 24K/200K      │
 │idle     5e · your turn · 48m           │
-│  ctx    ■■········ 20% · 203K/1M       │
 │+2 idle over 2h                         │
 ╰────────────────────────────────────────╯
 ```
@@ -24,7 +23,7 @@ A rigtop [widget](../../../README.md#widgets) showing the subscription usage lim
 - Usage windows show what is **left** (100% when unused) and when they reset; `RIGTOP_CLAUDE_QUOTA=used` shows usage instead.
 - `ctx` is how much of the session's context window its conversation fills, in the session's color but yellow from 70% and red from 90%, when compacting it or starting a new session is worth a thought. The window is 1M tokens for current Claude models (Opus 4.6 and later, Sonnet 4.6 and later, Haiku 5.5, Fable) and models chosen with `[1m]`, 200K for older ones; `RIGTOP_CLAUDE_CONTEXT_WINDOW=1000000` sets it for every session. Other models (e.g. through Ollama) show the token count only.
 - Sessions are named without the project prefix, under the project's name. An idle session tells whether its turn ended with work still running in the background (`waiting on 1 task, 2 agents`) or it waits for you (`your turn`), and for how long.
-- Working sessions (busy, or with background work) come first, in green; then the ones waiting for you, most recent first: yellow for 30 minutes (`RIGTOP_CLAUDE_FRESH_SECS`), then grey. A session whose turn ended over 2 hours ago (`RIGTOP_CLAUDE_HIDE_SECS`, 0 to keep them all) is left out and counted on the last line; one stopped at a permission prompt (`waiting`) always stays. A project's name is repeated where this order moves to another project and back.
+- Working sessions (busy, or with background work) come first, in green; then the ones waiting for you, most recent first. One stopped at a permission prompt (`waiting`) stays yellow; one whose turn ended (`your turn`) is yellow for 30 minutes (`RIGTOP_CLAUDE_FRESH_SECS`), then grey without its `ctx` row, and left out after 2 hours (`RIGTOP_CLAUDE_HIDE_SECS`, 0 to keep them all), counted on the last line. A project's name is repeated where this order moves to another project and back.
 
 It reads files Claude Code writes, some of which are internal and may change between versions; it then shows fewer rows rather than failing. Requires Python 3 (standard library only).
 

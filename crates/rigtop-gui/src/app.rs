@@ -1749,7 +1749,6 @@ mod tests {
             {"label":"  ctx","value":"12% · 24K/200K","gauge":0.12,"gauge_style":"level","level":"warn","label_level":"warn"},
             {"value":"notes","heading":true,"level":"dim"},
             {"label":"idle","value":"5e · your turn · 48m","level":"dim","label_level":"dim"},
-            {"label":"  ctx","value":"20% · 203K/1M","gauge":0.2,"gauge_style":"level","level":"dim","label_level":"dim"},
             {"value":"+2 idle over 2h","level":"dim"}
         ]}"#;
         vec![
