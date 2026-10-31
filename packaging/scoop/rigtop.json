@@ -1,14 +1,14 @@
 {
-    "version": "0.21.0",
+    "version": "0.22.0",
     "description": "System monitor for workstations, laptops and NAS (terminal UI and native GUI), a btop alternative with storage health, GPU usage and many hosts over SSH",
     "homepage": "https://github.com/akivajp/rigtop",
     "license": "MIT|Apache-2.0",
     "notes": "Temperatures, fans and CPU power come from LibreHardwareMonitor; rigtop-gui's \"set up...\" button installs and configures it.",
     "architecture": {
         "64bit": {
-            "url": "https://github.com/akivajp/rigtop/releases/download/v0.21.0/rigtop-v0.21.0-x86_64-pc-windows-msvc.zip",
-            "hash": "93e3ae1a95be99be5bab1d3306fa581ccea8048c5030992a6a342235d49ff34e",
-            "extract_dir": "rigtop-v0.21.0-x86_64-pc-windows-msvc"
+            "url": "https://github.com/akivajp/rigtop/releases/download/v0.22.0/rigtop-v0.22.0-x86_64-pc-windows-msvc.zip",
+            "hash": "b792d1081bd8cea391004931b8ec4235cfa441198d11abc92b5d3acaab78a5e2",
+            "extract_dir": "rigtop-v0.22.0-x86_64-pc-windows-msvc"
         }
     },
     "bin": [
