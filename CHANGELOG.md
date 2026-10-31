@@ -7,6 +7,25 @@ include breaking changes).
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-11-01
+
+### Added
+- Snooze alerts for 1 hour, 1 day or until they clear: from the list of
+  current alerts at the top of the alert window ("alerts…" in the GUI, `a`
+  then `z` in the TUI). Snoozed alerts leave status dots, cards,
+  notifications and the `rigtop --watch` command (the front-ends share the
+  list in `~/.local/state/rigtop/snoozed.json`) without logging a clearing,
+  and are announced again if still there when the snooze ends.
+- Pause and resume processes (SIGSTOP / SIGCONT), and change their
+  priority by 5 nice steps: `p`, `]` and `[` in the TUI, the right-click
+  menu in the GUI (Linux, macOS). Pausing asks first; paused processes are
+  marked `stopped`, and the nice value is in the details. Remote hosts need
+  rigtop 0.22 or later for these.
+- Battery time left (Linux): until empty or full at the recent, smoothed
+  rate (`72% -12W 2h33m`), and its health, the full charge as a share of
+  the design capacity: in the tooltip, and next to the charge once below
+  80% (`health 77%`).
+
 ## [0.21.0] - 2026-10-31
 
 ### Added
@@ -22,21 +41,6 @@ include breaking changes).
   these programs on every host, by name or by a file in their command line,
   and runs the command when one exits ("train.py (pid 1234) exited after
   3h12m"), whatever the `level`. Remote hosts need rigtop 0.21 or later.
-- Snooze alerts for 1 hour, 1 day or until they clear: from the list of
-  current alerts at the top of the alert window ("alerts…" in the GUI, `a`
-  then `z` in the TUI). Snoozed alerts leave status dots, cards,
-  notifications and the `rigtop --watch` command (the front-ends share the
-  list in `~/.local/state/rigtop/snoozed.json`) without logging a clearing,
-  and are announced again if still there when the snooze ends.
-- Pause and resume processes (SIGSTOP / SIGCONT), and change their
-  priority by 5 nice steps: `p`, `]` and `[` in the TUI, the right-click
-  menu in the GUI (Linux, macOS). Pausing asks first; paused processes are
-  marked `stopped`, and the nice value is in the details. Remote hosts need
-  rigtop 0.21 or later for these.
-- Battery time left (Linux): until empty or full at the recent, smoothed
-  rate (`72% -12W 2h33m`), and its health, the full charge as a share of
-  the design capacity: in the tooltip, and next to the charge once below
-  80% (`health 77%`).
 - Disk request time in the storage panel (Linux): the average time a
   request took since the last sample (`0.3ms`, `12ms`), yellow from 100 ms
   and red from 500 ms, so a member of a RAID that slowed down (retrying
@@ -484,7 +488,8 @@ First release.
 - Windows support (CPU, memory, processes, network with link speeds, drives,
   NVIDIA GPUs; temperatures, fans and CPU power are not available yet)
 
-[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.21.0...HEAD
+[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.22.0...HEAD
+[0.22.0]: https://github.com/akivajp/rigtop/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/akivajp/rigtop/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/akivajp/rigtop/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/akivajp/rigtop/compare/v0.18.0...v0.19.0
