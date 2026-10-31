@@ -354,9 +354,7 @@ fn cpu_lines(host: &HostTui, snapshot: &Snapshot, width: usize) -> Vec<Line<'sta
 }
 
 fn gpu_lines(snapshot: &Snapshot, width: usize) -> Vec<Line<'static>> {
-    snapshot
-        .gpus
-        .iter()
+    rigtop_core::view::card_gpus(snapshot)
         .map(|gpu| {
             let util = gpu.utilization_percent.unwrap_or(0.0) as f64;
             let mut value = format::percent(gpu.utilization_percent);

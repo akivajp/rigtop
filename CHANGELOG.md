@@ -13,6 +13,9 @@ include breaking changes).
   `networkd-dispatcher`), and Node.js processes named after their main
   thread (`MainThread`) show as `node`. This also helps
   `[watch] processes` match them.
+- Overview cards leave out GPUs with neither a utilization nor a memory
+  reading (an Intel iGPU showed only `--%`); the host view still lists
+  them.
 
 ## [0.23.0] - 2026-11-01
 

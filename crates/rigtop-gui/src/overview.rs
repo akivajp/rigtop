@@ -406,7 +406,7 @@ struct GraphHeights {
 fn section_rows(section: OverviewSection, snapshot: &Snapshot, processes: usize) -> usize {
     match section {
         OverviewSection::Cpu => 2,
-        OverviewSection::Gpu => snapshot.gpus.len(),
+        OverviewSection::Gpu => rigtop_core::view::card_gpus(snapshot).count(),
         OverviewSection::Memory => 1 + usize::from(snapshot.memory.swap_total_bytes > 0),
         // Always the full height, so the sections below stay in place.
         OverviewSection::Processes => 1 + processes,
@@ -598,10 +598,7 @@ fn cpu_section(ui: &mut Ui, host: &HostEntry, snapshot: &Snapshot, graph_height:
 }
 
 fn gpu_section(ui: &mut Ui, snapshot: &Snapshot) {
-    if snapshot.gpus.is_empty() {
-        return;
-    }
-    for gpu in &snapshot.gpus {
+    for gpu in rigtop_core::view::card_gpus(snapshot) {
         let util = gpu.utilization_percent.unwrap_or(0.0);
         let mut value = format::percent(gpu.utilization_percent);
         if let (Some(used), Some(total)) = (gpu.memory_used_bytes, gpu.memory_total_bytes) {

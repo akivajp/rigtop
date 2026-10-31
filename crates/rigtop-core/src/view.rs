@@ -785,6 +785,16 @@ pub fn attention_rank(alerts: &[Alert], unreachable: bool, stale: bool) -> u8 {
     }
 }
 
+/// The GPUs worth a line on an overview card: those with a utilization or
+/// memory reading (an Intel iGPU, whose utilization needs perf, would only
+/// say "--%"). The host view lists them all.
+pub fn card_gpus(snapshot: &Snapshot) -> impl Iterator<Item = &GpuStats> {
+    snapshot
+        .gpus
+        .iter()
+        .filter(|g| g.utilization_percent.is_some() || g.memory_used_bytes.is_some())
+}
+
 /// Short notes for a GPU's title line, with how much attention each needs
 /// (`None`: just information): running at its power limit, slowed down by
 /// the hardware, ECC memory errors.
@@ -2083,6 +2093,28 @@ mod tests {
         assert!(log.update("nas", &[], 6_000).is_empty());
         let last = log.events().last().unwrap();
         assert_eq!((last.change, &last.alert), (AlertChange::Notice, &exited));
+    }
+
+    #[test]
+    fn cards_skip_gpus_without_readings() {
+        let snapshot = Snapshot {
+            gpus: vec![
+                GpuStats {
+                    index: 0,
+                    name: "Intel UHD Graphics".to_owned(),
+                    temperature_c: Some(50.0),
+                    ..Default::default()
+                },
+                GpuStats {
+                    index: 1,
+                    utilization_percent: Some(3.0),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let shown: Vec<u32> = card_gpus(&snapshot).map(|g| g.index).collect();
+        assert_eq!(shown, [1]);
     }
 
     #[test]
