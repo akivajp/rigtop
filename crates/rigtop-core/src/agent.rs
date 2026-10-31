@@ -41,6 +41,10 @@ pub const FEATURE_WATCH_PROCESSES: &str = "watch_processes";
 /// (`names`); agents before 0.21 ignore them.
 pub const FEATURE_WATCH_PROCESS_NAMES: &str = "watch_process_names";
 
+/// The agent pauses, resumes and renices processes
+/// ([`ProcessSignal::is_control`]); older agents cannot read those signals.
+pub const FEATURE_PROCESS_CONTROL: &str = "process_control";
+
 /// Messages from the agent to the client.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -153,6 +157,7 @@ where
         features: vec![
             FEATURE_WATCH_PROCESSES.to_owned(),
             FEATURE_WATCH_PROCESS_NAMES.to_owned(),
+            FEATURE_PROCESS_CONTROL.to_owned(),
         ],
     };
     // A failed write means the client went away: stop quietly.

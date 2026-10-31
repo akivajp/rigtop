@@ -30,6 +30,10 @@ pub(crate) fn send_signal(pid: u32, signal: ProcessSignal) -> io::Result<()> {
     match signal {
         ProcessSignal::Kill => terminate_process(pid),
         ProcessSignal::Terminate => close_windows(pid),
+        // Pausing and priorities are Unix only for now.
+        ProcessSignal::Stop | ProcessSignal::Continue | ProcessSignal::Nice(_) => {
+            Err(io::Error::from(io::ErrorKind::Unsupported))
+        }
     }
 }
 

@@ -337,6 +337,8 @@ impl SystemCollector {
                     // Filled in from /proc/<pid>/stat on Linux; sysinfo has
                     // no count without refreshing every thread.
                     threads: None,
+                    // Also from /proc/<pid>/stat on Linux.
+                    nice: None,
                     read_bytes_per_sec: rate(disk.read_bytes, elapsed_secs),
                     write_bytes_per_sec: rate(disk.written_bytes, elapsed_secs),
                     run_time_secs: p.run_time(),

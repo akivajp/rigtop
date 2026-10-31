@@ -22,6 +22,11 @@ include breaking changes).
   these programs on every host, by name or by a file in their command line,
   and runs the command when one exits ("train.py (pid 1234) exited after
   3h12m"), whatever the `level`. Remote hosts need rigtop 0.21 or later.
+- Pause and resume processes (SIGSTOP / SIGCONT), and change their
+  priority by 5 nice steps: `p`, `]` and `[` in the TUI, the right-click
+  menu in the GUI (Linux, macOS). Pausing asks first; paused processes are
+  marked `stopped`, and the nice value is in the details. Remote hosts need
+  rigtop 0.21 or later for these.
 - Battery time left (Linux): until empty or full at the recent, smoothed
   rate (`72% -12W 2h33m`), and its health, the full charge as a share of
   the design capacity: in the tooltip, and next to the charge once below

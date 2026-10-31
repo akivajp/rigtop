@@ -840,6 +840,8 @@ pub struct ProcessInfo {
     pub memory_bytes: u64,
     /// Number of threads, where known.
     pub threads: Option<u32>,
+    /// Nice value, -20 (first) to 19 (last), where known (Linux).
+    pub nice: Option<i32>,
     /// Disk read throughput.
     pub read_bytes_per_sec: f64,
     /// Disk write throughput.

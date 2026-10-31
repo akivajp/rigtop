@@ -15,7 +15,7 @@ use rigtop_core::remote::RemoteSource;
 use rigtop_core::update::ReleaseChecker;
 use rigtop_core::view::{
     AlertLog, ExitWatch, GraphSpan, MetricHistory, ProcessQuery, ProcessRow, Severity, SortKey,
-    process_rows, signal_name,
+    process_rows,
 };
 use rigtop_core::worker::{Command, Event, Worker};
 use rigtop_core::{Config, DataSource, LocalSource, ProcessSignal, Snapshot};
@@ -254,7 +254,10 @@ impl GuiState {
                 signal,
                 result,
             } => match result {
-                Ok(()) => self.set_status(format!("sent {} to {pid}", signal_name(signal))),
+                Ok(()) => self.set_status(format!(
+                    "sent {} to {pid}",
+                    rigtop_core::view::action_text(signal)
+                )),
                 Err(err) => self.set_status(format!("failed: {err}")),
             },
             Event::Error(err) => {

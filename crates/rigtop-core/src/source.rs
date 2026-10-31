@@ -46,13 +46,28 @@ pub enum SourceError {
     },
 }
 
-/// Signals a front-end can send to a process.
+/// What a front-end can do to a process: signals, and its priority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ProcessSignal {
     /// Ask the process to exit (SIGTERM).
     Terminate,
     /// Force the process to exit (SIGKILL).
     Kill,
+    /// Pause the process (SIGSTOP; Unix). Agents need
+    /// [`crate::agent::FEATURE_PROCESS_CONTROL`] for this and the next two.
+    Stop,
+    /// Resume a paused process (SIGCONT; Unix).
+    Continue,
+    /// Set the nice value, -20 (first) to 19 (last); lowering it needs
+    /// root (Unix).
+    Nice(i32),
+}
+
+impl ProcessSignal {
+    /// Pause, resume and priority, which older agents do not know.
+    pub fn is_control(self) -> bool {
+        matches!(self, Self::Stop | Self::Continue | Self::Nice(_))
+    }
 }
 
 /// A producer of snapshots, local or remote.
@@ -359,7 +374,12 @@ impl LocalSource {
         );
         // sysinfo no longer lists threads (see SystemCollector::refresh).
         for process in &mut snapshot.processes {
-            process.threads = linux::procstat::thread_count(&self.roots, process.pid);
+            if let Some(stat) = linux::procstat::read(&self.roots, process.pid) {
+                process.threads = stat.threads;
+                process.nice = stat.nice;
+            } else {
+                process.threads = None;
+            }
         }
         self.containers
             .annotate(&self.roots, &mut snapshot.processes, now);
@@ -437,9 +457,25 @@ fn send_signal(pid: u32, signal: ProcessSignal) -> std::io::Result<()> {
     let sig = match signal {
         ProcessSignal::Terminate => libc::SIGTERM,
         ProcessSignal::Kill => libc::SIGKILL,
+        ProcessSignal::Stop => libc::SIGSTOP,
+        ProcessSignal::Continue => libc::SIGCONT,
+        ProcessSignal::Nice(nice) => return set_nice(pid, nice),
     };
     // SAFETY: kill(2) has no memory-safety preconditions.
     if unsafe { libc::kill(pid, sig) } == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+/// Sets the nice value of a local process.
+#[cfg(unix)]
+fn set_nice(pid: libc::pid_t, nice: i32) -> std::io::Result<()> {
+    let nice = nice.clamp(-20, 19);
+    // SAFETY: setpriority(2) has no memory-safety preconditions. The `which`
+    // argument's type differs between platforms, hence the inferred casts.
+    if unsafe { libc::setpriority(libc::PRIO_PROCESS as _, pid as _, nice) } == 0 {
         Ok(())
     } else {
         Err(std::io::Error::last_os_error())
@@ -545,6 +581,37 @@ mod tests {
         send_signal(child.id(), ProcessSignal::Kill).unwrap();
         let status = child.wait().unwrap();
         assert!(!status.success());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pause_resume_and_renice_a_child_process() {
+        let mut child = std::process::Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        let roots = SysRoots::default();
+        let state = || {
+            let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap();
+            let after = &stat[stat.rfind(')').unwrap() + 2..];
+            after.chars().next().unwrap()
+        };
+        send_signal(pid, ProcessSignal::Stop).unwrap();
+        // The stop takes effect asynchronously.
+        for _ in 0..100 {
+            if state() == 'T' {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(state(), 'T');
+        send_signal(pid, ProcessSignal::Continue).unwrap();
+        // Lowering the priority needs no privileges.
+        send_signal(pid, ProcessSignal::Nice(7)).unwrap();
+        assert_eq!(linux::procstat::read(&roots, pid).unwrap().nice, Some(7));
+        child.kill().unwrap();
+        child.wait().unwrap();
     }
 
     #[test]

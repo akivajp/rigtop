@@ -1238,6 +1238,8 @@ fn processes(ui: &mut Ui, state: &mut GuiState) {
     let mut sort_clicked = None;
     let mut select = None;
     let mut ask = None;
+    // Sent without asking (resume, priority).
+    let mut send: Option<(u32, ProcessSignal)> = None;
     let mut details = None;
     let mut watch = None;
     // Rows are computed once per frame; the closures below only read them.
@@ -1278,12 +1280,17 @@ fn processes(ui: &mut Ui, state: &mut GuiState) {
                                 if !process.tree_prefix.is_empty() {
                                     ui.label(dim(&process.tree_prefix));
                                 }
-                                if state.exit_watch.contains(p.pid) {
+                                let name = if state.exit_watch.contains(p.pid) {
                                     ui.label(colored(&p.name, WARN))
                                         .on_hover_text("you will be notified when it exits")
                                 } else {
                                     ui.label(&p.name)
+                                };
+                                if rigtop_core::view::is_stopped(p) {
+                                    ui.label(colored(" stopped", WARN))
+                                        .on_hover_text("paused; resume from the menu");
                                 }
+                                name
                             }
                             "Command" => ui.label(dim(&p.command)),
                             "Thr" => ui.label(p.threads.map_or(String::new(), |t| t.to_string())),
@@ -1341,6 +1348,28 @@ fn processes(ui: &mut Ui, state: &mut GuiState) {
                         watch = Some(p.pid);
                         ui.close();
                     }
+                    if rigtop_core::view::is_stopped(p) {
+                        // Resuming loses nothing: no question.
+                        if ui.button("Resume (SIGCONT)").clicked() {
+                            send = Some((p.pid, ProcessSignal::Continue));
+                            ui.close();
+                        }
+                    } else if ui.button("Pause (SIGSTOP)").clicked() {
+                        ask = Some((p.pid, p.name.clone(), ProcessSignal::Stop));
+                        ui.close();
+                    }
+                    let nice = p.nice.unwrap_or(0);
+                    for (later, label) in [(true, "Lower priority"), (false, "Raise priority")] {
+                        if let Some(next) = rigtop_core::view::nice_step(p, later)
+                            && ui
+                                .button(format!("{label} (nice {nice} → {next})"))
+                                .clicked()
+                        {
+                            send = Some((p.pid, ProcessSignal::Nice(next)));
+                            ui.close();
+                        }
+                    }
+                    ui.separator();
                     if ui.button("Terminate (SIGTERM)").clicked() {
                         ask = Some((p.pid, p.name.clone(), ProcessSignal::Terminate));
                         ui.close();
@@ -1370,6 +1399,10 @@ fn processes(ui: &mut Ui, state: &mut GuiState) {
     if let Some((pid, name, signal)) = ask {
         state.selected_pid = Some(pid);
         state.ask_signal(pid, &name, signal);
+    }
+    if let Some((pid, signal)) = send {
+        state.selected_pid = Some(pid);
+        state.commands.push(Command::Signal { pid, signal });
     }
 }
 

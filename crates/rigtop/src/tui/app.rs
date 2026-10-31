@@ -10,7 +10,6 @@ use ratatui::layout::{Position, Rect};
 use ratatui::widgets::TableState;
 use rigtop_core::view::{
     self, ExitWatch, GraphSpan, MetricHistory, ProcessQuery, ProcessRow, Severity, SortKey,
-    signal_name,
 };
 use rigtop_core::worker::{Command, Event};
 use rigtop_core::{Config, ProcessSignal, Snapshot};
@@ -133,7 +132,7 @@ impl App {
                 signal,
                 result,
             } => {
-                let name = signal_name(signal);
+                let name = rigtop_core::view::action_text(signal);
                 match result {
                     Ok(()) => self.set_status(format!("sent {name} to {pid}")),
                     Err(err) => self.set_status(format!("failed: {err}")),
@@ -297,6 +296,9 @@ impl App {
             }
             KeyCode::Char('k') => self.ask_signal(ProcessSignal::Terminate),
             KeyCode::Char('K') => self.ask_signal(ProcessSignal::Kill),
+            KeyCode::Char('p') => return self.pause_or_resume(),
+            KeyCode::Char(']') => return self.renice(true),
+            KeyCode::Char('[') => return self.renice(false),
             KeyCode::Char('+') => return Some(self.change_interval(true)),
             KeyCode::Char('-') => return Some(self.change_interval(false)),
             _ => {}
@@ -385,6 +387,50 @@ impl App {
     }
 
     /// Starts or stops watching the selected process for its exit.
+    /// The selected process, if it is in the latest snapshot.
+    fn selected_process(&self) -> Option<&rigtop_core::snapshot::ProcessInfo> {
+        let pid = self.selected_pid?;
+        self.snapshot
+            .as_ref()?
+            .processes
+            .iter()
+            .find(|p| p.pid == pid)
+    }
+
+    /// Resumes the selected process if it is paused (at once: nothing is
+    /// lost), else asks before pausing it.
+    fn pause_or_resume(&mut self) -> Option<Command> {
+        let process = self.selected_process()?;
+        if rigtop_core::view::is_stopped(process) {
+            return Some(Command::Signal {
+                pid: process.pid,
+                signal: ProcessSignal::Continue,
+            });
+        }
+        self.ask_signal(ProcessSignal::Stop);
+        None
+    }
+
+    /// Moves the selected process one step later (`later`) or earlier in
+    /// line for the CPU. Reversible, so without asking.
+    fn renice(&mut self, later: bool) -> Option<Command> {
+        let process = self.selected_process()?;
+        let pid = process.pid;
+        match rigtop_core::view::nice_step(process, later) {
+            Some(nice) => Some(Command::Signal {
+                pid,
+                signal: ProcessSignal::Nice(nice),
+            }),
+            None => {
+                self.set_status(format!(
+                    "nice is already {}",
+                    if later { "19 (last)" } else { "-20 (first)" }
+                ));
+                None
+            }
+        }
+    }
+
     fn toggle_exit_watch(&mut self) {
         let Some(process) = self.selected_pid.and_then(|pid| {
             self.snapshot
@@ -600,6 +646,50 @@ mod tests {
         assert_eq!(app.status(), Some("you will be notified when python exits"));
         app.handle_key(key(KeyCode::Char('x')));
         assert!(app.exit_watch.pids().is_empty());
+    }
+
+    #[test]
+    fn p_pauses_after_asking_and_resumes_at_once_brackets_renice() {
+        let mut app = app_with(vec![process(30, "python", 2.0, false)]);
+        app.selected_pid = Some(30);
+        // Pausing asks first.
+        assert!(app.handle_key(key(KeyCode::Char('p'))).is_none());
+        assert_eq!(app.confirm.as_ref().unwrap().signal, ProcessSignal::Stop);
+        assert!(matches!(
+            app.handle_key(key(KeyCode::Char('y'))),
+            Some(Command::Signal {
+                pid: 30,
+                signal: ProcessSignal::Stop
+            })
+        ));
+        // A paused process resumes at once.
+        let mut paused = process(30, "python", 0.0, false);
+        paused.state = "Stopped".to_owned();
+        paused.nice = Some(17);
+        let mut app = app_with(vec![paused]);
+        app.selected_pid = Some(30);
+        assert!(matches!(
+            app.handle_key(key(KeyCode::Char('p'))),
+            Some(Command::Signal {
+                pid: 30,
+                signal: ProcessSignal::Continue
+            })
+        ));
+        // Priority steps by 5 within -20..=19.
+        assert!(matches!(
+            app.handle_key(key(KeyCode::Char(']'))),
+            Some(Command::Signal {
+                signal: ProcessSignal::Nice(19),
+                ..
+            })
+        ));
+        assert!(matches!(
+            app.handle_key(key(KeyCode::Char('['))),
+            Some(Command::Signal {
+                signal: ProcessSignal::Nice(12),
+                ..
+            })
+        ));
     }
 
     #[test]

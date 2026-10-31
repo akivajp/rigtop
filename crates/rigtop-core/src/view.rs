@@ -714,6 +714,9 @@ pub fn process_details(
     if !process.state.is_empty() {
         rows.push(("State", process.state.clone()));
     }
+    if let Some(nice) = process.nice {
+        rows.push(("Nice", nice.to_string()));
+    }
     let started = now - Duration::from_secs(process.run_time_secs);
     rows.push(("Running", since_note(started, now)));
     rows.push(("CPU", format!("{:.1}%", process.cpu_percent)));
@@ -1397,12 +1400,44 @@ pub fn lhm_help(error: &str) -> String {
     )
 }
 
-/// Name of a signal as shown to the user.
+/// Name of a signal as shown to the user ("renice" for a priority; see
+/// [`action_text`] for the value).
 pub fn signal_name(signal: ProcessSignal) -> &'static str {
     match signal {
         ProcessSignal::Terminate => "SIGTERM",
         ProcessSignal::Kill => "SIGKILL",
+        ProcessSignal::Stop => "SIGSTOP",
+        ProcessSignal::Continue => "SIGCONT",
+        ProcessSignal::Nice(_) => "renice",
     }
+}
+
+/// What was done, for status lines: "SIGSTOP", "nice 10".
+pub fn action_text(signal: ProcessSignal) -> String {
+    match signal {
+        ProcessSignal::Nice(nice) => format!("nice {nice}"),
+        other => signal_name(other).to_owned(),
+    }
+}
+
+/// Steps of the priority keys and menu items.
+pub const NICE_STEP: i32 = 5;
+
+/// The nice value one step lower (`later`) or higher in priority than
+/// `process`'s (0 when unknown), within -20..=19; `None` at the end.
+pub fn nice_step(process: &ProcessInfo, later: bool) -> Option<i32> {
+    let current = process.nice.unwrap_or(0);
+    let next = if later {
+        (current + NICE_STEP).min(19)
+    } else {
+        (current - NICE_STEP).max(-20)
+    };
+    (next != current).then_some(next)
+}
+
+/// Whether `process` is paused (SIGSTOP, or stopped by a debugger).
+pub fn is_stopped(process: &ProcessInfo) -> bool {
+    process.state == "Stopped" || process.state == "Tracing"
 }
 
 /// Returns true for container bridges, veth pairs and loopback, which are

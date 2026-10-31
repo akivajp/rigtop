@@ -14,7 +14,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::agent::{
-    AgentMessage, ClientMessage, FEATURE_WATCH_PROCESSES, PROTOCOL_VERSION, write_message,
+    AgentMessage, ClientMessage, FEATURE_PROCESS_CONTROL, FEATURE_WATCH_PROCESSES,
+    PROTOCOL_VERSION, write_message,
 };
 use crate::snapshot::Snapshot;
 use crate::source::{DataSource, ProcessSignal, SourceError};
@@ -232,6 +233,8 @@ pub struct RemoteSource {
     watched_names: Vec<String>,
     /// The connected agent understands [`ClientMessage::WatchProcesses`].
     agent_watches: bool,
+    /// The connected agent can pause, resume and renice processes.
+    agent_controls: bool,
     /// Snapshots received while waiting for something else (signal results).
     pending: VecDeque<Snapshot>,
     /// rigtop version from the agent's greeting.
@@ -257,6 +260,7 @@ impl RemoteSource {
             watched_pids: Vec::new(),
             watched_names: Vec::new(),
             agent_watches: false,
+            agent_controls: false,
             pending: VecDeque::new(),
             agent_version: String::new(),
             last_error: None,
@@ -395,6 +399,7 @@ impl RemoteSource {
             } => {
                 self.agent_version = version;
                 self.agent_watches = features.iter().any(|f| f == FEATURE_WATCH_PROCESSES);
+                self.agent_controls = features.iter().any(|f| f == FEATURE_PROCESS_CONTROL);
                 if self.agent_watches
                     && !(self.watched_pids.is_empty() && self.watched_names.is_empty())
                 {
@@ -466,6 +471,20 @@ impl DataSource for RemoteSource {
     }
 
     fn signal_process(&mut self, pid: u32, signal: ProcessSignal) -> Result<(), SourceError> {
+        if signal.is_control() {
+            // Connect first, so the agent's features are known.
+            self.connection()?;
+            if !self.agent_controls {
+                return Err(SourceError::Remote(format!(
+                    "rigtop {} on the host cannot do this; it needs 0.21 or later",
+                    if self.agent_version.is_empty() {
+                        "(unknown)"
+                    } else {
+                        &self.agent_version
+                    }
+                )));
+            }
+        }
         if self
             .connection()?
             .send(&ClientMessage::Signal { pid, signal })

@@ -1307,7 +1307,7 @@ fn draw_processes(
     let footer = match app.status() {
         Some(status) => Line::from(colored(format!(" {status} "), WARN)),
         None => Line::from(dim(
-            " ↑↓ select  Enter details  x notify on exit  ←→ sort  r reverse  / filter  e tree  t kthreads  v panels  U update  k term  K kill  +- interval  g graph span  a alerts  q quit ",
+            " ↑↓ select  Enter details  x notify on exit  p pause  [] priority  ←→ sort  r reverse  / filter  e tree  t kthreads  v panels  U update  k term  K kill  +- interval  g graph span  a alerts  q quit ",
         )),
     };
     let block = panel("proc", PROC_TITLE)
@@ -1353,6 +1353,12 @@ fn draw_processes(
                         colored(p.name.clone(), WARN)
                     } else {
                         Span::raw(p.name.clone())
+                    },
+                    // Paused (`p`).
+                    if rigtop_core::view::is_stopped(p) {
+                        colored(" stopped", WARN)
+                    } else {
+                        Span::raw("")
                     },
                 ])),
                 ProcColumn::Command => {
