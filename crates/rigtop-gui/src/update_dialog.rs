@@ -10,7 +10,7 @@ use rigtop_core::hosts::HostKind;
 use rigtop_core::update::{self, UpdateJob};
 
 use crate::app::{HostEntry, ViewAction};
-use crate::widgets::{BAD, DIM, OK};
+use crate::widgets::{BAD, DIM, OK, WARN};
 
 /// What the title bar says about releases of rigtop.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,6 +45,24 @@ pub fn release_button(ui: &mut Ui, note: Option<&ReleaseNote>, actions: &mut Vec
     }
 }
 
+/// "update agents (N)…": offers to update the `count` remote hosts that run
+/// an older rigtop, when there are any.
+pub fn agents_button(ui: &mut Ui, count: usize, actions: &mut Vec<ViewAction>) {
+    if count == 0 {
+        return;
+    }
+    if ui
+        .add(
+            egui::Button::new(RichText::new(format!("update agents ({count})…")).color(WARN))
+                .frame(false),
+        )
+        .on_hover_text("update rigtop on every remote host that runs an older version")
+        .clicked()
+    {
+        actions.push(ViewAction::UpdateAllAgents);
+    }
+}
+
 /// What is being updated.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Target {
@@ -52,13 +70,21 @@ enum Target {
     Host(usize),
     /// This machine's copy, to this release.
     Local(String),
+    /// These remote hosts, each in its own job.
+    Hosts(Vec<usize>),
 }
+
+/// One host of a [`Target::Hosts`] update: its index, name, job and, once
+/// done, the outcome.
+type HostJob = (usize, String, UpdateJob, Option<Result<String, String>>);
 
 /// Where the window is.
 enum Step {
     Confirm,
     Running(UpdateJob),
     Done(Result<String, String>),
+    /// Several hosts, running or done.
+    Many(Vec<HostJob>),
 }
 
 /// What the app should do after a frame of the window.
@@ -85,6 +111,13 @@ impl UpdateDialog {
         self.open_on(Target::Host(index), name);
     }
 
+    /// Asks whether to update the remote hosts at `indexes` (those running
+    /// an older rigtop).
+    pub fn ask_all(&mut self, indexes: Vec<usize>) {
+        let name = format!("{} hosts", indexes.len());
+        self.open_on(Target::Hosts(indexes), &name);
+    }
+
     /// Asks whether to update this machine's copy to `version`.
     pub fn ask_self(&mut self, version: &str) {
         self.open_on(Target::Local(version.to_owned()), "this machine");
@@ -92,7 +125,12 @@ impl UpdateDialog {
 
     fn open_on(&mut self, target: Target, name: &str) {
         // A running update keeps its window.
-        if !matches!(self.open, Some((_, _, Step::Running(_)))) {
+        let running = match &self.open {
+            Some((_, _, Step::Running(_))) => true,
+            Some((_, _, Step::Many(jobs))) => jobs.iter().any(|j| j.3.is_none()),
+            _ => false,
+        };
+        if !running {
             self.open = Some((target, name.to_owned(), Step::Confirm));
         }
     }
@@ -103,32 +141,50 @@ impl UpdateDialog {
         ctx: &egui::Context,
         hosts: &[HostEntry],
         exe: Option<&Path>,
-    ) -> Option<UpdateEvent> {
-        let (target, name, step) = self.open.as_mut()?;
+    ) -> Vec<UpdateEvent> {
+        let mut events = Vec::new();
+        let Some((target, name, step)) = self.open.as_mut() else {
+            return events;
+        };
         let (target, name) = (target.clone(), name.clone());
-        let mut event = None;
         if let Step::Running(job) = step
             && let Some(result) = job.poll()
         {
             if result.is_ok() {
-                event = Some(match &target {
+                events.push(match &target {
                     Target::Host(index) => UpdateEvent::Reconnect(*index),
                     Target::Local(version) => UpdateEvent::Installed(version.clone()),
+                    Target::Hosts(_) => unreachable!("runs as Step::Many"),
                 });
             }
             *step = Step::Done(result);
         }
-        let (agent_version, os) = match target {
-            Target::Host(index) => hosts
+        // Each host reconnects as soon as its update is done.
+        if let Step::Many(jobs) = step {
+            for (index, _, job, outcome) in jobs.iter_mut().filter(|j| j.3.is_none()) {
+                if let Some(result) = job.poll() {
+                    if result.is_ok() {
+                        events.push(UpdateEvent::Reconnect(*index));
+                    }
+                    *outcome = Some(result);
+                }
+            }
+        }
+        let version_of = |index: usize| {
+            hosts
                 .get(index)
                 .and_then(|h| h.state.snapshot.as_ref())
                 .map(|s| (s.host.rigtop_version.clone(), s.host.os.clone()))
-                .unwrap_or_default(),
-            Target::Local(_) => Default::default(),
+                .unwrap_or_default()
+        };
+        let (agent_version, os) = match &target {
+            Target::Host(index) => version_of(*index),
+            Target::Local(_) | Target::Hosts(_) => Default::default(),
         };
         let unsupported = match &target {
             Target::Host(_) => update::unsupported_reason(&os),
             Target::Local(_) => update::self_update_unsupported(),
+            Target::Hosts(_) => None,
         };
         let mut close = false;
         let mut start = false;
@@ -150,6 +206,15 @@ impl UpdateDialog {
                         ui.label(match &target {
                             Target::Host(_) => update::describe(&name, &agent_version),
                             Target::Local(version) => update::describe_self(version),
+                            Target::Hosts(indexes) => {
+                                let names: Vec<(String, String)> = indexes
+                                    .iter()
+                                    .filter_map(|&i| {
+                                        Some((hosts.get(i)?.spec.name.clone(), version_of(i).0))
+                                    })
+                                    .collect();
+                                update::describe_many(&names)
+                            }
                         });
                         ui.add_space(6.0);
                         ui.horizontal(|ui| {
@@ -167,6 +232,32 @@ impl UpdateDialog {
                     ui.ctx()
                         .request_repaint_after(std::time::Duration::from_millis(250));
                 }
+                Step::Many(jobs) => {
+                    for (_, host, _, result) in jobs.iter() {
+                        ui.horizontal(|ui| match result {
+                            None => {
+                                ui.spinner();
+                                ui.label(format!("{host}: updating…"));
+                            }
+                            Some(Ok(message)) => {
+                                ui.label(RichText::new(format!("{host}: {message}")).color(OK));
+                            }
+                            Some(Err(error)) => {
+                                ui.label(
+                                    RichText::new(format!("{host}: not updated: {error}"))
+                                        .color(BAD),
+                                );
+                            }
+                        });
+                    }
+                    if jobs.iter().all(|j| j.3.is_some()) {
+                        ui.label(RichText::new("Updated hosts reconnect.").color(DIM));
+                        close = ui.button("close").clicked();
+                    } else {
+                        ui.ctx()
+                            .request_repaint_after(std::time::Duration::from_millis(250));
+                    }
+                }
                 Step::Done(result) => {
                     outcome(ui, &target, result);
                     ui.horizontal(|ui| {
@@ -181,6 +272,20 @@ impl UpdateDialog {
             });
         if start {
             *step = match &target {
+                Target::Hosts(indexes) => Step::Many(
+                    indexes
+                        .iter()
+                        .filter_map(|&i| match &hosts.get(i)?.spec.kind {
+                            HostKind::Remote(remote) => Some((
+                                i,
+                                hosts[i].spec.name.clone(),
+                                UpdateJob::start(remote),
+                                None,
+                            )),
+                            _ => None,
+                        })
+                        .collect(),
+                ),
                 Target::Host(index) => match hosts.get(*index).map(|h| &h.spec.kind) {
                     Some(HostKind::Remote(remote)) => Step::Running(UpdateJob::start(remote)),
                     _ => Step::Done(Err(format!("{name} is not a remote host"))),
@@ -195,9 +300,9 @@ impl UpdateDialog {
             self.open = None;
         }
         if restart {
-            event = Some(UpdateEvent::Restart);
+            events.push(UpdateEvent::Restart);
         }
-        event
+        events
     }
 }
 
@@ -206,7 +311,7 @@ fn outcome(ui: &mut Ui, target: &Target, result: &Result<String, String>) {
         Ok(message) => {
             ui.label(RichText::new(format!("Updated: {message}.")).color(OK));
             let next = match target {
-                Target::Host(_) => "Reconnecting to the new version…",
+                Target::Host(_) | Target::Hosts(_) => "Reconnecting to the new version…",
                 Target::Local(_) => "Restart rigtop to use it.",
             };
             ui.label(RichText::new(next).color(DIM));

@@ -1,6 +1,7 @@
-//! Updating rigtop: this machine's copy to a new release (`U`), or a remote
-//! host that runs an older version (`u`). Asks first, runs the update in
-//! the background, then shows how it went.
+//! Updating rigtop: this machine's copy to a new release (`U`), a remote
+//! host that runs an older version (`u`), or every such host (`u` in the
+//! overview). Asks first, runs the updates in the background, then shows
+//! how they went.
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
@@ -17,6 +18,17 @@ pub enum Target {
     Host(usize),
     /// This machine's copy, to this release.
     Local { version: String },
+    /// These remote hosts, each in its own job.
+    Hosts(Vec<usize>),
+}
+
+/// One host of a [`Target::Hosts`] update.
+pub struct HostJob {
+    pub index: usize,
+    pub name: String,
+    pub job: UpdateJob,
+    /// Its outcome, once done.
+    pub result: Option<Result<String, String>>,
 }
 
 /// The update window: asking, running, or showing the outcome.
@@ -35,13 +47,21 @@ pub enum UpdateWindow {
         target: Target,
         result: Result<String, String>,
     },
+    /// Several hosts at once ([`Target::Hosts`]), running or done.
+    Many {
+        jobs: Vec<HostJob>,
+    },
 }
 
 impl UpdateWindow {
     /// Draws the window in the middle of `area`.
     pub fn draw(&self, frame: &mut Frame, area: Rect) {
         let width = area.width.saturating_sub(4).min(76);
-        let height = 11.min(area.height);
+        let rows = match self {
+            UpdateWindow::Many { jobs } => jobs.len() as u16 + 5,
+            _ => 11,
+        };
+        let height = rows.max(11).min(area.height);
         if width < 20 || height < 5 {
             return;
         }
@@ -64,6 +84,38 @@ impl UpdateWindow {
                 WARN,
                 vec![Line::from(format!("Updating rigtop on {name}…"))],
             ),
+            UpdateWindow::Many { jobs } => {
+                let done = jobs.iter().all(|j| j.result.is_some());
+                let mut lines: Vec<Line> = jobs
+                    .iter()
+                    .map(|j| match &j.result {
+                        None => Line::from(format!("{}: updating…", j.name)),
+                        Some(Ok(message)) => {
+                            Line::from(colored(format!("{}: {message}", j.name), OK))
+                        }
+                        Some(Err(error)) => {
+                            Line::from(colored(format!("{}: not updated: {error}", j.name), BAD))
+                        }
+                    })
+                    .collect();
+                lines.push(Line::from(""));
+                lines.push(Line::from(dim(if done {
+                    "updated hosts reconnect    any key: close"
+                } else {
+                    "updated hosts reconnect as they finish"
+                })));
+                let failed = jobs.iter().any(|j| matches!(j.result, Some(Err(_))));
+                (
+                    if done && !failed {
+                        OK
+                    } else if failed {
+                        BAD
+                    } else {
+                        WARN
+                    },
+                    lines,
+                )
+            }
             UpdateWindow::Done { target, result } => {
                 let (color, text) = match (result, target) {
                     (Ok(message), Target::Host(_)) => {
@@ -73,6 +125,7 @@ impl UpdateWindow {
                         OK,
                         format!("Updated: {message}. Quit and start rigtop again to use it."),
                     ),
+                    (Ok(message), Target::Hosts(_)) => (OK, format!("Updated: {message}.")),
                     (Err(error), _) => (BAD, format!("Not updated: {error}")),
                 };
                 (

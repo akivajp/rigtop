@@ -142,6 +142,8 @@ pub enum ViewAction {
     Restart,
     /// Show or hide a panel of the host view.
     TogglePane(Pane),
+    /// Offer to update rigtop on every remote host running an older one.
+    UpdateAllAgents,
     /// Open the configuration file in the default app.
     OpenConfig,
     /// Open the folder of the configuration file.
@@ -955,6 +957,22 @@ impl RigtopApp {
         }
     }
 
+    /// The remote hosts running an older rigtop that can be updated from
+    /// here (not Windows ones).
+    fn outdated_agents(&self) -> Vec<usize> {
+        self.hosts
+            .iter()
+            .enumerate()
+            .filter(|(_, h)| matches!(h.spec.kind, HostKind::Remote(_)))
+            .filter(|(_, h)| {
+                h.state.snapshot.as_ref().is_some_and(|s| {
+                    rigtop_core::update::updatable(&s.host.rigtop_version, &s.host.os)
+                })
+            })
+            .map(|(i, _)| i)
+            .collect()
+    }
+
     /// Picks up snoozes made elsewhere and ended snoozes, for every host.
     fn refresh_snoozes(&mut self) {
         self.snoozes.reload();
@@ -1136,6 +1154,12 @@ impl RigtopApp {
                 }
                 ViewAction::EditHosts => self.hosts_dialog.open(),
                 ViewAction::OpenConfig => self.open_config(false),
+                ViewAction::UpdateAllAgents => {
+                    let outdated = self.outdated_agents();
+                    if !outdated.is_empty() {
+                        self.update_dialog.ask_all(outdated);
+                    }
+                }
                 ViewAction::OpenConfigFolder => self.open_config(true),
                 ViewAction::ToggleWidgets => self.show_widgets = !self.show_widgets,
                 ViewAction::NextGraphSpan => self.graph_span = self.graph_span.next(),
@@ -1196,15 +1220,16 @@ impl RigtopApp {
                 None => self.snoozes.unsnooze(&host, &alert),
             }
         }
-        match self
+        for event in self
             .update_dialog
             .show(&ctx, &self.hosts, self.exe.as_deref())
         {
-            // The new agent runs from the next connection on.
-            Some(UpdateEvent::Reconnect(index)) => self.restart_worker(index),
-            Some(UpdateEvent::Installed(version)) => self.release_installed = Some(version),
-            Some(UpdateEvent::Restart) => self.restart(&ctx),
-            None => {}
+            match event {
+                // The new agent runs from the next connection on.
+                UpdateEvent::Reconnect(index) => self.restart_worker(index),
+                UpdateEvent::Installed(version) => self.release_installed = Some(version),
+                UpdateEvent::Restart => self.restart(&ctx),
+            }
         }
 
         // The host shown in detail sends every process; the others only
@@ -1260,6 +1285,7 @@ impl RigtopApp {
                 }
                 alert_log::button(ui, self.alert_log.unread(), actions);
                 update_dialog::release_button(ui, release.as_ref(), actions);
+                update_dialog::agents_button(ui, self.outdated_agents().len(), actions);
             });
         });
         ui.add_space(2.0);
@@ -1811,6 +1837,37 @@ mod tests {
                 .is_some()
         );
         assert!(harness.query_by_label("open the file").is_some());
+    }
+
+    #[test]
+    fn outdated_agents_can_be_updated_together() {
+        let mut app = RigtopApp::for_test(Config::default(), &["local", "zefat", "nas"]);
+        for (index, version, os) in [
+            (0, "0.0.1", "Linux"),
+            (1, "0.0.1", "Linux (Ubuntu 26.04)"),
+            (2, "0.0.1", "Windows 11 Pro"),
+        ] {
+            let mut snapshot = sample_snapshot();
+            snapshot.host.rigtop_version = version.to_owned();
+            snapshot.host.os = os.to_owned();
+            app.hosts[index]
+                .state
+                .apply(Event::Snapshot(Box::new(snapshot)));
+        }
+        // This machine and the Windows host are not updated from here.
+        assert_eq!(app.outdated_agents(), [1]);
+        let mut harness = Harness::builder()
+            .with_size([1400.0, 900.0])
+            .build_ui_state(|ui, app: &mut RigtopApp| app.show(ui), app);
+        harness.run();
+        harness.get_by_label("update agents (1)…").click();
+        harness.run();
+        harness.run();
+        assert!(
+            harness
+                .query_by_label_contains("Update rigtop on zefat (0.0.1)")
+                .is_some()
+        );
     }
 
     #[test]

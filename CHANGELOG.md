@@ -7,6 +7,12 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Added
+- Update every remote host that runs an older rigtop at once: "update
+  agents (N)…" in the GUI's tab bar, `u` in the TUI's overview. The
+  updates run side by side, and each host reconnects when its own is done.
+  Windows hosts, which update with Scoop, are left out.
+
 ### Changed
 - Process names cut to 15 characters by Linux (`gnome-keyring-d`) show in
   full from the command line (`gnome-keyring-daemon`, also scripts such as

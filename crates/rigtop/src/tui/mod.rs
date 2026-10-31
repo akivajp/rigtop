@@ -33,7 +33,7 @@ use rigtop_core::{Config, DataSource, LocalSource};
 use alert_log::AlertLogView;
 use app::App;
 use overview::View;
-use update::{Target, UpdateWindow};
+use update::{HostJob, Target, UpdateWindow};
 
 /// How often to check for input while idle. Drawing only happens when
 /// something changed, so this mainly bounds input latency.
@@ -635,8 +635,58 @@ fn ask_self_update(screen: &mut Screen, host: &mut HostTui) {
     }
 }
 
+/// Asks whether to update every remote host that runs an older rigtop and
+/// can be updated from here, or says (on the first host's status line)
+/// that none needs it.
+fn ask_update_all(screen: &mut Screen, hosts: &mut [HostTui]) {
+    let mut indexes = Vec::new();
+    let mut names = Vec::new();
+    for (index, host) in hosts.iter().enumerate() {
+        let Some(snapshot) = &host.app.snapshot else {
+            continue;
+        };
+        if matches!(host.spec.kind, HostKind::Remote(_))
+            && rigtop_core::update::updatable(&snapshot.host.rigtop_version, &snapshot.host.os)
+        {
+            indexes.push(index);
+            names.push((host.spec.name.clone(), snapshot.host.rigtop_version.clone()));
+        }
+    }
+    if indexes.is_empty() {
+        if let Some(host) = hosts.first_mut() {
+            host.app.set_status(format!(
+                "no remote host runs a rigtop older than {} (Windows ones update with Scoop)",
+                rigtop_core::update::target_version()
+            ));
+        }
+        return;
+    }
+    screen.update = Some(UpdateWindow::Confirm {
+        text: rigtop_core::update::describe_many(&names),
+        target: Target::Hosts(indexes),
+    });
+}
+
 /// Starts the confirmed update of `target`.
 fn start_update(hosts: &[HostTui], releases: &Releases, target: Target) -> Option<UpdateWindow> {
+    if let Target::Hosts(indexes) = &target {
+        let jobs = indexes
+            .iter()
+            .filter_map(|&index| {
+                let host = hosts.get(index)?;
+                let HostKind::Remote(remote) = &host.spec.kind else {
+                    return None;
+                };
+                Some(HostJob {
+                    index,
+                    name: host.spec.name.clone(),
+                    job: UpdateJob::start(remote),
+                    result: None,
+                })
+            })
+            .collect();
+        return Some(UpdateWindow::Many { jobs });
+    }
     let (name, job) = match &target {
         Target::Host(index) => {
             let host = hosts.get(*index)?;
@@ -645,6 +695,7 @@ fn start_update(hosts: &[HostTui], releases: &Releases, target: Target) -> Optio
             };
             (host.spec.name.clone(), UpdateJob::start(remote))
         }
+        Target::Hosts(_) => unreachable!("started above"),
         Target::Local { version } => {
             let Some(exe) = &releases.exe else {
                 return Some(UpdateWindow::Done {
@@ -665,6 +716,19 @@ fn start_update(hosts: &[HostTui], releases: &Releases, target: Target) -> Optio
 /// host reconnects so that the new agent runs, and this machine's title
 /// asks for a restart. Returns whether anything changed.
 fn finish_update(screen: &mut Screen, hosts: &mut [HostTui]) -> bool {
+    if let Some(UpdateWindow::Many { jobs }) = &mut screen.update {
+        let mut changed = false;
+        for job in jobs.iter_mut().filter(|j| j.result.is_none()) {
+            if let Some(result) = job.job.poll() {
+                if result.is_ok() {
+                    reconnect(hosts, job.index);
+                }
+                job.result = Some(result);
+                changed = true;
+            }
+        }
+        return changed;
+    }
     let Some(UpdateWindow::Running { target, job, .. }) = &screen.update else {
         return false;
     };
@@ -674,19 +738,23 @@ fn finish_update(screen: &mut Screen, hosts: &mut [HostTui]) -> bool {
     let target = target.clone();
     if result.is_ok() {
         match &target {
-            Target::Host(index) => {
-                if let Some(entry) = hosts.get_mut(*index) {
-                    let worker = spawn_worker(&entry.spec, &entry.app.config, entry.app.interval);
-                    stop_workers(vec![std::mem::replace(&mut entry.worker, worker)]);
-                    entry.sent_limit = None;
-                    entry.sent_watch = None;
-                }
-            }
+            Target::Host(index) => reconnect(hosts, *index),
             Target::Local { version } => screen.releases.installed = Some(version.clone()),
+            Target::Hosts(_) => {}
         }
     }
     screen.update = Some(UpdateWindow::Done { target, result });
     true
+}
+
+/// Starts the host at `index` over, so that its updated agent runs.
+fn reconnect(hosts: &mut [HostTui], index: usize) {
+    if let Some(entry) = hosts.get_mut(index) {
+        let worker = spawn_worker(&entry.spec, &entry.app.config, entry.app.interval);
+        stop_workers(vec![std::mem::replace(&mut entry.worker, worker)]);
+        entry.sent_limit = None;
+        entry.sent_watch = None;
+    }
 }
 
 /// Routes a key: view switching first (unless the active host is typing a
@@ -743,6 +811,9 @@ fn handle_key(
             }
             // Runs on; the outcome shows when it is done.
             running @ UpdateWindow::Running { .. } => Some(running),
+            UpdateWindow::Many { jobs } if jobs.iter().any(|j| j.result.is_none()) => {
+                Some(UpdateWindow::Many { jobs })
+            }
             _ => None,
         };
         return;
@@ -759,11 +830,11 @@ fn handle_key(
         screen.alert_log.show();
         return;
     }
-    if !busy
-        && key.code == KeyCode::Char('u')
-        && let View::Host(i) = screen.view
-    {
-        ask_update(screen, &mut hosts[i], i);
+    if !busy && key.code == KeyCode::Char('u') {
+        match screen.view {
+            View::Host(i) => ask_update(screen, &mut hosts[i], i),
+            View::Overview => ask_update_all(screen, hosts),
+        }
         return;
     }
     if !busy && key.code == KeyCode::Char('U') {

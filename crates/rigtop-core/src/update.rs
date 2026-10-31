@@ -189,6 +189,28 @@ pub fn describe(host: &str, agent_version: &str) -> String {
     )
 }
 
+/// Whether a remote host running `agent_version` on `os` (from its
+/// snapshot) can and should be updated from here.
+pub fn updatable(agent_version: &str, os: &str) -> bool {
+    agent_is_older(agent_version) && unsupported_reason(os).is_none()
+}
+
+/// What updating several hosts does, shown before asking. `hosts` are
+/// (name, agent version) pairs.
+pub fn describe_many(hosts: &[(String, String)]) -> String {
+    let list: Vec<String> = hosts
+        .iter()
+        .map(|(name, version)| format!("{name} ({version})"))
+        .collect();
+    format!(
+        "Update rigtop on {} to {version}? Over SSH, each downloads the v{version} \
+         release from GitHub, checks it and replaces the rigtop its agent runs (when \
+         it is in a directory you can write to). Each connection restarts when done.",
+        list.join(", "),
+        version = target_version()
+    )
+}
+
 /// An update running in the background.
 pub struct UpdateJob {
     result: Receiver<Result<String, String>>,
@@ -394,6 +416,10 @@ mod tests {
         assert!(!agent_is_older(target_version()));
         assert!(!agent_is_older("999.0.0"));
         assert!(!agent_is_older(""), "unknown versions are not offered");
+        assert!(updatable("0.0.9", "Linux (Ubuntu 26.04)"));
+        assert!(!updatable("0.0.9", "Windows 11 Pro"), "Scoop updates those");
+        assert!(!updatable(target_version(), "Linux"));
+        assert!(describe_many(&[("nas".to_owned(), "0.0.9".to_owned())]).contains("nas (0.0.9)"));
         assert!(version_at_least("0.21.0", "0.21.0"));
         assert!(version_at_least("0.21.1", "0.21.0"));
         assert!(!version_at_least("0.20.0", "0.21.0"));
