@@ -13,6 +13,7 @@ use rigtop_core::snapshot::Snapshot;
 use rigtop_core::view::{Severity, attention_rank};
 
 use super::HostTui;
+use super::app::App;
 use super::graph::{self, BrailleGraph};
 use super::ui::{
     BAD, BORDER, DIM, GPU_TITLE, OK, PROC_TITLE, WARN, colored, dim, link_label, meter,
@@ -190,20 +191,46 @@ pub fn draw_overview(
     let rows = visible.len().div_ceil(columns);
     let box_width = area.width / columns as u16;
     let box_height = area.height / rows as u16;
-    for (i, host) in visible.iter().enumerate() {
-        let (col, row) = ((i % columns) as u16, (i / columns) as u16);
-        let width = if col as usize == columns - 1 {
-            area.width - box_width * col
-        } else {
-            box_width
-        };
-        let rect = Rect::new(
-            area.x + box_width * col,
-            area.y + box_height * row,
-            width,
-            box_height,
-        );
-        draw_host_box(frame, rect, host, processes);
+    for (row, row_hosts) in visible.chunks(columns).enumerate() {
+        let row = row as u16;
+        // Boxes of a row are laid out together so their sections line up.
+        let mut cards = Vec::new();
+        for (col, host) in row_hosts.iter().enumerate() {
+            let col = col as u16;
+            let width = if col as usize == columns - 1 {
+                area.width - box_width * col
+            } else {
+                box_width
+            };
+            let rect = Rect::new(
+                area.x + box_width * col,
+                area.y + box_height * row,
+                width,
+                box_height,
+            );
+            let inner = draw_box_frame(frame, rect, host);
+            match &host.app.snapshot {
+                Some(snapshot) => cards.push((
+                    inner,
+                    Card {
+                        app: &host.app,
+                        snapshot,
+                        sections: &host.spec.sections,
+                        width: inner.width as usize,
+                    },
+                )),
+                None => draw_waiting(frame, inner, &host.app),
+            }
+        }
+        let (rects, cards): (Vec<Rect>, Vec<Card>) = cards.into_iter().unzip();
+        let budget = rects.first().map_or(0, |r| r.height as usize);
+        for ((inner, card), rows) in rects
+            .iter()
+            .zip(&cards)
+            .zip(layout_row(&cards, budget, processes))
+        {
+            draw_rows(frame, *inner, card.app, rows);
+        }
     }
     let hint = dim(" l: toggle this machine ");
     let hint_area = Rect::new(
@@ -217,7 +244,8 @@ pub fn draw_overview(
     }
 }
 
-fn draw_host_box(frame: &mut Frame, area: Rect, host: &HostTui, processes: usize) {
+/// Draws a host's box with its title; the area inside it.
+fn draw_box_frame(frame: &mut Frame, area: Rect, host: &HostTui) -> Rect {
     let (color, _) = host_status(host);
     let mut title_right = Vec::new();
     if let Some(snapshot) = &host.app.snapshot {
@@ -259,31 +287,209 @@ fn draw_host_box(frame: &mut Frame, area: Rect, host: &HostTui, processes: usize
         .title_top(Line::from(title_right).right_aligned());
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    let width = inner.width as usize;
-    let budget = inner.height as usize;
+    inner
+}
 
-    let Some(snapshot) = &host.app.snapshot else {
-        let mut lines = vec![Line::from(dim(host.app.waiting_message.clone()))];
-        if let Some(note) = host.app.offline_note() {
-            lines.push(Line::from(colored(note, BAD)));
-        }
-        if let Some(error) = &host.app.connection_error {
-            lines.push(Line::from(colored(error.clone(), WARN)));
-        }
-        // Connection errors can be long: wrap them inside the box.
-        frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), inner);
-        return;
+/// The box of a host still waiting for its first snapshot.
+fn draw_waiting(frame: &mut Frame, inner: Rect, app: &App) {
+    let mut lines = vec![Line::from(dim(app.waiting_message.clone()))];
+    if let Some(note) = app.offline_note() {
+        lines.push(Line::from(colored(note, BAD)));
+    }
+    if let Some(error) = &app.connection_error {
+        lines.push(Line::from(colored(error.clone(), WARN)));
+    }
+    // Connection errors can be long: wrap them inside the box.
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), inner);
+}
+
+/// One host box of a row of boxes laid out together.
+struct Card<'a> {
+    app: &'a App,
+    snapshot: &'a Snapshot,
+    sections: &'a [OverviewSection],
+    /// Columns inside the box.
+    width: usize,
+}
+
+/// The rows of one section across the boxes of a row: each box's lines,
+/// all given the height of the tallest.
+struct Slot {
+    section: OverviewSection,
+    cells: Vec<Vec<Line<'static>>>,
+    height: usize,
+}
+
+/// Lays out the boxes of one row of the overview, `budget` rows high
+/// inside, so that each section starts on the same row in every box: a
+/// section takes as many rows as it needs in the box that needs the most,
+/// and the others are padded with blank lines.
+fn layout_row(cards: &[Card], budget: usize, processes: usize) -> Vec<Vec<BoxRow>> {
+    let Some(order) = section_order(cards) else {
+        // Sections in different orders cannot line up: each box alone.
+        return cards
+            .iter()
+            .flat_map(|card| layout_row(std::slice::from_ref(card), budget, processes))
+            .collect();
     };
+    let heads: Vec<Vec<Line<'static>>> = cards.iter().map(head_lines).collect();
+    let head_height = heads.iter().map(Vec::len).max().unwrap_or(0);
 
+    // Add whole sections while they fit; the process list may be shortened.
+    let mut slots: Vec<Slot> = Vec::new();
+    let mut used = head_height;
+    for section in order {
+        let left = budget.saturating_sub(used);
+        let cells: Vec<Vec<Line<'static>>> = cards
+            .iter()
+            .map(|card| {
+                if !card.sections.contains(&section) {
+                    return Vec::new();
+                }
+                let lines = section_lines(card, section, left, processes);
+                if section == OverviewSection::Processes && lines.len() <= 1 {
+                    Vec::new()
+                } else {
+                    lines
+                }
+            })
+            .collect();
+        let height = cells.iter().map(Vec::len).max().unwrap_or(0);
+        if height == 0 {
+            continue;
+        }
+        if height > left {
+            break;
+        }
+        used += height;
+        slots.push(Slot {
+            section,
+            cells,
+            height,
+        });
+    }
+
+    // Rows to spare go first to details (CPU and GPU names, swap, disk
+    // I/O), section by section, then to the CPU and network graphs.
+    let mut spare = budget.saturating_sub(used);
+    for slot in &mut slots {
+        let detailed: Vec<Option<Vec<Line<'static>>>> = cards
+            .iter()
+            .zip(&slot.cells)
+            .map(|(card, lines)| {
+                if lines.is_empty() {
+                    None
+                } else {
+                    section_details(card, slot.section, lines)
+                }
+            })
+            .collect();
+        let full = detailed
+            .iter()
+            .zip(&slot.cells)
+            .map(|(d, lines)| d.as_ref().map_or(lines.len(), Vec::len))
+            .max()
+            .unwrap_or(0);
+        let grow = full.saturating_sub(slot.height);
+        if grow <= spare {
+            spare -= grow;
+            slot.height = full;
+        }
+        // Details that fit the section's height, even if it cannot grow:
+        // a box with fewer lines than the tallest uses its padding.
+        for (cell, detailed) in slot.cells.iter_mut().zip(detailed) {
+            if let Some(detailed) = detailed
+                && detailed.len() <= slot.height
+            {
+                *cell = detailed;
+            }
+        }
+    }
+    let has = |wanted| slots.iter().any(|slot| slot.section == wanted);
+    let (cpu_rows, net_rows) = graph_rows(
+        spare,
+        has(OverviewSection::Cpu),
+        has(OverviewSection::Network)
+            && cards.iter().any(|c| c.app.history.net_interface.is_some()),
+    );
+
+    let pad = |rows: &mut Vec<BoxRow>, lines: Vec<Line<'static>>, height: usize| {
+        let blank = height.saturating_sub(lines.len());
+        rows.extend(lines.into_iter().map(BoxRow::Text));
+        rows.extend((0..blank).map(|_| BoxRow::Text(Line::default())));
+    };
+    heads
+        .into_iter()
+        .enumerate()
+        .map(|(i, head)| {
+            let card = &cards[i];
+            let mut rows = Vec::new();
+            pad(&mut rows, head, head_height);
+            for slot in &mut slots {
+                let lines = std::mem::take(&mut slot.cells[i]);
+                let shown = !lines.is_empty();
+                pad(&mut rows, lines, slot.height);
+                // A graph under its section, or blank rows where another
+                // box has one.
+                let graph = match slot.section {
+                    OverviewSection::Cpu => {
+                        Some((cpu_rows, shown, BoxRow::CpuGraph as fn(u16) -> BoxRow))
+                    }
+                    OverviewSection::Network => Some((
+                        net_rows,
+                        shown && card.app.history.net_interface.is_some(),
+                        BoxRow::NetGraph as fn(u16) -> BoxRow,
+                    )),
+                    _ => None,
+                };
+                if let Some((height, drawn, make)) = graph
+                    && height > 0
+                {
+                    if drawn {
+                        rows.push(make(height));
+                    } else {
+                        pad(&mut rows, Vec::new(), height as usize);
+                    }
+                }
+            }
+            rows
+        })
+        .collect()
+}
+
+/// The order of the sections across `cards`, if every box lists them in
+/// an order consistent with it (each may leave some out).
+fn section_order(cards: &[Card]) -> Option<Vec<OverviewSection>> {
+    let mut order: Vec<OverviewSection> = Vec::new();
+    for card in cards {
+        for &section in card.sections {
+            if !order.contains(&section) {
+                order.push(section);
+            }
+        }
+    }
+    let consistent = cards.iter().all(|card| {
+        let positions: Vec<usize> = card
+            .sections
+            .iter()
+            .filter_map(|s| order.iter().position(|o| o == s))
+            .collect();
+        positions.windows(2).all(|w| w[0] < w[1])
+    });
+    consistent.then_some(order)
+}
+
+/// The lines above the sections: a lost connection and the alerts.
+fn head_lines(card: &Card) -> Vec<Line<'static>> {
+    let app = card.app;
     let mut lines: Vec<Line<'static>> = Vec::new();
-    if let Some(error) = &host.app.connection_error {
-        let note = host
-            .app
+    if let Some(error) = &app.connection_error {
+        let note = app
             .offline_note()
             .unwrap_or_else(|| "disconnected".to_owned());
         lines.push(Line::from(colored(format!("{note}: {error}"), WARN)));
     }
-    let alerts = host.app.alerts(snapshot);
+    let alerts = app.alerts(card.snapshot);
     for alert in alerts.iter().take(MAX_ALERTS) {
         let color = if alert.severity == Severity::Critical {
             BAD
@@ -298,66 +504,43 @@ fn draw_host_box(frame: &mut Frame, area: Rect, host: &HostTui, processes: usize
             WARN,
         )));
     }
-    // Add whole sections while they fit; the process list may be shortened.
-    let mut shown: Vec<(OverviewSection, Vec<Line<'static>>)> = Vec::new();
-    let mut used = lines.len();
-    for &section in &host.spec.sections {
-        let left = budget.saturating_sub(used);
-        let section_lines = match section {
-            OverviewSection::Cpu => cpu_lines(host, snapshot, width),
-            OverviewSection::Gpu => gpu_lines(snapshot, width),
-            OverviewSection::Memory => memory_lines(snapshot, width),
-            OverviewSection::Processes => {
-                process_lines(snapshot, processes.min(left.saturating_sub(1)))
-            }
-            OverviewSection::Network => network_lines(host, snapshot),
-            OverviewSection::Storage => storage_lines(snapshot, width),
-        };
-        if section == OverviewSection::Processes && section_lines.len() <= 1 {
-            continue;
-        }
-        if section_lines.len() > left {
-            break;
-        }
-        used += section_lines.len();
-        shown.push((section, section_lines));
-    }
+    lines
+}
 
-    // Rows to spare go first to details (CPU and GPU names, swap, disk
-    // I/O), section by section, then to the CPU and network graphs.
-    let mut spare = budget.saturating_sub(used);
-    for (section, section_lines) in &mut shown {
-        let detailed = match section {
-            OverviewSection::Cpu => cpu_details(snapshot, width, section_lines),
-            OverviewSection::Gpu => gpu_details(snapshot, section_lines),
-            OverviewSection::Memory => memory_details(snapshot, width, section_lines),
-            OverviewSection::Storage => storage_details(snapshot, section_lines),
-            _ => None,
-        };
-        if let Some(detailed) = detailed
-            && detailed.len() - section_lines.len() <= spare
-        {
-            spare -= detailed.len() - section_lines.len();
-            *section_lines = detailed;
+/// The lines of one section of a box, with `left` rows left for it.
+fn section_lines(
+    card: &Card,
+    section: OverviewSection,
+    left: usize,
+    processes: usize,
+) -> Vec<Line<'static>> {
+    let (snapshot, width) = (card.snapshot, card.width);
+    match section {
+        OverviewSection::Cpu => cpu_lines(card.app, snapshot, width),
+        OverviewSection::Gpu => gpu_lines(snapshot, width),
+        OverviewSection::Memory => memory_lines(snapshot, width),
+        OverviewSection::Processes => {
+            process_lines(snapshot, processes.min(left.saturating_sub(1)))
         }
+        OverviewSection::Network => network_lines(card.app, snapshot),
+        OverviewSection::Storage => storage_lines(snapshot, width),
     }
-    let has = |wanted| shown.iter().any(|(s, _)| *s == wanted);
-    let (cpu_rows, net_rows) = graph_rows(
-        spare,
-        has(OverviewSection::Cpu),
-        has(OverviewSection::Network) && host.app.history.net_interface.is_some(),
-    );
+}
 
-    let mut rows: Vec<BoxRow> = lines.into_iter().map(BoxRow::Text).collect();
-    for (section, section_lines) in shown {
-        rows.extend(section_lines.into_iter().map(BoxRow::Text));
-        match section {
-            OverviewSection::Cpu if cpu_rows > 0 => rows.push(BoxRow::CpuGraph(cpu_rows)),
-            OverviewSection::Network if net_rows > 0 => rows.push(BoxRow::NetGraph(net_rows)),
-            _ => {}
-        }
+/// A section's `lines` with details added, if it has any.
+fn section_details(
+    card: &Card,
+    section: OverviewSection,
+    lines: &[Line<'static>],
+) -> Option<Vec<Line<'static>>> {
+    let snapshot = card.snapshot;
+    match section {
+        OverviewSection::Cpu => cpu_details(snapshot, card.width, lines),
+        OverviewSection::Gpu => gpu_details(snapshot, lines),
+        OverviewSection::Memory => memory_details(snapshot, card.width, lines),
+        OverviewSection::Storage => storage_details(snapshot, lines),
+        _ => None,
     }
-    draw_rows(frame, inner, host, rows);
 }
 
 /// Splits `spare` rows between the CPU and network graphs (3:2, like the
@@ -384,8 +567,7 @@ fn graph_rows(spare: usize, cpu: bool, net: bool) -> (u16, u16) {
 }
 
 /// Draws the rows of a box from the top of `area`.
-fn draw_rows(frame: &mut Frame, area: Rect, host: &HostTui, rows: Vec<BoxRow>) {
-    let app = &host.app;
+fn draw_rows(frame: &mut Frame, area: Rect, app: &App, rows: Vec<BoxRow>) {
     let mut y = area.y;
     let bottom = area.y + area.height;
     let mut text: Vec<Line<'static>> = Vec::new();
@@ -568,7 +750,7 @@ fn meter_line(label: &str, ratio: f64, width: usize, value: Span<'static>) -> Li
     Line::from(spans)
 }
 
-fn cpu_lines(host: &HostTui, snapshot: &Snapshot, width: usize) -> Vec<Line<'static>> {
+fn cpu_lines(app: &App, snapshot: &Snapshot, width: usize) -> Vec<Line<'static>> {
     let cpu = &snapshot.cpu;
     let value = colored(
         format!(
@@ -579,7 +761,7 @@ fn cpu_lines(host: &HostTui, snapshot: &Snapshot, width: usize) -> Vec<Line<'sta
         percent_color(cpu.total_percent as f64),
     );
     let mut info = Vec::new();
-    let config = &host.app.config;
+    let config = &app.config;
     for temp in cpu
         .temperatures
         .iter()
@@ -690,9 +872,8 @@ fn process_lines(snapshot: &Snapshot, limit: usize) -> Vec<Line<'static>> {
     lines
 }
 
-fn network_lines(host: &HostTui, snapshot: &Snapshot) -> Vec<Line<'static>> {
-    let Some(net) = host
-        .app
+fn network_lines(app: &App, snapshot: &Snapshot) -> Vec<Line<'static>> {
+    let Some(net) = app
         .history
         .net_interface
         .as_deref()
@@ -798,6 +979,107 @@ fn storage_lines(snapshot: &Snapshot, width: usize) -> Vec<Line<'static>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn snapshot(gpus: u32) -> Snapshot {
+        use rigtop_core::snapshot::GpuStats;
+        let mut snapshot = Snapshot::default();
+        snapshot.memory.total_bytes = 16 << 30;
+        snapshot.gpus = (0..gpus)
+            .map(|index| GpuStats {
+                index,
+                name: format!("GPU model {index}"),
+                utilization_percent: Some(10.0),
+                ..Default::default()
+            })
+            .collect();
+        snapshot
+    }
+
+    /// The text of each row, graphs as "<graph>".
+    fn texts(rows: &[BoxRow]) -> Vec<String> {
+        rows.iter()
+            .map(|row| match row {
+                BoxRow::Text(line) => line.to_string(),
+                BoxRow::CpuGraph(_) | BoxRow::NetGraph(_) => "<graph>".to_owned(),
+            })
+            .collect()
+    }
+
+    fn row_of(rows: &[String], prefix: &str) -> usize {
+        rows.iter()
+            .position(|r| r.starts_with(prefix))
+            .unwrap_or_else(|| panic!("no {prefix:?} in {rows:#?}"))
+    }
+
+    #[test]
+    fn sections_line_up_across_a_row() {
+        use std::time::Duration;
+        let sections = [
+            OverviewSection::Cpu,
+            OverviewSection::Gpu,
+            OverviewSection::Memory,
+        ];
+        let mut lost = App::new(Default::default(), Duration::from_secs(1));
+        lost.connection_error = Some("timed out".to_owned());
+        let fine = App::new(Default::default(), Duration::from_secs(1));
+        let (one, three) = (snapshot(1), snapshot(3));
+        let cards = [
+            Card {
+                app: &lost,
+                snapshot: &one,
+                sections: &sections,
+                width: 60,
+            },
+            Card {
+                app: &fine,
+                snapshot: &three,
+                sections: &sections,
+                width: 60,
+            },
+        ];
+        let check = |budget: usize| {
+            let rows: Vec<Vec<String>> = layout_row(&cards, budget, 5)
+                .iter()
+                .map(|r| texts(r))
+                .collect();
+            for prefix in ["CPU", "Mem"] {
+                assert_eq!(
+                    row_of(&rows[0], prefix),
+                    row_of(&rows[1], prefix),
+                    "{prefix} at budget {budget}: {rows:#?}"
+                );
+            }
+            rows
+        };
+        // Tight: the bare sections, padded to the tallest.
+        let rows = check(7);
+        assert_eq!(row_of(&rows[0], "CPU"), 1, "under the lost connection");
+        // Roomy: details and a CPU graph, still in line.
+        let rows = check(30);
+        assert!(rows[0].iter().any(|r| r == "<graph>"));
+        assert!(rows[1].iter().any(|r| r.contains("GPU model 2")));
+        assert!(rows[0].iter().any(|r| r.contains("GPU model 0")));
+    }
+
+    #[test]
+    fn sections_in_different_orders_are_laid_out_alone() {
+        use std::time::Duration;
+        let app = App::new(Default::default(), Duration::from_secs(1));
+        let shot = snapshot(1);
+        let forward = [OverviewSection::Cpu, OverviewSection::Memory];
+        let backward = [OverviewSection::Memory, OverviewSection::Cpu];
+        let card = |sections| Card {
+            app: &app,
+            snapshot: &shot,
+            sections,
+            width: 60,
+        };
+        let cards = [card(&forward[..]), card(&backward[..])];
+        assert!(section_order(&cards).is_none());
+        let rows: Vec<Vec<String>> = layout_row(&cards, 3, 5).iter().map(|r| texts(r)).collect();
+        assert_eq!(row_of(&rows[0], "CPU"), 0);
+        assert_eq!(row_of(&rows[1], "Mem"), 0);
+    }
 
     #[test]
     fn spare_rows_go_to_graphs_three_to_two() {

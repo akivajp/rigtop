@@ -7,6 +7,12 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Changed
+- TUI overview: the cards of a row line up, each section (alerts, CPU,
+  GPU, memory, processes, network, storage) starting on the same line in
+  every card, padded to the card that needs the most rows; graphs get the
+  same height across the row.
+
 ## [0.26.0] - 2026-11-01
 
 ### Added
