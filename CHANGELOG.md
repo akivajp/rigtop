@@ -7,6 +7,8 @@ include breaking changes).
 
 ## [Unreleased]
 
+## [0.26.1] - 2026-11-01
+
 ### Changed
 - TUI overview: the cards of a row line up, each section (alerts, CPU,
   GPU, memory, processes, network, storage) starting on the same line in
@@ -558,7 +560,8 @@ First release.
 - Windows support (CPU, memory, processes, network with link speeds, drives,
   NVIDIA GPUs; temperatures, fans and CPU power are not available yet)
 
-[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.26.0...HEAD
+[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.26.1...HEAD
+[0.26.1]: https://github.com/akivajp/rigtop/compare/v0.26.0...v0.26.1
 [0.26.0]: https://github.com/akivajp/rigtop/compare/v0.25.0...v0.26.0
 [0.25.0]: https://github.com/akivajp/rigtop/compare/v0.24.0...v0.25.0
 [0.24.0]: https://github.com/akivajp/rigtop/compare/v0.23.0...v0.24.0
