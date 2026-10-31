@@ -131,8 +131,12 @@ pub struct CpuStats {
     /// (Windows).
     pub load_average: Option<[f64; 3]>,
     /// CPU temperature readings, e.g. `Tctl`, `Tccd1`, `Tccd2` on AMD or
-    /// `Package id 0`, `Core 0`.. on Intel.
+    /// `Package id 0` on Intel. Per-core readings that could be matched to
+    /// logical cores are in [`CpuStats::per_core_celsius`] instead.
     pub temperatures: Vec<Temperature>,
+    /// Temperature of the physical core of each logical core, in OS order
+    /// (Intel's coretemp). Empty when the CPU has no per-core sensors.
+    pub per_core_celsius: Vec<Option<f32>>,
 }
 
 /// Physical memory and swap usage.

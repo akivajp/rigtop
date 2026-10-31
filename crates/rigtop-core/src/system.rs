@@ -124,6 +124,7 @@ impl SystemCollector {
             // Windows has no load average (sysinfo reports zeros).
             load_average: cfg!(unix).then_some([load.one, load.five, load.fifteen]),
             temperatures: Vec::new(),
+            per_core_celsius: Vec::new(),
         }
     }
 

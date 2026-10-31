@@ -143,6 +143,10 @@ pub struct LocalSource {
     containers: linux::containers::ContainerTracker,
     #[cfg(target_os = "linux")]
     oom: linux::oom::OomTracker,
+    /// Package and core id of each logical core, read again only when the
+    /// number of cores changes.
+    #[cfg(target_os = "linux")]
+    core_locations: Vec<Option<linux::hwmon::CoreLocation>>,
     /// Directories searched for btrfs scrub status files, in order.
     #[cfg(target_os = "linux")]
     scrub_dirs: Vec<std::path::PathBuf>,
@@ -190,6 +194,8 @@ impl LocalSource {
             containers: linux::containers::ContainerTracker::new(),
             #[cfg(target_os = "linux")]
             oom: linux::oom::OomTracker::new(),
+            #[cfg(target_os = "linux")]
+            core_locations: Vec::new(),
             #[cfg(target_os = "linux")]
             drm_gpus: linux::drm::DrmGpuReader::new(),
             // The copy made by the root collector first, then btrfs-progs'
@@ -297,11 +303,12 @@ impl LocalSource {
     fn collect_linux(&mut self, snapshot: &mut Snapshot, now: Instant) {
         let chips = linux::hwmon::read_chips(&self.roots);
 
-        snapshot.cpu.temperatures = chips
-            .iter()
-            .filter(|c| linux::hwmon::is_cpu_chip(&c.chip))
-            .flat_map(|c| c.chip.temperatures.iter().cloned())
-            .collect();
+        let cores = snapshot.cpu.per_core_percent.len();
+        if self.core_locations.len() != cores {
+            self.core_locations = linux::hwmon::read_core_locations(&self.roots, cores);
+        }
+        (snapshot.cpu.temperatures, snapshot.cpu.per_core_celsius) =
+            linux::hwmon::split_core_temperatures(&chips, &self.core_locations);
         snapshot.memory.cached_bytes = linux::meminfo::read_cached_bytes(&self.roots);
         snapshot.memory.oom_kills =
             self.oom

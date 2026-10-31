@@ -1090,6 +1090,7 @@ pub fn alerts_with(snapshot: &Snapshot, limits: &AlertsConfig) -> Vec<Alert> {
         .temperatures
         .iter()
         .map(|t| t.celsius)
+        .chain(snapshot.cpu.per_core_celsius.iter().flatten().copied())
         .fold(f32::NAN, f32::max);
     if reached(hottest_cpu as f64, limits.cpu_warning_celsius as f64) {
         add(Severity::Warning, format!("CPU at {hottest_cpu:.0}°C"));

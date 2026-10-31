@@ -564,10 +564,18 @@ fn draw_core_grid(frame: &mut Frame, cpu: &CpuStats, layout: CpuLayout, area: Re
     let (columns, rows, cell_width) =
         core_grid_layout(cores.len(), area.width, area.height, cell_min);
     let digits = cores.len().saturating_sub(1).to_string().len();
-    // "C" + index + space + [meter] + " 100%" + gap, plus " 4.2G" when wide.
-    let show_freq =
-        layout.meters && cell_width >= CORE_FREQ_MIN_WIDTH && !cpu.per_core_mhz.is_empty();
-    let fixed = 1 + digits + 1 + 5 + 1 + if show_freq { 5 } else { 0 };
+    // "C" + index + space + [meter] + " 100%" + gap, plus " 58°C" (the
+    // core's temperature, when the CPU has per-core sensors) and " 4.2G"
+    // when wide. The temperature comes first when space is short.
+    let base = 1 + digits + 1 + 5 + 1;
+    let show_temp = layout.meters
+        && cell_width >= base + 5 + 3
+        && cpu.per_core_celsius.iter().any(Option::is_some);
+    let temp_width = if show_temp { 5 } else { 0 };
+    let show_freq = layout.meters
+        && cell_width >= CORE_FREQ_MIN_WIDTH + temp_width
+        && !cpu.per_core_mhz.is_empty();
+    let fixed = base + temp_width + if show_freq { 5 } else { 0 };
     let meter_width = if layout.meters {
         cell_width.saturating_sub(fixed).max(3)
     } else {
@@ -588,6 +596,14 @@ fn draw_core_grid(frame: &mut Frame, cpu: &CpuStats, layout: CpuLayout, area: Re
                 format!("{usage:>4.0}%"),
                 percent_color(usage as f64),
             ));
+            if show_temp {
+                spans.push(match cpu.per_core_celsius.get(index).copied().flatten() {
+                    Some(celsius) => {
+                        colored(format!("{celsius:>3.0}°C"), temperature_color(celsius))
+                    }
+                    None => Span::raw(" ".repeat(temp_width)),
+                });
+            }
             if show_freq {
                 let ghz = cpu.per_core_mhz.get(index).copied().unwrap_or(0) as f64 / 1000.0;
                 spans.push(dim(format!(" {ghz:.1}G")));

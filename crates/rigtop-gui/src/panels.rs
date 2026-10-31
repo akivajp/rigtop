@@ -8,7 +8,8 @@ use egui_extras::{Column, TableBuilder};
 use rigtop_core::ProcessSignal;
 use rigtop_core::format;
 use rigtop_core::snapshot::{
-    BtrfsFilesystem, GpuStats, NetworkStats, SmartDevice, Snapshot, ZfsPool, device_matches_disk,
+    BtrfsFilesystem, CpuStats, GpuStats, NetworkStats, SmartDevice, Snapshot, ZfsPool,
+    device_matches_disk,
 };
 use rigtop_core::view::{
     self, LHM_HINT, Severity, SortKey, disk_rate_text, is_virtual_interface, lhm_help, signal_name,
@@ -283,7 +284,7 @@ fn cpu(ui: &mut Ui, state: &GuiState) -> CpuRequests {
         DIM,
     );
 
-    let grid_height = core_grid(ui, grid_rect, &cpu.per_core_percent, &cpu.per_core_mhz);
+    let grid_height = core_grid(ui, grid_rect, cpu);
 
     // Load and power go right under the grid, so spare height ends up at
     // the bottom rather than as a gap in the middle.
@@ -327,15 +328,25 @@ fn core_grid_layout(cores: usize, width: f32, height: f32) -> CoreGrid {
         .unwrap_or_else(|| layout(CORE_CELL_STYLES[CORE_CELL_STYLES.len() - 1]))
 }
 
-/// Per-core meters, column-major like btop. Returns the height used.
-fn core_grid(ui: &Ui, rect: egui::Rect, cores: &[f32], mhz: &[u64]) -> f32 {
+/// Per-core meters, column-major like btop, with the core's temperature
+/// (when the CPU has per-core sensors) and frequency on wide cells.
+/// Returns the height used.
+fn core_grid(ui: &Ui, rect: egui::Rect, cpu: &CpuStats) -> f32 {
+    let (cores, mhz, temps) = (
+        &cpu.per_core_percent,
+        &cpu.per_core_mhz,
+        &cpu.per_core_celsius,
+    );
     if cores.is_empty() || rect.width() < 60.0 || rect.height() < ROW_HEIGHT {
         return 0.0;
     }
     let grid = core_grid_layout(cores.len(), rect.width(), rect.height());
     let painter = ui.painter_at(rect);
     let font = FontId::monospace(12.0);
-    let show_freq = grid.meters && grid.cell_width > 230.0 && !mhz.is_empty();
+    // The temperature comes before the frequency when space is short.
+    let show_temp = grid.meters && grid.cell_width > 180.0 && temps.iter().any(Option::is_some);
+    let temp_width = if show_temp { 44.0 } else { 0.0 };
+    let show_freq = grid.meters && grid.cell_width > 230.0 + temp_width && !mhz.is_empty();
     for (index, &usage) in cores.iter().enumerate() {
         let (col, row) = (index / grid.rows, index % grid.rows);
         let x = rect.left() + col as f32 * grid.cell_width;
@@ -359,7 +370,7 @@ fn core_grid(ui: &Ui, rect: egui::Rect, cores: &[f32], mhz: &[u64]) -> f32 {
             );
             continue;
         }
-        let value_width = if show_freq { 92.0 } else { 44.0 };
+        let value_width = if show_freq { 92.0 } else { 44.0 } + temp_width;
         let meter_rect = egui::Rect::from_min_max(
             pos2(x + 34.0, y + 2.0),
             pos2(
@@ -375,10 +386,19 @@ fn core_grid(ui: &Ui, rect: egui::Rect, cores: &[f32], mhz: &[u64]) -> f32 {
             font.clone(),
             percent_color(usage),
         );
+        if let Some(celsius) = temps.get(index).copied().flatten().filter(|_| show_temp) {
+            painter.text(
+                pos2(meter_rect.right() + 40.0 + temp_width, y),
+                egui::Align2::RIGHT_TOP,
+                format!("{celsius:.0}°C"),
+                font.clone(),
+                temperature_color(celsius),
+            );
+        }
         if show_freq {
             let ghz = mhz.get(index).copied().unwrap_or(0) as f64 / 1000.0;
             painter.text(
-                pos2(meter_rect.right() + 88.0, y),
+                pos2(meter_rect.right() + 88.0 + temp_width, y),
                 egui::Align2::RIGHT_TOP,
                 format!("{ghz:.1}GHz"),
                 font.clone(),

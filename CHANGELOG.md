@@ -29,6 +29,12 @@ include breaking changes).
   runs hot, a file server kept fuller). Typos fail the load, naming the
   host. The GUI's host editor keeps them.
 
+### Changed
+- Intel CPUs (Linux): each core's temperature is shown next to its meter,
+  like btop, instead of a `Core 0`, `Core 1`, ... list after the load
+  average; only `Package id 0` stays there. Remote hosts need rigtop 0.21
+  or later for this; older ones show the list as before.
+
 ## [0.20.0] - 2026-10-30
 
 ### Added

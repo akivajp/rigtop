@@ -44,6 +44,82 @@ pub fn is_cpu_chip(chip: &SensorChip) -> bool {
     CPU_CHIPS.contains(&chip.name.as_str())
 }
 
+/// Physical location of a logical core: `(physical_package_id, core_id)`,
+/// as coretemp's `Package id P` and `Core N` labels name it.
+pub type CoreLocation = (u32, u32);
+
+/// Reads the package and core id of logical cores `cpu0..cpu<count>`.
+/// `None` for cores whose topology is not readable (offline cores).
+pub fn read_core_locations(roots: &SysRoots, count: usize) -> Vec<Option<CoreLocation>> {
+    let cpu_dir = roots.sys.join("devices/system/cpu");
+    (0..count)
+        .map(|i| {
+            let topology = cpu_dir.join(format!("cpu{i}/topology"));
+            let package = read_u64(&topology.join("physical_package_id"))?;
+            let core = read_u64(&topology.join("core_id"))?;
+            Some((package as u32, core as u32))
+        })
+        .collect()
+}
+
+/// Splits CPU temperatures into those to list and the temperature of each
+/// logical core, from coretemp's `Core N` readings (Intel). `Core N` names
+/// the core id; `Package id P` in the same chip names its package.
+///
+/// Readings matched to at least one logical core leave the list, so that
+/// many-core CPUs do not get a long row of `Core N` values. When nothing
+/// matches, the list is returned unchanged with no per-core values.
+pub fn split_core_temperatures(
+    chips: &[HwmonChip],
+    cores: &[Option<CoreLocation>],
+) -> (Vec<Temperature>, Vec<Option<f32>>) {
+    let cpu_chips: Vec<&HwmonChip> = chips.iter().filter(|c| is_cpu_chip(&c.chip)).collect();
+    let coretemp_chips = cpu_chips
+        .iter()
+        .filter(|c| c.chip.name == "coretemp")
+        .count();
+    // Per-core readings: (package, if it must match; core id; reading).
+    let mut readings: Vec<(Option<u32>, u32, &Temperature)> = Vec::new();
+    for chip in cpu_chips.iter().filter(|c| c.chip.name == "coretemp") {
+        let package = chip
+            .chip
+            .temperatures
+            .iter()
+            .find_map(|t| t.label.strip_prefix("Package id ")?.parse().ok());
+        for temp in &chip.chip.temperatures {
+            if let Some(core) = temp
+                .label
+                .strip_prefix("Core ")
+                .and_then(|n| n.parse().ok())
+            {
+                // With a single chip the package does not need to match
+                // (some kernels number packages differently).
+                readings.push((package.filter(|_| coretemp_chips > 1), core, temp));
+            }
+        }
+    }
+    let mut used = std::collections::HashSet::new();
+    let per_core: Vec<Option<f32>> = cores
+        .iter()
+        .map(|location| {
+            let (package, core) = (*location)?;
+            let (_, _, temp) = readings
+                .iter()
+                .find(|(p, c, _)| *c == core && p.is_none_or(|p| p == package))?;
+            used.insert(temp.key.as_str());
+            Some(temp.celsius)
+        })
+        .collect();
+    let all = cpu_chips
+        .iter()
+        .flat_map(|c| c.chip.temperatures.iter().cloned());
+    if used.is_empty() {
+        return (all.collect(), Vec::new());
+    }
+    let listed = all.filter(|t| !used.contains(t.key.as_str())).collect();
+    (listed, per_core)
+}
+
 /// Reads one `hwmonN` directory. Returns `None` if it has no `name` attribute.
 fn read_chip(dir: &Path, entry: &str) -> Option<HwmonChip> {
     let name = read_trimmed(&dir.join("name"))?;
@@ -226,5 +302,91 @@ mod tests {
     fn missing_class_directory_yields_no_chips() {
         let tmp = tempfile::tempdir().unwrap();
         assert!(read_chips(&roots(tmp.path())).is_empty());
+    }
+
+    /// A coretemp chip with the given package and `(core id, celsius)` readings.
+    fn coretemp(device: &str, package: Option<u32>, cores: &[(u32, f32)]) -> HwmonChip {
+        let key = format!("coretemp:{device}");
+        let temp = |n: usize, label: String, celsius: f32| Temperature {
+            key: format!("{key}/temp{n}"),
+            label,
+            celsius,
+            ..Default::default()
+        };
+        let mut temperatures: Vec<Temperature> = package
+            .map(|p| temp(1, format!("Package id {p}"), 60.0))
+            .into_iter()
+            .collect();
+        for (i, (core, celsius)) in cores.iter().enumerate() {
+            temperatures.push(temp(i + 2, format!("Core {core}"), *celsius));
+        }
+        HwmonChip {
+            chip: SensorChip {
+                key: key.clone(),
+                name: "coretemp".to_owned(),
+                temperatures,
+                fans: Vec::new(),
+            },
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn reads_core_locations() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        for (cpu, package, core) in [(0, 0, 0), (1, 0, 4)] {
+            let dir = format!("sys/devices/system/cpu/cpu{cpu}/topology");
+            write(
+                root,
+                &format!("{dir}/physical_package_id"),
+                &format!("{package}\n"),
+            );
+            write(root, &format!("{dir}/core_id"), &format!("{core}\n"));
+        }
+        // cpu2 is offline: no topology.
+        let locations = read_core_locations(&roots(root), 3);
+        assert_eq!(locations, vec![Some((0, 0)), Some((0, 4)), None]);
+    }
+
+    #[test]
+    fn matches_core_temperatures_to_logical_cores() {
+        // Hyper-threading: logical cores 0/2 and 1/3 share physical cores 0
+        // and 4 (hybrid CPUs number core ids with gaps).
+        let chips = vec![coretemp("coretemp.0", Some(0), &[(0, 50.0), (4, 55.0)])];
+        let cores = [Some((0, 0)), Some((0, 4)), Some((0, 0)), Some((0, 4)), None];
+        let (listed, per_core) = split_core_temperatures(&chips, &cores);
+        assert_eq!(
+            per_core,
+            vec![Some(50.0), Some(55.0), Some(50.0), Some(55.0), None]
+        );
+        // Only the package reading stays in the list.
+        let labels: Vec<&str> = listed.iter().map(|t| t.label.as_str()).collect();
+        assert_eq!(labels, vec!["Package id 0"]);
+    }
+
+    #[test]
+    fn matches_core_temperatures_by_package_on_multi_socket_hosts() {
+        let chips = vec![
+            coretemp("coretemp.0", Some(0), &[(0, 40.0)]),
+            coretemp("coretemp.1", Some(1), &[(0, 70.0)]),
+        ];
+        let (listed, per_core) = split_core_temperatures(&chips, &[Some((1, 0)), Some((0, 0))]);
+        assert_eq!(per_core, vec![Some(70.0), Some(40.0)]);
+        assert_eq!(listed.len(), 2);
+    }
+
+    #[test]
+    fn keeps_temperatures_without_per_core_readings() {
+        // AMD: no per-core sensors, so the list is unchanged.
+        let mut k10 = coretemp("0000:00:18.3", None, &[]);
+        k10.chip.name = "k10temp".to_owned();
+        k10.chip.temperatures.push(Temperature {
+            label: "Tctl".to_owned(),
+            ..Default::default()
+        });
+        let (listed, per_core) = split_core_temperatures(&[k10], &[Some((0, 0))]);
+        assert_eq!(listed.len(), 1);
+        assert!(per_core.is_empty());
     }
 }

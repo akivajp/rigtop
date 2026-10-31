@@ -620,6 +620,7 @@ fn workstation(t: f64) -> Snapshot {
                 temp(k10, 3, "Tccd1", tctl - 8.0),
                 temp(k10, 4, "Tccd2", tctl - 9.0),
             ],
+            per_core_celsius: Vec::new(),
         },
         memory: MemoryStats {
             total_bytes: 96 * GIB,
@@ -843,6 +844,7 @@ fn laptop(t: f64) -> Snapshot {
             per_core_percent: per_core,
             load_average: Some([0.8 + 3.0 * busy, 1.6, 1.4]),
             temperatures: vec![temp(k10, 1, "Tctl", tctl)],
+            per_core_celsius: Vec::new(),
         },
         memory: MemoryStats {
             total_bytes: 30 * GIB,
@@ -1008,6 +1010,8 @@ fn nas(t: f64) -> Snapshot {
             model: "Intel(R) Celeron(R) N5105 @ 2.00GHz".to_owned(),
             total_percent: cpu_total as f32,
             per_core_mhz: vec![2_000; 4],
+            // coretemp's per-core readings, shown next to the meters.
+            per_core_celsius: per_core.iter().map(|u| Some(44.0 + u * 0.1)).collect(),
             per_core_percent: per_core,
             load_average: Some([1.9, 2.1, 2.0]),
             temperatures: vec![temp("coretemp:coretemp.0", 1, "Package id 0", 52.0)],
