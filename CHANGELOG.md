@@ -7,6 +7,8 @@ include breaking changes).
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-11-01
+
 ### Added
 - Update every remote host that runs an older rigtop at once: "update
   agents (N)…" in the GUI's tab bar, `u` in the TUI's overview. The
@@ -527,7 +529,8 @@ First release.
 - Windows support (CPU, memory, processes, network with link speeds, drives,
   NVIDIA GPUs; temperatures, fans and CPU power are not available yet)
 
-[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.23.0...HEAD
+[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.24.0...HEAD
+[0.24.0]: https://github.com/akivajp/rigtop/compare/v0.23.0...v0.24.0
 [0.23.0]: https://github.com/akivajp/rigtop/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/akivajp/rigtop/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/akivajp/rigtop/compare/v0.20.0...v0.21.0
