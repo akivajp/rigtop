@@ -3972,7 +3972,7 @@ checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
 
 [[package]]
 name = "rigtop"
-version = "0.22.0"
+version = "0.23.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3985,7 +3985,7 @@ dependencies = [
 
 [[package]]
 name = "rigtop-core"
-version = "0.22.0"
+version = "0.23.0"
 dependencies = [
  "chrono",
  "dirs",
@@ -4004,7 +4004,7 @@ dependencies = [
 
 [[package]]
 name = "rigtop-gui"
-version = "0.22.0"
+version = "0.23.0"
 dependencies = [
  "anyhow",
  "chrono",

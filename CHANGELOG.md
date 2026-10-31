@@ -7,6 +7,8 @@ include breaking changes).
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-11-01
+
 ### Added
 - "config…" in the GUI (next to "hosts…") opens the configuration file in
   the default app, Notepad on Windows when nothing opens `.toml` files, or
@@ -509,7 +511,8 @@ First release.
 - Windows support (CPU, memory, processes, network with link speeds, drives,
   NVIDIA GPUs; temperatures, fans and CPU power are not available yet)
 
-[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.22.0...HEAD
+[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.23.0...HEAD
+[0.23.0]: https://github.com/akivajp/rigtop/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/akivajp/rigtop/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/akivajp/rigtop/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/akivajp/rigtop/compare/v0.19.0...v0.20.0
