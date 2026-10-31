@@ -14,7 +14,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::agent::{
-    AgentMessage, ClientMessage, FEATURE_PROCESS_CONTROL, FEATURE_WATCH_PROCESSES,
+    AgentMessage, ClientMessage, FEATURE_PING, FEATURE_PROCESS_CONTROL, FEATURE_WATCH_PROCESSES,
     PROTOCOL_VERSION, write_message,
 };
 use crate::snapshot::Snapshot;
@@ -40,6 +40,12 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 const SIGNAL_TIMEOUT: Duration = Duration::from_secs(10);
 /// stderr lines kept to explain failures.
 const STDERR_LINES: usize = 20;
+
+/// Time between two pings of the agent (see [`AgentMessage::Pong`]).
+const PING_EVERY: Duration = Duration::from_secs(5);
+
+/// A ping unanswered this long is given up and sent again.
+const PING_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// How to start the agent: a program and its arguments.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,6 +108,12 @@ impl RemoteTarget {
 /// What the reader thread passes on.
 enum Incoming {
     Message(AgentMessage),
+    /// A [`AgentMessage::Pong`], with when it arrived (the reader sees it
+    /// at once; the source only reads on its next poll).
+    Pong {
+        id: u64,
+        at: Instant,
+    },
     /// stdout closed: the agent or ssh exited.
     Closed,
 }
@@ -146,9 +158,15 @@ impl Connection {
                     let Ok(line) = line else { break };
                     // Lines that are not protocol messages (e.g. a login
                     // banner printed by a shell profile) are skipped.
-                    if let Ok(message) = serde_json::from_str::<AgentMessage>(&line)
-                        && tx.send(Incoming::Message(message)).is_err()
-                    {
+                    let incoming = match serde_json::from_str::<AgentMessage>(&line) {
+                        Ok(AgentMessage::Pong { id }) => Incoming::Pong {
+                            id,
+                            at: Instant::now(),
+                        },
+                        Ok(message) => Incoming::Message(message),
+                        Err(_) => continue,
+                    };
+                    if tx.send(incoming).is_err() {
                         return;
                     }
                 }
@@ -235,6 +253,13 @@ pub struct RemoteSource {
     agent_watches: bool,
     /// The connected agent can pause, resume and renice processes.
     agent_controls: bool,
+    /// The connected agent answers pings.
+    agent_pings: bool,
+    /// The ping waiting for its answer: its id and when it was sent.
+    ping: Option<(u64, Instant)>,
+    /// When the last ping went out, and the round trip it measured.
+    last_ping: Option<Instant>,
+    link_rtt: Option<Duration>,
     /// Snapshots received while waiting for something else (signal results).
     pending: VecDeque<Snapshot>,
     /// rigtop version from the agent's greeting.
@@ -261,6 +286,10 @@ impl RemoteSource {
             watched_names: Vec::new(),
             agent_watches: false,
             agent_controls: false,
+            agent_pings: false,
+            ping: None,
+            last_ping: None,
+            link_rtt: None,
             pending: VecDeque::new(),
             agent_version: String::new(),
             last_error: None,
@@ -309,6 +338,10 @@ impl RemoteSource {
             };
             // Known from the greeting of this agent.
             self.agent_watches = false;
+            self.agent_controls = false;
+            self.agent_pings = false;
+            self.ping = None;
+            self.link_rtt = None;
             // Agents start with their own default; send our settings.
             let sent = connection
                 .send(&ClientMessage::SetInterval {
@@ -358,13 +391,50 @@ impl RemoteSource {
 
     /// Waits up to `timeout` for the next message.
     fn next_message(&mut self, timeout: Duration) -> Result<Option<AgentMessage>, SourceError> {
-        let connection = self.connection()?;
-        match connection.incoming.recv_timeout(timeout) {
-            Ok(Incoming::Message(message)) => Ok(Some(message)),
-            Ok(Incoming::Closed) | Err(RecvTimeoutError::Disconnected) => {
-                Err(self.disconnect(None))
+        let deadline = Instant::now() + timeout;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let connection = self.connection()?;
+            match connection.incoming.recv_timeout(remaining) {
+                Ok(Incoming::Message(message)) => return Ok(Some(message)),
+                // Answers to pings are taken here, whoever waits.
+                Ok(Incoming::Pong { id, at }) => {
+                    if let Some((sent_id, sent)) = self.ping
+                        && sent_id == id
+                    {
+                        self.link_rtt = Some(at.saturating_duration_since(sent));
+                        self.ping = None;
+                    }
+                }
+                Ok(Incoming::Closed) | Err(RecvTimeoutError::Disconnected) => {
+                    return Err(self.disconnect(None));
+                }
+                Err(RecvTimeoutError::Timeout) => return Ok(None),
             }
-            Err(RecvTimeoutError::Timeout) => Ok(None),
+        }
+    }
+
+    /// Pings the agent if it is time (agents that answer only).
+    fn maybe_ping(&mut self) {
+        if !self.agent_pings {
+            return;
+        }
+        let now = Instant::now();
+        let due = self
+            .last_ping
+            .is_none_or(|at| now.duration_since(at) >= PING_EVERY);
+        let waiting = self
+            .ping
+            .is_some_and(|(_, sent)| now.duration_since(sent) < PING_TIMEOUT);
+        if !due || waiting {
+            return;
+        }
+        let id = self.ping.map_or(1, |(id, _)| id + 1);
+        if let Some(connection) = self.connection.as_mut()
+            && connection.send(&ClientMessage::Ping { id }).is_ok()
+        {
+            self.ping = Some((id, now));
+            self.last_ping = Some(now);
         }
     }
 
@@ -400,6 +470,7 @@ impl RemoteSource {
                 self.agent_version = version;
                 self.agent_watches = features.iter().any(|f| f == FEATURE_WATCH_PROCESSES);
                 self.agent_controls = features.iter().any(|f| f == FEATURE_PROCESS_CONTROL);
+                self.agent_pings = features.iter().any(|f| f == FEATURE_PING);
                 if self.agent_watches
                     && !(self.watched_pids.is_empty() && self.watched_names.is_empty())
                 {
@@ -407,7 +478,7 @@ impl RemoteSource {
                 }
                 Ok(())
             }
-            AgentMessage::SignalResult { .. } => Ok(()),
+            AgentMessage::SignalResult { .. } | AgentMessage::Pong { .. } => Ok(()),
             AgentMessage::Snapshot { mut snapshot } => {
                 // Agents before 0.9.1 do not put their version in snapshots.
                 if snapshot.host.rigtop_version.is_empty() {
@@ -441,8 +512,11 @@ impl RemoteSource {
             while let Some(message) = self.next_message(Duration::ZERO)? {
                 self.absorb(message)?;
             }
-            if let Some(newest) = self.pending.pop_back() {
+            if let Some(mut newest) = self.pending.pop_back() {
                 self.pending.clear();
+                self.maybe_ping();
+                // The latest round trip, even if it came after the snapshot.
+                newest.link_rtt_ms = self.link_rtt.map(|rtt| rtt.as_secs_f32() * 1000.0);
                 return Ok(newest);
             }
             let remaining = deadline.saturating_duration_since(Instant::now());

@@ -61,6 +61,7 @@ pub fn title_extras(ui: &mut Ui, pane: Pane, state: &mut GuiState) {
             let uptime = format!("up {}", format::duration(host.uptime_secs));
             let hostname = host.hostname.clone();
             let reboot = host.reboot_required.clone();
+            let rtt = rigtop_core::view::link_rtt_text(snapshot);
             let version = rigtop_core::view::version_note(snapshot)
                 .map(|note| (note, rigtop_core::view::version_hint(snapshot)));
             // Remote hosts with an older rigtop can be updated from here.
@@ -70,6 +71,15 @@ pub fn title_extras(ui: &mut Ui, pane: Pane, state: &mut GuiState) {
             let controls_start = ui
                 .with_layout(Layout::right_to_left(Align::Center), |ui| {
                     ui.label(dim(uptime));
+                    if let Some((text, slow)) = &rtt {
+                        let text = if *slow {
+                            colored(text, WARN)
+                        } else {
+                            dim(text)
+                        };
+                        ui.label(text)
+                            .on_hover_text(rigtop_core::view::LINK_RTT_HINT);
+                    }
                     if let Some(reason) = &reboot {
                         ui.label(colored(rigtop_core::view::REBOOT_NOTE, WARN))
                             .on_hover_text(rigtop_core::view::reboot_hint(reason));

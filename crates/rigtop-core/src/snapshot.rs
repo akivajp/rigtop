@@ -56,6 +56,9 @@ pub struct Snapshot {
     pub watched_pids: Vec<u32>,
     /// Linux: systemd units in the failed state (e.g. `"nginx.service"`).
     pub failed_units: Vec<String>,
+    /// Remote hosts: the round trip of the link to the agent (milliseconds),
+    /// measured by the client; agents leave it out.
+    pub link_rtt_ms: Option<f32>,
     /// Linux: how much of the time tasks waited for CPU, memory or I/O
     /// (pressure stall information). `None` without it (other platforms,
     /// kernels built or booted without PSI, agents before 0.21).

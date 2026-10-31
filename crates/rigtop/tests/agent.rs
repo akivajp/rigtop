@@ -46,6 +46,24 @@ fn falls_back_when_the_command_is_not_found() {
 }
 
 #[test]
+fn remote_source_measures_the_round_trip() {
+    let mut source = agent_source();
+    source.set_interval(Duration::from_millis(250));
+    let first = source.poll().expect("first snapshot");
+    assert_eq!(first.link_rtt_ms, None, "not measured yet");
+    // The first ping goes out with the first snapshot.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let snapshot = source.poll().expect("snapshot");
+        if let Some(ms) = snapshot.link_rtt_ms {
+            assert!((0.0..2_000.0).contains(&ms), "{ms}");
+            break;
+        }
+        assert!(Instant::now() < deadline, "no round trip measured");
+    }
+}
+
+#[test]
 fn remote_source_receives_snapshots_and_limits_processes() {
     let mut source = agent_source();
     source.set_interval(Duration::from_millis(300));

@@ -890,6 +890,19 @@ pub fn latency_severity(ms: f32) -> Option<Severity> {
     }
 }
 
+/// Round trips at least this long (milliseconds) are shown as slow.
+pub const SLOW_LINK_MS: f32 = 500.0;
+
+/// The round trip of a remote host's link, for its title ("12ms"), and
+/// whether it is slow.
+pub fn link_rtt_text(snapshot: &Snapshot) -> Option<(String, bool)> {
+    let ms = snapshot.link_rtt_ms?;
+    Some((format::latency(ms), ms >= SLOW_LINK_MS))
+}
+
+/// Hover text for [`link_rtt_text`].
+pub const LINK_RTT_HINT: &str = "round trip to the agent over SSH (every 5 s)";
+
 /// Label before the pressure readings ("Stall cpu 3% mem 0% io 6%").
 pub const PRESSURE_LABEL: &str = "Stall";
 

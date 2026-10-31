@@ -495,6 +495,10 @@ fn draw_cpu(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect, layou
                         .map(|_| colored(format!(" {}", rigtop_core::view::REBOOT_NOTE), WARN)),
                     Some(dim(" ")),
                     Some(colored(host.hostname.clone(), Color::White)),
+                    rigtop_core::view::link_rtt_text(snapshot).map(|(text, slow)| {
+                        let text = format!(" {text}");
+                        if slow { colored(text, WARN) } else { dim(text) }
+                    }),
                     Some(dim(format!(" up {} ", format::duration(host.uptime_secs)))),
                 ]
                 .into_iter()

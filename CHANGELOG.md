@@ -15,6 +15,9 @@ include breaking changes).
   every setting commented out at its default.
 - "alerts first" next to "include this machine" in the GUI's overview, kept
   between runs.
+- The round trip to each remote host (`12ms`, every 5 seconds, yellow from
+  500 ms) in its card and CPU panel titles, from a new ping message of the
+  protocol. Remote hosts need rigtop 0.23 or later for it.
 
 ### Changed
 - `[overview] alerts_first` is off by default: cards keep the configured

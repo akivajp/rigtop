@@ -46,6 +46,10 @@ pub const FEATURE_WATCH_PROCESS_NAMES: &str = "watch_process_names";
 /// read those signals.
 pub const FEATURE_PROCESS_CONTROL: &str = "process_control";
 
+/// The agent answers [`ClientMessage::Ping`] (0.23 and later), so the
+/// client can tell the round trip of the link.
+pub const FEATURE_PING: &str = "ping";
+
 /// Messages from the agent to the client.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -67,6 +71,8 @@ pub enum AgentMessage {
         /// [`ClientMessage::SetProcessLimit`]).
         snapshot: Box<Snapshot>,
     },
+    /// Answer to [`ClientMessage::Ping`], at once.
+    Pong { id: u64 },
     /// Outcome of a [`ClientMessage::Signal`].
     SignalResult {
         pid: u32,
@@ -100,6 +106,8 @@ pub enum ClientMessage {
     },
     /// Send a signal to a process on the agent's host.
     Signal { pid: u32, signal: ProcessSignal },
+    /// Answer with [`AgentMessage::Pong`] (agents with [`FEATURE_PING`]).
+    Ping { id: u64 },
 }
 
 /// Writes one message as a JSON line and flushes it.
@@ -159,6 +167,7 @@ where
             FEATURE_WATCH_PROCESSES.to_owned(),
             FEATURE_WATCH_PROCESS_NAMES.to_owned(),
             FEATURE_PROCESS_CONTROL.to_owned(),
+            FEATURE_PING.to_owned(),
         ],
     };
     // A failed write means the client went away: stop quietly.
@@ -194,6 +203,7 @@ where
                     .map(|e| e.to_string());
                 Some(AgentMessage::SignalResult { pid, signal, error })
             }
+            Ok(Input::Command(ClientMessage::Ping { id })) => Some(AgentMessage::Pong { id }),
             Ok(Input::Invalid(message)) => Some(AgentMessage::Error { message }),
             Ok(Input::Closed) | Err(RecvTimeoutError::Disconnected) => return Ok(()),
             Err(RecvTimeoutError::Timeout) => {
@@ -318,7 +328,8 @@ mod tests {
         // Commands are processed before the first poll (which waits
         // MIN_POLL_INTERVAL); end of input stops the agent.
         let input = Cursor::new(
-            "{\"type\":\"set_process_limit\",\"limit\":3}\n\
+            "{\"type\":\"ping\",\"id\":7}\n\
+             {\"type\":\"set_process_limit\",\"limit\":3}\n\
              {\"type\":\"signal\",\"pid\":1,\"signal\":\"Terminate\"}\n\
              not json\n",
         );
@@ -343,17 +354,19 @@ mod tests {
                 features,
                 ..
             } if features.iter().any(|f| f == FEATURE_WATCH_PROCESSES)
+                && features.iter().any(|f| f == FEATURE_PING)
         ));
+        assert!(matches!(&messages[1], AgentMessage::Pong { id: 7 }));
         assert!(matches!(
-            &messages[1],
+            &messages[2],
             AgentMessage::SignalResult { pid: 1, error: Some(e), .. } if e.contains("denied")
         ));
         assert!(
-            matches!(&messages[2], AgentMessage::Error { message } if message.contains("invalid command"))
+            matches!(&messages[3], AgentMessage::Error { message } if message.contains("invalid command"))
         );
         assert_eq!(
             messages.len(),
-            3,
+            4,
             "no snapshot before the first interval: {text}"
         );
     }

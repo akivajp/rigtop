@@ -214,6 +214,10 @@ fn draw_host_box(frame: &mut Frame, area: Rect, host: &HostTui, processes: usize
                 WARN,
             ));
         }
+        if let Some((text, slow)) = rigtop_core::view::link_rtt_text(snapshot) {
+            let text = format!(" {text}");
+            title_right.push(if slow { colored(text, WARN) } else { dim(text) });
+        }
         title_right.push(dim(format!(
             " up {} ",
             format::duration(snapshot.host.uptime_secs)

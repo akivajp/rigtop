@@ -340,6 +340,10 @@ fn card(
                             "up {}",
                             format::duration(snapshot.host.uptime_secs)
                         )));
+                        if let Some((text, slow)) = rigtop_core::view::link_rtt_text(snapshot) {
+                            ui.label(if slow { colored(text, WARN) } else { dim(text) })
+                                .on_hover_text(rigtop_core::view::LINK_RTT_HINT);
+                        }
                         if let Some(reason) = &snapshot.host.reboot_required {
                             ui.label(colored(rigtop_core::view::REBOOT_NOTE, WARN))
                                 .on_hover_text(rigtop_core::view::reboot_hint(reason));
