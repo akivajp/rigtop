@@ -122,6 +122,7 @@ cargo run --release -p rigtop -- --help  # options (--interval-ms, --config, --d
 | `x` | tell me when the selected process exits (e.g. a training run): in the alert history (`a`), the status line and the terminal bell. Remote hosts need rigtop 0.19 or later |
 | `k` / `K` | send SIGTERM / SIGKILL to the selected process (asks first) |
 | `p` | pause the selected process (SIGSTOP, asks first), or resume it (SIGCONT) if paused; paused ones are marked `stopped` (Linux, macOS; remote hosts need rigtop 0.22 or later) |
+| `C` | show what each container uses (processes, CPU, memory, GPU) above the process table; `/` and its name lists its processes |
 | `]` / `[` | lower / raise the selected process's priority by 5 nice steps (raising needs root; Linux, macOS; remote hosts need rigtop 0.22 or later) |
 | `n` | switch the network interface |
 | `+` / `-` | slower / faster updates |
@@ -140,7 +141,7 @@ cargo run --release -p rigtop -- --help  # options (--interval-ms, --config, --d
 cargo run --release -p rigtop-gui            # same options: --interval-ms, --config
 ```
 
-Drag panel borders to resize and panel titles to rearrange. Click a column header to sort, tick "tree" to show processes under their parents, double-click a process (or right-click → "Details…") for its details, right-click a process to pause or resume it, change its priority, terminate or kill it (pausing and ending ask first) or for "Notify when it exits" (a desktop notification and an entry in the alert history; remote hosts need rigtop 0.19 or later), and pick the network interface from the list.
+Drag panel borders to resize and panel titles to rearrange. Click a column header to sort, tick "tree" to show processes under their parents, "containers" for what each container uses (click one to list its processes), double-click a process (or right-click → "Details…") for its details, right-click a process to pause or resume it, change its priority, terminate or kill it (pausing and ending ask first) or for "Notify when it exits" (a desktop notification and an entry in the alert history; remote hosts need rigtop 0.19 or later), and pick the network interface from the list.
 
 Zoom with Ctrl + mouse wheel, Ctrl + `+` / `-` / `0`, or the `A-` / `A+` buttons in the CPU panel title. The zoom level and panel layout are restored on the next start; "panels…" shows or hides each panel (the others take the room), and "reset layout" brings back the default arrangement with every panel. The "graph" button next to them sets the time the graphs cover (fit to the width, or the last 1, 5, 15 minutes, 1, 6 or 24 hours), also restored on the next start. "alerts…" lists every host's alerts now, each with buttons to snooze it (1 hour, 1 day, until it clears), and their history as they appeared and cleared, kept between runs (in `~/.local/state/rigtop/`); it shows the number of new ones, in their color, until you look. A snoozed alert leaves the status dots, the cards and the notifications, also those of the TUI and `rigtop --watch` (they share the list), and is announced again if it is still there when the snooze ends. "sensors…" under the CPU cores (or a click on a sensor's name) opens a window listing every temperature and fan, to name or hide them; it saves `[sensors]` in the [configuration](#configuration) file.
 

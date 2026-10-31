@@ -1229,6 +1229,74 @@ fn drive_temperatures(snapshot: &Snapshot) -> Vec<(String, f32)> {
     drives
 }
 
+/// pid -> (highest SM %, total VRAM) across the GPUs.
+fn gpu_usage_by_pid(snapshot: &Snapshot) -> HashMap<u32, (Option<f32>, Option<u64>)> {
+    let mut gpu_usage: HashMap<u32, (Option<f32>, Option<u64>)> = HashMap::new();
+    for gpu in &snapshot.gpus {
+        for p in &gpu.processes {
+            let entry = gpu_usage.entry(p.pid).or_default();
+            if let Some(sm) = p.sm_percent {
+                entry.0 = Some(entry.0.map_or(sm, |v| v.max(sm)));
+            }
+            if let Some(mem) = p.memory_bytes {
+                entry.1 = Some(entry.1.unwrap_or(0) + mem);
+            }
+        }
+    }
+    gpu_usage
+}
+
+/// What the processes of one container use together.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ContainerUsage {
+    pub name: String,
+    pub processes: usize,
+    pub cpu_percent: f32,
+    pub memory_bytes: u64,
+    /// Summed over its processes, where any uses a GPU.
+    pub gpu_percent: Option<f32>,
+    pub vram_bytes: Option<u64>,
+}
+
+/// The containers of `snapshot`'s processes with what they use, the
+/// busiest (CPU, then memory) first. Empty when no process runs in one.
+pub fn container_usage(snapshot: &Snapshot) -> Vec<ContainerUsage> {
+    let gpu_usage = gpu_usage_by_pid(snapshot);
+    let mut by_name: HashMap<&str, ContainerUsage> = HashMap::new();
+    for process in &snapshot.processes {
+        let Some(name) = process.container.as_deref() else {
+            continue;
+        };
+        let usage = by_name.entry(name).or_insert_with(|| ContainerUsage {
+            name: name.to_owned(),
+            processes: 0,
+            cpu_percent: 0.0,
+            memory_bytes: 0,
+            gpu_percent: None,
+            vram_bytes: None,
+        });
+        usage.processes += 1;
+        usage.cpu_percent += process.cpu_percent;
+        usage.memory_bytes += process.memory_bytes;
+        if let Some((gpu, vram)) = gpu_usage.get(&process.pid) {
+            if let Some(gpu) = gpu {
+                usage.gpu_percent = Some(usage.gpu_percent.unwrap_or(0.0) + gpu);
+            }
+            if let Some(vram) = vram {
+                usage.vram_bytes = Some(usage.vram_bytes.unwrap_or(0) + vram);
+            }
+        }
+    }
+    let mut list: Vec<ContainerUsage> = by_name.into_values().collect();
+    list.sort_by(|a, b| {
+        b.cpu_percent
+            .total_cmp(&a.cpu_percent)
+            .then(b.memory_bytes.cmp(&a.memory_bytes))
+            .then(a.name.cmp(&b.name))
+    });
+    list
+}
+
 /// How the process table is filtered and sorted.
 #[derive(Debug, Clone, Copy)]
 pub struct ProcessQuery<'q> {
@@ -1247,19 +1315,7 @@ pub struct ProcessQuery<'q> {
 
 /// Processes of `snapshot` after filtering and sorting, joined with GPU usage.
 pub fn process_rows<'a>(snapshot: &'a Snapshot, query: &ProcessQuery<'_>) -> Vec<ProcessRow<'a>> {
-    // pid -> (max SM %, total VRAM) across GPUs.
-    let mut gpu_usage: HashMap<u32, (Option<f32>, Option<u64>)> = HashMap::new();
-    for gpu in &snapshot.gpus {
-        for p in &gpu.processes {
-            let entry = gpu_usage.entry(p.pid).or_default();
-            if let Some(sm) = p.sm_percent {
-                entry.0 = Some(entry.0.map_or(sm, |v| v.max(sm)));
-            }
-            if let Some(mem) = p.memory_bytes {
-                entry.1 = Some(entry.1.unwrap_or(0) + mem);
-            }
-        }
-    }
+    let gpu_usage = gpu_usage_by_pid(snapshot);
 
     let filter = query.filter.to_lowercase();
     let matches = |p: &ProcessInfo| {
@@ -2027,6 +2083,45 @@ mod tests {
         assert!(log.update("nas", &[], 6_000).is_empty());
         let last = log.events().last().unwrap();
         assert_eq!((last.change, &last.alert), (AlertChange::Notice, &exited));
+    }
+
+    #[test]
+    fn containers_add_up_their_processes() {
+        use crate::snapshot::GpuProcess;
+        let process = |pid, container: Option<&str>, cpu, mem| ProcessInfo {
+            pid,
+            container: container.map(str::to_owned),
+            cpu_percent: cpu,
+            memory_bytes: mem,
+            ..Default::default()
+        };
+        let snapshot = Snapshot {
+            processes: vec![
+                process(1, None, 50.0, 100),
+                process(2, Some("db"), 3.0, 500),
+                process(3, Some("web"), 10.0, 200),
+                process(4, Some("web"), 5.0, 300),
+            ],
+            gpus: vec![GpuStats {
+                processes: vec![GpuProcess {
+                    pid: 3,
+                    sm_percent: Some(40.0),
+                    memory_bytes: Some(1 << 30),
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let usage = container_usage(&snapshot);
+        assert_eq!(usage.len(), 2, "processes outside containers are left out");
+        assert_eq!(usage[0].name, "web");
+        assert_eq!(usage[0].processes, 2);
+        assert_eq!(usage[0].cpu_percent, 15.0);
+        assert_eq!(usage[0].memory_bytes, 500);
+        assert_eq!(usage[0].gpu_percent, Some(40.0));
+        assert_eq!(usage[0].vram_bytes, Some(1 << 30));
+        assert_eq!(usage[1].gpu_percent, None);
+        assert!(container_usage(&Snapshot::default()).is_empty());
     }
 
     #[test]

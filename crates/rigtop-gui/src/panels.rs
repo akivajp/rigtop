@@ -1179,10 +1179,76 @@ fn fit_columns(
     }
 }
 
+/// What each container uses; a click on one filters the process table to
+/// it (and on it again clears the filter).
+fn container_table(
+    ui: &mut Ui,
+    state: &mut GuiState,
+    containers: &[rigtop_core::view::ContainerUsage],
+) {
+    let gpus = containers
+        .iter()
+        .any(|c| c.gpu_percent.is_some() || c.vram_bytes.is_some());
+    // At most a third of the panel, scrolling beyond.
+    let max_height = (ui.available_height() / 3.0).max(ROW_HEIGHT * 3.0);
+    egui::ScrollArea::vertical()
+        .id_salt("containers")
+        .max_height(max_height)
+        .auto_shrink([false, true])
+        .show(ui, |ui| {
+            egui::Grid::new("containers")
+                .striped(true)
+                .num_columns(if gpus { 6 } else { 4 })
+                .spacing([16.0, 2.0])
+                .show(ui, |ui| {
+                    for header in ["Container", "Procs", "Cpu%", "Mem"] {
+                        ui.label(dim(header));
+                    }
+                    if gpus {
+                        ui.label(dim("Gpu%"));
+                        ui.label(dim("VRAM"));
+                    }
+                    ui.end_row();
+                    for container in containers {
+                        let selected = state.filter == container.name;
+                        let name = colored(&container.name, widgets::NET_TITLE);
+                        if ui
+                            .add(egui::Button::selectable(selected, name))
+                            .on_hover_text("list its processes")
+                            .clicked()
+                        {
+                            state.filter = if selected {
+                                String::new()
+                            } else {
+                                container.name.clone()
+                            };
+                        }
+                        ui.label(container.processes.to_string());
+                        ui.label(colored(
+                            format!("{:.1}", container.cpu_percent),
+                            percent_color(container.cpu_percent),
+                        ));
+                        ui.label(format::bytes(container.memory_bytes));
+                        if gpus {
+                            ui.label(format::percent(container.gpu_percent));
+                            ui.label(container.vram_bytes.map(format::bytes).unwrap_or_default());
+                        }
+                        ui.end_row();
+                    }
+                });
+        });
+    ui.separator();
+}
+
 fn processes(ui: &mut Ui, state: &mut GuiState) {
     // Measured before anything is drawn: content wider than the panel (the
     // filter row on a narrow one) would widen the layout and hide columns.
     let panel_width = ui.available_width();
+    let containers = state
+        .snapshot
+        .as_ref()
+        .map(rigtop_core::view::container_usage)
+        .unwrap_or_default();
     ui.horizontal(|ui| {
         ui.label(dim("filter"));
         ui.add(
@@ -1193,12 +1259,20 @@ fn processes(ui: &mut Ui, state: &mut GuiState) {
         ui.checkbox(&mut state.tree, "tree")
             .on_hover_text("show processes under their parents");
         ui.checkbox(&mut state.show_kernel_threads, "kernel threads");
+        if !containers.is_empty() {
+            ui.checkbox(&mut state.show_containers, "containers")
+                .on_hover_text("what each container uses; click one to list its processes");
+        }
         let note = match state.status() {
             Some(status) => colored(status, WARN),
             None => dim("right-click a process for actions"),
         };
         ui.add(egui::Label::new(note).truncate());
     });
+
+    if state.show_containers && !containers.is_empty() {
+        container_table(ui, state, &containers);
+    }
 
     let has_gpus = state.snapshot.as_ref().is_some_and(|s| !s.gpus.is_empty());
     // Thread counts are not available everywhere (e.g. Windows).

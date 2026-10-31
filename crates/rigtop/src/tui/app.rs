@@ -52,6 +52,8 @@ pub struct App {
     pub show_kernel_threads: bool,
     /// Processes under their parents (`e`).
     pub tree: bool,
+    /// The per-container summary above the process table (`C`).
+    pub show_containers: bool,
     pub filter: String,
     /// Whether keystrokes currently edit the filter.
     pub editing_filter: bool,
@@ -104,6 +106,7 @@ impl App {
             sort_descending: true,
             show_kernel_threads: false,
             tree: false,
+            show_containers: false,
             filter: String::new(),
             editing_filter: false,
             selected_pid: None,
@@ -291,6 +294,19 @@ impl App {
                     "hidden"
                 };
                 self.set_status(format!("kernel threads {state}"));
+            }
+            KeyCode::Char('C') => {
+                let any = self
+                    .snapshot
+                    .as_ref()
+                    .is_some_and(|s| s.processes.iter().any(|p| p.container.is_some()));
+                self.show_containers = !self.show_containers;
+                let status = match (self.show_containers, any) {
+                    (true, false) => "no process runs in a container here",
+                    (true, true) => "containers shown",
+                    (false, _) => "containers hidden",
+                };
+                self.set_status(status.to_owned());
             }
             KeyCode::Char('e') => {
                 self.tree = !self.tree;
@@ -702,6 +718,16 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn capital_c_toggles_the_container_summary() {
+        let mut app = app_with(vec![process(30, "python", 2.0, false)]);
+        app.handle_key(key(KeyCode::Char('C')));
+        assert!(app.show_containers);
+        assert_eq!(app.status(), Some("no process runs in a container here"));
+        app.handle_key(key(KeyCode::Char('C')));
+        assert!(!app.show_containers);
     }
 
     #[test]

@@ -159,6 +159,8 @@ pub struct GuiState {
     pub show_kernel_threads: bool,
     /// Processes under their parents.
     pub tree: bool,
+    /// The per-container summary above the process table.
+    pub show_containers: bool,
     /// Selected process, tracked by pid so it survives re-sorting.
     pub selected_pid: Option<u32>,
     pub confirm: Option<ConfirmSignal>,
@@ -232,6 +234,7 @@ impl GuiState {
             filter: String::new(),
             show_kernel_threads: false,
             tree: false,
+            show_containers: false,
             selected_pid: None,
             confirm: None,
             details_pid: None,
@@ -1808,6 +1811,31 @@ mod tests {
                 .is_some()
         );
         assert!(harness.query_by_label("open the file").is_some());
+    }
+
+    #[test]
+    fn container_summary_filters_the_table() {
+        let mut snapshot = sample_snapshot();
+        snapshot.processes[0].container = Some("app-db-1".to_owned());
+        let mut harness = harness_with(snapshot);
+        harness.run();
+        harness
+            .get_by(|node| {
+                node.role() == egui::accesskit::Role::CheckBox
+                    && node.label().as_deref() == Some("containers")
+            })
+            .click();
+        harness.run();
+        assert!(harness.state().primary().show_containers);
+        // The summary's button comes before the table's Container cell.
+        harness
+            .get_by(|node| {
+                node.role() == egui::accesskit::Role::Button
+                    && node.label().as_deref() == Some("app-db-1")
+            })
+            .click();
+        harness.run();
+        assert_eq!(harness.state().primary().filter, "app-db-1");
     }
 
     #[test]

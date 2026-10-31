@@ -166,8 +166,23 @@ fn draw_screen(
     if heights.network > 0 {
         draw_network(frame, app, snapshot, net);
     }
-    let hit = shown(OverviewSection::Processes)
-        .then(|| draw_processes(frame, app, snapshot, right, table_state));
+    let hit = shown(OverviewSection::Processes).then(|| {
+        // The per-container summary (`C`) above the table, at most a third.
+        let containers = if app.show_containers {
+            rigtop_core::view::container_usage(snapshot)
+        } else {
+            Vec::new()
+        };
+        let mut table_area = right;
+        if !containers.is_empty() {
+            let height = (containers.len() as u16 + 3).min(right.height / 3);
+            let [top, rest] =
+                Layout::vertical([Constraint::Length(height), Constraint::Fill(1)]).areas(right);
+            draw_containers(frame, &containers, top);
+            table_area = rest;
+        }
+        draw_processes(frame, app, snapshot, table_area, table_state)
+    });
 
     if app.details
         && let Some(pid) = app.selected_pid
@@ -1290,6 +1305,52 @@ fn draw_network_graphs(frame: &mut Frame, app: &App, selected: Option<&NetworkSt
 
 // ---------------------------------------------------------------- processes
 
+/// What each container uses (`C`), the busiest first.
+fn draw_containers(
+    frame: &mut Frame,
+    containers: &[rigtop_core::view::ContainerUsage],
+    area: Rect,
+) {
+    let gpus = containers
+        .iter()
+        .any(|c| c.gpu_percent.is_some() || c.vram_bytes.is_some());
+    let block = panel("containers", NET_TITLE)
+        .title_top(Line::from(dim(" / and a name lists its processes ")).right_aligned());
+    let mut header = vec!["Container", "Procs", "Cpu%", "Mem"];
+    let mut widths = vec![
+        Constraint::Fill(1),
+        Constraint::Length(5),
+        Constraint::Length(6),
+        Constraint::Length(7),
+    ];
+    if gpus {
+        header.extend(["Gpu%", "VRAM"]);
+        widths.extend([Constraint::Length(5), Constraint::Length(7)]);
+    }
+    let rows = containers.iter().map(|c| {
+        let mut cells = vec![
+            Cell::from(Span::styled(c.name.clone(), Style::default().fg(NET_TITLE))),
+            Cell::from(c.processes.to_string()),
+            Cell::from(colored(
+                format!("{:.1}", c.cpu_percent),
+                percent_color(c.cpu_percent as f64),
+            )),
+            Cell::from(format::bytes(c.memory_bytes)),
+        ];
+        if gpus {
+            cells.push(Cell::from(format::percent(c.gpu_percent)));
+            cells.push(Cell::from(
+                c.vram_bytes.map(format::bytes).unwrap_or_default(),
+            ));
+        }
+        Row::new(cells)
+    });
+    let table = Table::new(rows, widths)
+        .header(Row::new(header).style(Style::default().add_modifier(Modifier::BOLD)))
+        .block(block);
+    frame.render_widget(table, area);
+}
+
 fn draw_processes(
     frame: &mut Frame,
     app: &App,
@@ -1311,7 +1372,7 @@ fn draw_processes(
     let footer = match app.status() {
         Some(status) => Line::from(colored(format!(" {status} "), WARN)),
         None => Line::from(dim(
-            " ↑↓ select  Enter details  x notify on exit  p pause  [] priority  ←→ sort  r reverse  / filter  e tree  t kthreads  v panels  U update  k term  K kill  +- interval  g graph span  a alerts  q quit ",
+            " ↑↓ select  Enter details  x notify on exit  p pause  [] priority  C containers  ←→ sort  r reverse  / filter  e tree  t kthreads  v panels  U update  k term  K kill  +- interval  g graph span  a alerts  q quit ",
         )),
     };
     let block = panel("proc", PROC_TITLE)
