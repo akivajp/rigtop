@@ -22,6 +22,7 @@ use rigtop_core::worker::{Command, Event, Worker};
 use rigtop_core::{Config, DataSource, LocalSource, ProcessSignal, Snapshot};
 
 use crate::alert_log;
+use crate::config_file;
 use crate::hosts_dialog::{self, HostsDialog};
 use crate::lhm_setup::{self, LhmSetup};
 use crate::notify::{self, Notifier};
@@ -141,6 +142,10 @@ pub enum ViewAction {
     Restart,
     /// Show or hide a panel of the host view.
     TogglePane(Pane),
+    /// Open the configuration file in the default app.
+    OpenConfig,
+    /// Open the folder of the configuration file.
+    OpenConfigFolder,
 }
 
 /// Everything the panels read and modify.
@@ -202,6 +207,8 @@ pub struct GuiState {
     /// [`rigtop_core::view::alert_key`]s of this host's snoozed alerts,
     /// left out of [`GuiState::alerts`].
     pub snoozed_keys: Vec<String>,
+    /// The configuration file, for the "config…" menu.
+    pub config_path: Option<PathBuf>,
     status: Option<(String, Instant)>,
 }
 
@@ -246,6 +253,7 @@ impl GuiState {
             is_local: false,
             remote: false,
             snoozed_keys: Vec::new(),
+            config_path: None,
             lhm_setup: LhmSetup::default(),
             status: None,
         }
@@ -609,6 +617,7 @@ impl RigtopApp {
         let mut config = self.config.clone();
         config.alerts = spec.alerts.clone();
         let mut state = GuiState::new(config);
+        state.config_path = self.config_path.clone();
         state.is_local = spec.is_local();
         state.remote = matches!(spec.kind, HostKind::Remote(_));
         HostEntry {
@@ -917,6 +926,32 @@ impl RigtopApp {
         &mut self.hosts[0].state
     }
 
+    /// Opens the configuration file (`folder`: its folder), creating it
+    /// with every setting commented out if there is none, and says how it
+    /// went in the status lines.
+    fn open_config(&mut self, folder: bool) {
+        let Some(path) = self.config_path.clone() else {
+            return;
+        };
+        let result = rigtop_core::config::create_if_missing(&path)
+            .map_err(|err| format!("cannot create {}: {err}", path.display()))
+            .and_then(|created| {
+                if folder {
+                    let dir = path.parent().unwrap_or(&path);
+                    config_file::open_folder(dir).map(|()| format!("opened {}", dir.display()))
+                } else {
+                    config_file::open_file(&path).map(|()| {
+                        let what = if created { "created" } else { "opened" };
+                        format!("{what} {}; saved changes apply at once", path.display())
+                    })
+                }
+            });
+        let status = result.unwrap_or_else(|err| err);
+        for host in &mut self.hosts {
+            host.state.set_status(status.clone());
+        }
+    }
+
     /// Picks up snoozes made elsewhere and ended snoozes, for every host.
     fn refresh_snoozes(&mut self) {
         self.snoozes.reload();
@@ -1097,6 +1132,8 @@ impl RigtopApp {
                     }
                 }
                 ViewAction::EditHosts => self.hosts_dialog.open(),
+                ViewAction::OpenConfig => self.open_config(false),
+                ViewAction::OpenConfigFolder => self.open_config(true),
                 ViewAction::ToggleWidgets => self.show_widgets = !self.show_widgets,
                 ViewAction::NextGraphSpan => self.graph_span = self.graph_span.next(),
                 ViewAction::EditSensors => self.sensors_dialog.open(&self.config.sensors),
@@ -1213,6 +1250,7 @@ impl RigtopApp {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 overview::zoom_controls(ui, self.zoom, actions);
                 ui.add_space(8.0);
+                overview::config_button(ui, self.config_path.as_deref(), actions);
                 overview::hosts_button(ui, actions);
                 if !self.widgets.is_empty() {
                     overview::widgets_button(ui, self.show_widgets, actions);
@@ -1247,6 +1285,10 @@ fn waiting_screen(ui: &mut Ui, host: &HostEntry) {
 pub struct OverviewSettings {
     /// Whether the local machine gets a card.
     pub include_local: bool,
+    /// Whether hosts needing attention come first, once chosen in the GUI
+    /// (else `[overview] alerts_first`).
+    #[serde(default)]
+    pub alerts_first: Option<bool>,
     /// Section order chosen in the GUI per host name, overriding the
     /// configuration.
     pub sections: std::collections::BTreeMap<String, Vec<OverviewSection>>,
@@ -1257,6 +1299,7 @@ impl OverviewSettings {
     pub fn from_config(config: &Config) -> Self {
         Self {
             include_local: config.overview.include_local,
+            alerts_first: None,
             sections: Default::default(),
         }
     }
@@ -1744,6 +1787,27 @@ mod tests {
         harness.get_by_label("include this machine").click();
         harness.run();
         assert!(!harness.state().overview.include_local);
+
+        // "alerts first" starts from the configuration (off) and is kept.
+        assert_eq!(harness.state().overview.alerts_first, None);
+        harness.get_by_label("alerts first").click();
+        harness.run();
+        assert_eq!(harness.state().overview.alerts_first, Some(true));
+        // Old saved settings without it still load.
+        let old: OverviewSettings = toml::from_str("include_local = true\n[sections]\n").unwrap();
+        assert_eq!(old.alerts_first, None);
+
+        // "config…" shows where the file is (opening it is left to the OS).
+        harness.state_mut().config_path =
+            Some(PathBuf::from("/home/me/.config/rigtop/config.toml"));
+        harness.get_by_label("config…").click();
+        harness.run();
+        assert!(
+            harness
+                .query_by_label("/home/me/.config/rigtop/config.toml")
+                .is_some()
+        );
+        assert!(harness.query_by_label("open the file").is_some());
     }
 
     #[test]

@@ -69,7 +69,7 @@
 //! sections = ["cpu", "gpu", "memory", "processes", "network", "storage"]
 //! include_local = true
 //! processes = 10
-//! alerts_first = true   # hosts that need attention first
+//! alerts_first = false  # true: hosts that need attention first
 //!
 //! [[hosts]]
 //! name = "zefat"
@@ -105,6 +105,10 @@ use std::time::{Duration, Instant, SystemTime};
 use serde::{Deserialize, Serialize};
 
 use crate::snapshot::{Fan, Temperature};
+
+/// What a new configuration file starts with: every setting, commented out
+/// at its default, with short explanations.
+pub const CONFIG_TEMPLATE: &str = include_str!("config_template.toml");
 
 /// Default location of the SMART result files.
 pub const DEFAULT_SMART_DIR: &str = "/var/lib/rigtop/smart";
@@ -294,7 +298,8 @@ pub struct OverviewConfig {
     /// many, to keep SSH traffic small.
     pub processes: usize,
     /// Put hosts that need attention first (unreachable or with critical
-    /// alerts, then warnings); the others keep their order.
+    /// alerts, then warnings); the others keep their order. Off by default,
+    /// so that cards stay where they are.
     pub alerts_first: bool,
 }
 
@@ -304,7 +309,7 @@ impl Default for OverviewConfig {
             sections: OverviewSection::ALL.to_vec(),
             include_local: true,
             processes: 10,
-            alerts_first: true,
+            alerts_first: false,
         }
     }
 }
@@ -624,6 +629,19 @@ impl Default for BtrfsConfig {
             scrub_dir: PathBuf::from(DEFAULT_SCRUB_DIR),
         }
     }
+}
+
+/// Creates the configuration file at `path` from [`CONFIG_TEMPLATE`] if
+/// there is none yet (with its directory). Returns true when it did.
+pub fn create_if_missing(path: &Path) -> io::Result<bool> {
+    if path.exists() {
+        return Ok(false);
+    }
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    fs::write(path, CONFIG_TEMPLATE)?;
+    Ok(true)
 }
 
 impl Config {
@@ -967,6 +985,32 @@ fn file_stamp(path: &Path) -> Option<(Option<SystemTime>, u64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn template_parses_with_every_setting_uncommented() {
+        // Settings are commented as "#key", explanations as "# text".
+        let settings: String = CONFIG_TEMPLATE
+            .lines()
+            .filter_map(|line| line.strip_prefix('#'))
+            .filter(|line| !line.starts_with(' ') && !line.is_empty())
+            .map(|line| format!("{line}\n"))
+            .collect();
+        let config: Config = toml::from_str(&settings).unwrap();
+        assert_eq!(config.hosts[0].name, "nas");
+        // The defaults it shows are the real ones.
+        assert_eq!(config.alerts, AlertsConfig::default());
+        assert_eq!(config.watch, WatchConfig::default());
+        assert_eq!(config.overview, OverviewConfig::default());
+        // As written, everything is commented out.
+        let empty: Config = toml::from_str(CONFIG_TEMPLATE).unwrap();
+        assert_eq!(empty, Config::default());
+
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("rigtop/config.toml");
+        assert!(create_if_missing(&path).unwrap());
+        assert!(!create_if_missing(&path).unwrap(), "left as it is");
+        assert_eq!(Config::load(&path).unwrap(), Config::default());
+    }
 
     #[test]
     fn hidden_panels_are_saved_and_loaded() {

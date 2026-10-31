@@ -10,6 +10,7 @@
 
 mod alert_log;
 mod app;
+mod config_file;
 mod console;
 mod hosts_dialog;
 mod lhm_setup;

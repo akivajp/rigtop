@@ -153,6 +153,7 @@ fn view_controls(ui: &mut Ui, state: &mut GuiState) {
     if state.show_zoom {
         crate::overview::zoom_controls(ui, state.zoom, &mut state.view_actions);
         // Without a tab bar (a single host), the hosts window opens here.
+        crate::overview::config_button(ui, state.config_path.as_deref(), &mut state.view_actions);
         crate::overview::hosts_button(ui, &mut state.view_actions);
         if let Some(visible) = state.widgets_visible {
             crate::overview::widgets_button(ui, visible, &mut state.view_actions);

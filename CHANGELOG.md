@@ -7,6 +7,21 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Added
+- "config…" in the GUI (next to "hosts…") opens the configuration file in
+  the default app, Notepad on Windows when nothing opens `.toml` files, or
+  shows its folder; `rigtop --edit-config` opens it in `$VISUAL` or
+  `$EDITOR` and checks it once closed. A missing file is first created with
+  every setting commented out at its default.
+- "alerts first" next to "include this machine" in the GUI's overview, kept
+  between runs.
+
+### Changed
+- `[overview] alerts_first` is off by default: cards keep the configured
+  order, so that a warning (or a pending reboot one deals with later) does
+  not move them around. Set it to `true`, or tick "alerts first" in the
+  GUI, for the previous behavior.
+
 ## [0.22.0] - 2026-11-01
 
 ### Added

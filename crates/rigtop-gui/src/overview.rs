@@ -133,6 +133,32 @@ pub fn hosts_button(ui: &mut Ui, actions: &mut Vec<ViewAction>) {
     }
 }
 
+/// "config…": a menu to open the configuration file (created with every
+/// setting commented out if there is none) or its folder.
+pub fn config_button(ui: &mut Ui, path: Option<&std::path::Path>, actions: &mut Vec<ViewAction>) {
+    ui.menu_button(dim("config…"), |ui| {
+        let Some(path) = path else {
+            ui.label(dim("no place for a configuration file on this system"));
+            return;
+        };
+        ui.label(dim(path.display().to_string()));
+        if ui
+            .button("open the file")
+            .on_hover_text("in the default app; saved changes apply at once")
+            .clicked()
+        {
+            actions.push(ViewAction::OpenConfig);
+            ui.close();
+        }
+        if ui.button("show the folder").clicked() {
+            actions.push(ViewAction::OpenConfigFolder);
+            ui.close();
+        }
+    })
+    .response
+    .on_hover_text("open the configuration file");
+}
+
 /// "widgets": shows or hides the widget column, for room on small screens.
 pub fn widgets_button(ui: &mut Ui, visible: bool, actions: &mut Vec<ViewAction>) {
     let hint = if visible {
@@ -182,8 +208,22 @@ pub fn show(
     settings: &mut OverviewSettings,
     processes: usize,
 ) -> Option<usize> {
+    let configured = hosts
+        .first()
+        .is_some_and(|h| h.state.config.overview.alerts_first);
+    let mut alerts_first = settings.alerts_first.unwrap_or(configured);
     ui.horizontal(|ui| {
         ui.checkbox(&mut settings.include_local, "include this machine");
+        if ui
+            .checkbox(&mut alerts_first, "alerts first")
+            .on_hover_text(
+                "put hosts that are unreachable or have alerts first; \
+                 otherwise cards keep the configured order",
+            )
+            .changed()
+        {
+            settings.alerts_first = Some(alerts_first);
+        }
         ui.label(dim(
             "· click a host name for details · \"sections\" sets what each card shows",
         ));
@@ -193,10 +233,7 @@ pub fn show(
     let mut visible: Vec<usize> = (0..hosts.len())
         .filter(|&i| settings.include_local || !hosts[i].spec.is_local())
         .collect();
-    if visible
-        .first()
-        .is_some_and(|&i| hosts[i].state.config.overview.alerts_first)
-    {
+    if alerts_first {
         // Stable: hosts of the same rank keep the configured order.
         visible.sort_by_key(|&i| attention(&hosts[i]));
     }

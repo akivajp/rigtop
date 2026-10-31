@@ -91,6 +91,12 @@ struct Cli {
     /// Linux, as root: stop and remove that timer and the data it wrote.
     #[arg(long, conflicts_with_all = ["agent", "dump_json", "hosts"])]
     uninstall_collector: bool,
+
+    /// Open the configuration file in $VISUAL or $EDITOR (else nano or vi;
+    /// Notepad on Windows), created with every setting commented out if
+    /// there is none, then check it.
+    #[arg(long, conflicts_with_all = ["agent", "dump_json", "hosts", "watch", "test_alert"])]
+    edit_config: bool,
 }
 
 fn main() -> Result<()> {
@@ -119,6 +125,11 @@ fn main() -> Result<()> {
     }
 
     let config_path = cli.config.clone().or_else(Config::default_path);
+    if cli.edit_config {
+        // Before loading it: the point may be to fix it.
+        let path = config_path.context("this system has no place for a configuration file")?;
+        return edit_config(&path);
+    }
     let config = match &config_path {
         Some(path) => Config::load(path),
         None => Ok(Config::default()),
@@ -146,6 +157,56 @@ fn main() -> Result<()> {
         return watch::run(config, config_path, specs, interval_override);
     }
     tui::run(config, config_path, interval, specs, exe)
+}
+
+/// `--edit-config`: opens the configuration file in an editor and says
+/// whether the result loads.
+fn edit_config(path: &std::path::Path) -> Result<()> {
+    if rigtop_core::config::create_if_missing(path)
+        .with_context(|| format!("cannot create {}", path.display()))?
+    {
+        println!(
+            "created {} with every setting commented out",
+            path.display()
+        );
+    }
+    let editor = editor_command().context("no editor found: set VISUAL or EDITOR")?;
+    let mut words = editor.split_whitespace();
+    let program = words.next().context("VISUAL or EDITOR is empty")?;
+    let status = std::process::Command::new(program)
+        .args(words)
+        .arg(path)
+        .status()
+        .with_context(|| format!("cannot start {program}"))?;
+    if !status.success() {
+        bail!("{program} ended with {status}");
+    }
+    Config::load(path).context("the configuration does not load")?;
+    println!(
+        "{} is fine; running rigtop instances apply it",
+        path.display()
+    );
+    Ok(())
+}
+
+/// The editor to use: `$VISUAL`, `$EDITOR`, else Notepad on Windows, else
+/// nano or vi if installed.
+fn editor_command() -> Option<String> {
+    for variable in ["VISUAL", "EDITOR"] {
+        if let Ok(value) = std::env::var(variable)
+            && !value.trim().is_empty()
+        {
+            return Some(value);
+        }
+    }
+    if cfg!(windows) {
+        return Some("notepad".to_owned());
+    }
+    let path = std::env::var_os("PATH")?;
+    ["nano", "vi"]
+        .into_iter()
+        .find(|name| std::env::split_paths(&path).any(|dir| dir.join(name).is_file()))
+        .map(str::to_owned)
 }
 
 /// Takes a warm-up sample, waits one interval, and prints the second sample.

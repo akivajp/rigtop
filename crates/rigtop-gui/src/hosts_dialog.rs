@@ -1,7 +1,7 @@
 //! A window for adding, editing, testing and removing remote hosts, so that
 //! nobody has to find and edit the configuration file by hand.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -291,7 +291,7 @@ fn contents(
                 if ui.small_button("open folder").clicked()
                     && let Some(folder) = path.parent()
                 {
-                    open_folder(folder.to_path_buf());
+                    let _ = crate::config_file::open_folder(folder);
                 }
             });
         }
@@ -332,18 +332,6 @@ fn start_test(ctx: &egui::Context, host: &HostConfig) -> TestResult {
         repaint.request_repaint();
     });
     result
-}
-
-/// Opens a folder in the system file manager.
-fn open_folder(folder: PathBuf) {
-    let program = if cfg!(windows) {
-        "explorer"
-    } else if cfg!(target_os = "macos") {
-        "open"
-    } else {
-        "xdg-open"
-    };
-    let _ = std::process::Command::new(program).arg(folder).spawn();
 }
 
 #[cfg(test)]

@@ -1,0 +1,74 @@
+# rigtop configuration. Every setting is optional: remove the "#" in front
+# of one to change it from the default shown. Saved edits apply while
+# rigtop runs. More: https://github.com/akivajp/rigtop#configuration
+
+# Hosts to monitor over SSH; each also gets a tab and an overview card.
+#[[hosts]]
+#name = "nas"                       # also the ssh destination unless `ssh` is given
+#ssh = "admin@nas.local"
+#command = "/usr/local/bin/rigtop --agent"
+#sections = ["storage", "cpu", "network"]
+#[hosts.alerts]                     # this host's thresholds, over [alerts]
+#filesystem_warning_percent = 95
+
+#[overview]
+#sections = ["cpu", "gpu", "memory", "processes", "network", "storage"]
+#include_local = true               # a card for this machine
+#processes = 10                     # processes per card
+#alerts_first = false               # cards of hosts with alerts first
+
+#[alerts]
+# When readings become alerts (0 turns one off).
+#filesystem_warning_percent = 90
+#filesystem_critical_percent = 97
+#filesystem_full_warning_hours = 24 # full this soon at the last half hour's rate
+#cpu_warning_celsius = 96           # hottest CPU reading
+#gpu_warning_celsius = 85
+#drive_warning_celsius = 70         # SMART or NVMe sensor
+#memory_warning_percent = 90        # memory in use (without cache)
+#gpu_memory_warning_percent = 0     # VRAM; frameworks reserve most of it
+#memory_pressure_warning_percent = 10
+#io_pressure_warning_percent = 30
+#ignored_units = []                 # failed systemd units not to warn about
+
+#[sensors]
+# Names for sensor channels, keyed by the channel key rigtop shows, and
+# channels to hide (the GUI's "sensors…" edits these).
+#labels = { "nct6686:nct6683.2592/fan1" = "CPU fan" }
+#hidden = ["nct6686:nct6683.2592/temp4"]
+
+#[notifications]
+#level = "critical"                 # rigtop-gui: "critical", "warning" or "off"
+
+#[updates]
+#check = true                       # look for new releases on github.com
+#interval = "1h"
+#notify = true
+
+#[watch]
+# rigtop --watch: a command run when an alert appears or clears on any host.
+#command = ""                       # e.g. 'curl -s -d "$RIGTOP_MESSAGE" https://ntfy.sh/my-topic'
+#level = "critical"                 # or "warning" ("off" runs nothing)
+#cleared = true
+#interval = "10s"
+#offline_after = "3m"
+#timeout = "30s"
+#processes = []                     # programs to announce the exit of, e.g. ["train.py"]
+
+#[tui]
+#hidden_panels = []                 # e.g. ["gpu", "network"]
+#show_widgets = true
+
+#[[widgets]]
+#name = "Clock"
+#builtin = "clock"
+
+#[smart]
+#dir = "/var/lib/rigtop/smart"
+
+#[btrfs]
+#scrub_dir = "/var/lib/rigtop/btrfs"
+
+#[lhm]
+# Windows: LibreHardwareMonitor's web server ("" to disable).
+#url = "http://127.0.0.1:8085/data.json"
