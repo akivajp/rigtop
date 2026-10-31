@@ -42,7 +42,8 @@ pub const FEATURE_WATCH_PROCESSES: &str = "watch_processes";
 pub const FEATURE_WATCH_PROCESS_NAMES: &str = "watch_process_names";
 
 /// The agent pauses, resumes and renices processes
-/// ([`ProcessSignal::is_control`]); older agents cannot read those signals.
+/// ([`ProcessSignal::is_control`]; 0.22 and later); older agents cannot
+/// read those signals.
 pub const FEATURE_PROCESS_CONTROL: &str = "process_control";
 
 /// Messages from the agent to the client.

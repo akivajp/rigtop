@@ -476,7 +476,7 @@ impl DataSource for RemoteSource {
             self.connection()?;
             if !self.agent_controls {
                 return Err(SourceError::Remote(format!(
-                    "rigtop {} on the host cannot do this; it needs 0.21 or later",
+                    "rigtop {} on the host cannot do this; it needs 0.22 or later",
                     if self.agent_version.is_empty() {
                         "(unknown)"
                     } else {

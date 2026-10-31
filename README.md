@@ -121,8 +121,8 @@ cargo run --release -p rigtop -- --help  # options (--interval-ms, --config, --d
 | `Enter` | details of the selected process: its parents, user, container, start time, usage and whole command line (`Enter` or `Esc` closes) |
 | `x` | tell me when the selected process exits (e.g. a training run): in the alert history (`a`), the status line and the terminal bell. Remote hosts need rigtop 0.19 or later |
 | `k` / `K` | send SIGTERM / SIGKILL to the selected process (asks first) |
-| `p` | pause the selected process (SIGSTOP, asks first), or resume it (SIGCONT) if paused; paused ones are marked `stopped` (Linux, macOS) |
-| `]` / `[` | lower / raise the selected process's priority by 5 nice steps (raising needs root; Linux, macOS) |
+| `p` | pause the selected process (SIGSTOP, asks first), or resume it (SIGCONT) if paused; paused ones are marked `stopped` (Linux, macOS; remote hosts need rigtop 0.22 or later) |
+| `]` / `[` | lower / raise the selected process's priority by 5 nice steps (raising needs root; Linux, macOS; remote hosts need rigtop 0.22 or later) |
 | `n` | switch the network interface |
 | `+` / `-` | slower / faster updates |
 | `U` | update this machine's rigtop to a new release, when the title says one is out (asks first; runs after a restart) |
