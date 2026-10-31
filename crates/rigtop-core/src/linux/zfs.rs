@@ -21,6 +21,7 @@ pub fn read_pools(roots: &SysRoots) -> Vec<ZfsPool> {
             Some(ZfsPool {
                 name: entry.file_name().to_string_lossy().into_owned(),
                 state: state.trim().to_owned(),
+                ..Default::default()
             })
         })
         .collect();

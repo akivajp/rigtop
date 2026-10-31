@@ -25,6 +25,7 @@ pub mod rapl;
 pub mod reboot;
 pub mod systemd;
 pub mod zfs;
+pub mod zpool;
 
 use std::fs;
 use std::path::{Path, PathBuf};

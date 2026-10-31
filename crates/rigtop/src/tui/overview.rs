@@ -778,7 +778,15 @@ fn storage_lines(snapshot: &Snapshot, width: usize) -> Vec<Line<'static>> {
     }
     for pool in &snapshot.raid.zfs {
         health.push(dim(format!("zfs {} ", pool.name)));
-        health.push(super::ui::zfs_state(pool));
+        let errors: u64 = pool.troubled_devices().map(|d| d.errors()).sum();
+        let data_errors = pool.data_errors.unwrap_or(0);
+        if data_errors > 0 {
+            health.push(colored(format!("{data_errors} data errors"), BAD));
+        } else if errors > 0 && pool.is_online() {
+            health.push(colored(format!("{errors} errors"), BAD));
+        } else {
+            health.push(super::ui::zfs_state(pool));
+        }
         health.push(Span::raw("  "));
     }
     if !health.is_empty() {

@@ -18,7 +18,7 @@
 ## 目標
 
 - btop と同じ一覧性: CPU（全体・コアごと・温度）、全 GPU、メモリ、ストレージ、ネットワーク、プロセス一覧（kill / 強制 kill）を1画面に。
-- 既存のモニターが手薄な**ストレージの健康状態**: btrfs の RAID 構成とデバイスごとのエラー回数、mdadm の状態、ZFS のプールの健全性、NVMe の温度、SMART。
+- 既存のモニターが手薄な**ストレージの健康状態**: mdadm の状態と再同期の進み具合、ZFS のプール（raidz・mirror などの構成、ドライブごとの状態と読み・書き・チェックサムのエラー回数、直近の scrub、データのエラー）、btrfs の RAID 構成とデバイスごとのエラー回数、NVMe の温度、SMART。ZFS の詳細は `zpool status` から読み、多くの環境で root は不要です。
 - プロセスごとの GPU 使用率と VRAM（NVIDIA、NVML 経由）、ディスク I/O、動いているコンテナ（Docker・Podman・Kubernetes・LXC・systemd-nspawn、Linux）。
 - CPU + GPU の消費電力の合計、ファン回転数（各系統に任意の名前を付けられる）。
 - **SSH だけで複数ホストを監視**: `rigtop --agent` が標準入出力で計測値を流すので、常駐プロセスもポート開放も不要。

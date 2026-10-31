@@ -1596,6 +1596,7 @@ mod tests {
                 zfs: vec![rigtop_core::snapshot::ZfsPool {
                     name: "tank".to_owned(),
                     state: "DEGRADED".to_owned(),
+                    ..Default::default()
                 }],
             },
             networks: vec![NetworkStats {
@@ -1868,6 +1869,46 @@ mod tests {
                 .query_by_label_contains("Update rigtop on zefat (0.0.1)")
                 .is_some()
         );
+    }
+
+    #[test]
+    fn zfs_pools_show_layout_errors_and_scrub() {
+        use rigtop_core::snapshot::{ZfsDevice, ZfsPool};
+        let device = |name: &str, depth, checksum| ZfsDevice {
+            name: name.to_owned(),
+            depth,
+            state: "ONLINE".to_owned(),
+            checksum_errors: checksum,
+            ..Default::default()
+        };
+        let mut snapshot = sample_snapshot();
+        snapshot.raid.zfs = vec![ZfsPool {
+            name: "tank".to_owned(),
+            state: "ONLINE".to_owned(),
+            devices: vec![
+                device("raidz1-0", 0, 0),
+                device("disk1", 1, 0),
+                device("disk2", 1, 491),
+                device("disk3", 1, 0),
+            ],
+            scan: Some(
+                "scrub repaired 27.7M in 00:00:00 with 0 errors on Sat Oct 31 19:33:41 2026"
+                    .to_owned(),
+            ),
+            data_errors: Some(442),
+            ..Default::default()
+        }];
+        let mut harness = harness_with(snapshot);
+        harness.run();
+        for label in [
+            "raidz1",
+            "errors",
+            "442 data errors",
+            "disk2: 491 errors",
+            "· scrub Oct 31, repaired 27.7M",
+        ] {
+            assert!(harness.query_by_label(label).is_some(), "missing {label:?}");
+        }
     }
 
     #[test]

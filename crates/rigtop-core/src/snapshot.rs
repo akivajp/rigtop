@@ -594,9 +594,99 @@ pub struct ZfsPool {
     /// Health as `zpool status` shows it: `ONLINE`, `DEGRADED`, `FAULTED`,
     /// `OFFLINE`, `UNAVAIL`, `REMOVED` or `SUSPENDED`.
     pub state: String,
+    /// Its vdevs and devices as `zpool status` lists them, top to bottom
+    /// (empty where `zpool` could not be run, and from agents before 0.26).
+    pub devices: Vec<ZfsDevice>,
+    /// The last or running scrub or resilver ("scrub repaired 0B in
+    /// 00:00:01 with 0 errors on ...", "resilver in progress ... 42.1%
+    /// done"), from the `scan:` line.
+    pub scan: Option<String>,
+    /// Permanent data errors (`errors: N data errors`); `None` unknown.
+    pub data_errors: Option<u64>,
+    /// Size and space in use (`zpool list`).
+    pub size_bytes: Option<u64>,
+    pub allocated_bytes: Option<u64>,
+}
+
+/// One row of a pool's configuration in `zpool status`: a vdev (raidz1-0,
+/// mirror-0) or a device under one.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ZfsDevice {
+    /// As listed: "raidz1-0", "mirror-1", "ata-WDC_WD80...", "/var/tmp/log1".
+    pub name: String,
+    /// Nesting under the pool: 0 for top-level vdevs, 1 for their devices.
+    pub depth: u8,
+    /// The section it is in: "" for data, else "logs", "cache", "spares",
+    /// "special" or "dedup".
+    pub section: String,
+    /// ONLINE, DEGRADED, OFFLINE, FAULTED, UNAVAIL, REMOVED; AVAIL or
+    /// INUSE for spares.
+    pub state: String,
+    /// Read, write and checksum errors since the last `zpool clear`.
+    pub read_errors: u64,
+    pub write_errors: u64,
+    pub checksum_errors: u64,
+}
+
+impl ZfsDevice {
+    /// All its errors.
+    pub fn errors(&self) -> u64 {
+        self.read_errors + self.write_errors + self.checksum_errors
+    }
+
+    /// Whether its state needs attention (spares waiting are fine).
+    pub fn is_unhealthy(&self) -> bool {
+        !matches!(self.state.as_str(), "ONLINE" | "AVAIL" | "INUSE" | "")
+    }
+
+    /// Whether it is a vdev grouping devices (raidz, mirror, ...) rather
+    /// than a device.
+    pub fn is_group(&self) -> bool {
+        ["raidz", "mirror", "draid", "replacing", "spare-"]
+            .iter()
+            .any(|kind| self.name.starts_with(kind))
+    }
 }
 
 impl ZfsPool {
+    /// The layout of its data vdevs: "raidz1", "mirror", "2 × mirror",
+    /// "stripe" (devices directly under the pool), or `None` when unknown.
+    pub fn layout(&self) -> Option<String> {
+        let top: Vec<&ZfsDevice> = self
+            .devices
+            .iter()
+            .filter(|d| d.depth == 0 && d.section.is_empty())
+            .collect();
+        let first = top.first()?;
+        if !first.is_group() {
+            return Some("stripe".to_owned());
+        }
+        let kind = first
+            .name
+            .rsplit_once('-')
+            .map_or(first.name.as_str(), |(k, _)| k);
+        let same = top.iter().filter(|d| d.name.starts_with(kind)).count();
+        Some(if top.len() > 1 && same == top.len() {
+            format!("{} × {kind}", top.len())
+        } else {
+            kind.to_owned()
+        })
+    }
+
+    /// Whether `zpool status` reported data errors or device errors, which
+    /// a healthy-looking ONLINE state does not show.
+    pub fn has_errors(&self) -> bool {
+        self.data_errors.unwrap_or(0) > 0 || self.devices.iter().any(|d| d.errors() > 0)
+    }
+
+    /// Its devices (not vdevs) with errors or in a bad state.
+    pub fn troubled_devices(&self) -> impl Iterator<Item = &ZfsDevice> {
+        self.devices
+            .iter()
+            .filter(|d| !d.is_group() && (d.errors() > 0 || d.is_unhealthy()))
+    }
+
     /// Whether the pool is healthy.
     pub fn is_online(&self) -> bool {
         self.state == "ONLINE"

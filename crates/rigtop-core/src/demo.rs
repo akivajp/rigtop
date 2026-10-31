@@ -14,7 +14,7 @@ use crate::snapshot::{
     BatteryStats, BtrfsAllocation, BtrfsDeviceStats, BtrfsFilesystem, BtrfsScrub, CpuStats, DiskIo,
     EccErrors, Fan, FilesystemUsage, GpuProcess, GpuStats, HostInfo, MdArray, MdMember, MdSync,
     MemoryStats, NetworkStats, PcieLink, PowerStats, Pressure, PressureLevels, ProcessInfo,
-    RaidStats, SensorChip, SmartDevice, Snapshot, Temperature, WirelessLink, ZfsPool,
+    RaidStats, SensorChip, SmartDevice, Snapshot, Temperature, WirelessLink, ZfsDevice, ZfsPool,
 };
 use crate::source::{DataSource, ProcessSignal, SourceError};
 
@@ -1091,6 +1091,23 @@ fn nas(t: f64) -> Snapshot {
             zfs: vec![ZfsPool {
                 name: "backup".to_owned(),
                 state: "ONLINE".to_owned(),
+                devices: ["mirror-0", "ata-WDC_WD120EFBX-1", "ata-WDC_WD120EFBX-2"]
+                    .iter()
+                    .enumerate()
+                    .map(|(i, name)| ZfsDevice {
+                        name: (*name).to_owned(),
+                        depth: u8::from(i > 0),
+                        state: "ONLINE".to_owned(),
+                        ..Default::default()
+                    })
+                    .collect(),
+                scan: Some(
+                    "scrub repaired 0B in 03:12:44 with 0 errors on Sun Oct 25 06:12:44 2026"
+                        .to_owned(),
+                ),
+                data_errors: Some(0),
+                size_bytes: Some(12 << 40),
+                allocated_bytes: Some(7 << 40),
             }],
         },
         smart: (0..4).map(smart).collect(),

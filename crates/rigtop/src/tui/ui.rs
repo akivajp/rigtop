@@ -1041,18 +1041,75 @@ fn storage_lines(snapshot: &Snapshot, width: u16) -> Vec<Line<'static>> {
 
     // ZFS pools.
     for pool in &snapshot.raid.zfs {
-        lines.push(Line::from(vec![
+        let mut spans = vec![
             colored(format!("{} ", pool.name), STORAGE_TITLE),
             Span::raw("zfs "),
-            zfs_state(pool),
-        ]));
+        ];
+        if let Some(layout) = pool.layout() {
+            spans.push(Span::raw(format!("{layout} ")));
+        }
+        spans.push(zfs_state(pool));
+        if let (Some(size), Some(allocated)) = (pool.size_bytes, pool.allocated_bytes) {
+            spans.push(dim(format!(
+                " {}/{}",
+                format::bytes(allocated),
+                format::bytes(size)
+            )));
+        }
+        lines.push(Line::from(spans));
+        if let Some(line) = zfs_health_line(pool) {
+            lines.push(line);
+        }
     }
     lines
 }
 
-/// A ZFS pool's health: "ok", or its state in the color of its severity.
+/// A ZFS pool's devices with errors or in a bad state, its data errors and
+/// its last scrub; `None` without `zpool status` details.
+fn zfs_health_line(pool: &ZfsPool) -> Option<Line<'static>> {
+    if pool.devices.is_empty() && pool.scan.is_none() {
+        return None;
+    }
+    let mut spans = vec![Span::raw("  ")];
+    let troubled: Vec<String> = pool
+        .troubled_devices()
+        .map(|d| {
+            if d.is_unhealthy() {
+                format!("{} {}", d.name, d.state)
+            } else {
+                format!("{}: {}", d.name, d.errors())
+            }
+        })
+        .collect();
+    let data_errors = pool.data_errors.unwrap_or(0);
+    if data_errors > 0 {
+        spans.push(colored(format!("{data_errors} data errors "), BAD));
+    }
+    if troubled.is_empty() {
+        if data_errors == 0 {
+            spans.push(colored("errors 0", OK));
+        }
+    } else {
+        spans.push(colored(troubled.join(", "), BAD));
+    }
+    if let Some(scan) = &pool.scan {
+        let (text, severity) = rigtop_core::view::zfs_scan_summary(scan);
+        spans.push(dim(" · "));
+        spans.push(match severity {
+            Some(Severity::Critical) => colored(text, BAD),
+            Some(Severity::Warning) => colored(text, WARN),
+            None => dim(text),
+        });
+    }
+    Some(Line::from(spans))
+}
+
+/// A ZFS pool's health: "ok", "errors" when ONLINE with errors, or its
+/// state in the color of its severity.
 pub(super) fn zfs_state(pool: &ZfsPool) -> Span<'static> {
-    if pool.is_online() {
+    if pool.is_online() && pool.has_errors() {
+        colored("errors", BAD)
+    } else if pool.is_online() {
         colored("ok", OK)
     } else if pool.is_failing() {
         colored(pool.state.clone(), BAD)
@@ -1802,6 +1859,7 @@ mod tests {
                 zfs: vec![rigtop_core::snapshot::ZfsPool {
                     name: "tank".to_owned(),
                     state: "DEGRADED".to_owned(),
+                    ..Default::default()
                 }],
             },
             processes: vec![ProcessInfo {

@@ -876,7 +876,15 @@ fn storage_section(ui: &mut Ui, snapshot: &Snapshot, disks: bool) {
         }
         for pool in &snapshot.raid.zfs {
             ui.label(dim(format!("zfs {}", pool.name)));
-            crate::panels::zfs_state(ui, pool);
+            let errors: u64 = pool.troubled_devices().map(|d| d.errors()).sum();
+            let data_errors = pool.data_errors.unwrap_or(0);
+            if data_errors > 0 {
+                ui.label(colored(format!("{data_errors} data errors"), BAD));
+            } else if errors > 0 && pool.is_online() {
+                ui.label(colored(format!("{errors} errors"), BAD));
+            } else {
+                crate::panels::zfs_state(ui, pool);
+            }
         }
     });
 }

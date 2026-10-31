@@ -155,6 +155,8 @@ pub struct LocalSource {
     #[cfg(target_os = "linux")]
     failed_units: linux::systemd::FailedUnitsReader,
     #[cfg(target_os = "linux")]
+    zpool: linux::zpool::ZpoolReader,
+    #[cfg(target_os = "linux")]
     containers: linux::containers::ContainerTracker,
     #[cfg(target_os = "linux")]
     oom: linux::oom::OomTracker,
@@ -207,6 +209,8 @@ impl LocalSource {
             net_links: NetLinkReader::new(),
             #[cfg(target_os = "linux")]
             failed_units: linux::systemd::FailedUnitsReader::new(),
+            #[cfg(target_os = "linux")]
+            zpool: linux::zpool::ZpoolReader::new(),
             #[cfg(target_os = "linux")]
             containers: linux::containers::ContainerTracker::new(),
             #[cfg(target_os = "linux")]
@@ -363,6 +367,7 @@ impl LocalSource {
             .annotate(&self.roots, &mut snapshot.networks, now);
         snapshot.raid.md = linux::mdstat::read_arrays(&self.roots);
         snapshot.raid.zfs = linux::zfs::read_pools(&self.roots);
+        self.zpool.annotate(&mut snapshot.raid.zfs, now);
         snapshot.failed_units = self.failed_units.read(now);
         snapshot.pressure = linux::pressure::read_pressure(&self.roots);
         let release = std::fs::read_to_string(self.roots.proc.join("sys/kernel/osrelease"))

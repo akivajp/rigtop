@@ -7,6 +7,19 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Added
+- ZFS pools in depth (Linux): the layout (raidz1, mirror, 2 × mirror, log,
+  cache and spare devices), each device's state and read, write and
+  checksum errors, the last or running scrub or resilver, permanent data
+  errors and the pool's size, from `zpool status -p` and `zpool list -p`
+  every 30 seconds (no root needed where `/dev/zfs` is open to everyone,
+  the default on Ubuntu and others; `zpool` only runs when there are
+  pools). Data errors are critical alerts; a device with errors or not
+  ONLINE, and a running resilver, are warnings. An ONLINE pool with errors
+  shows "errors" instead of "ok". The GUI lists every device in the pool
+  name's tooltip. Checked on raidz1 and mirror pools in a virtual machine,
+  with an offline device, checksum errors and unrecoverable data errors.
+
 ## [0.25.0] - 2026-11-01
 
 ### Changed

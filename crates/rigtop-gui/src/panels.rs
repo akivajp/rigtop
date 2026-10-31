@@ -856,18 +856,99 @@ fn storage(ui: &mut Ui, state: &GuiState) {
                 });
             }
             for pool in &snapshot.raid.zfs {
-                ui.horizontal(|ui| {
-                    ui.label(colored(&pool.name, widgets::STORAGE_TITLE));
-                    ui.label("zfs");
-                    zfs_state(ui, pool);
-                });
+                zfs_pool(ui, pool);
             }
         });
 }
 
-/// A ZFS pool's health: "ok", or its state in the color of its severity.
+/// A ZFS pool: layout, health and space, then its troubled devices, data
+/// errors and last scrub; the name's tooltip lists every device.
+fn zfs_pool(ui: &mut Ui, pool: &ZfsPool) {
+    ui.horizontal_wrapped(|ui| {
+        let name = ui.label(colored(&pool.name, widgets::STORAGE_TITLE));
+        if !pool.devices.is_empty() {
+            name.on_hover_text(zfs_devices_text(pool));
+        }
+        ui.label("zfs");
+        if let Some(layout) = pool.layout() {
+            ui.label(layout);
+        }
+        zfs_state(ui, pool);
+        if let (Some(size), Some(allocated)) = (pool.size_bytes, pool.allocated_bytes) {
+            ui.label(dim(format!(
+                "{}/{}",
+                format::bytes(allocated),
+                format::bytes(size)
+            )));
+        }
+    });
+    if pool.devices.is_empty() && pool.scan.is_none() {
+        return;
+    }
+    ui.horizontal_wrapped(|ui| {
+        ui.add_space(12.0);
+        let data_errors = pool.data_errors.unwrap_or(0);
+        if data_errors > 0 {
+            ui.label(colored(format!("{data_errors} data errors"), BAD).strong());
+        }
+        let troubled: Vec<String> = pool
+            .troubled_devices()
+            .map(|d| {
+                if d.is_unhealthy() {
+                    format!("{} {}", d.name, d.state)
+                } else {
+                    format!("{}: {} errors", d.name, d.errors())
+                }
+            })
+            .collect();
+        if !troubled.is_empty() {
+            ui.label(colored(troubled.join(", "), BAD));
+        } else if data_errors == 0 {
+            ui.label(colored("errors 0", OK));
+        }
+        if let Some(scan) = &pool.scan {
+            let (text, severity) = rigtop_core::view::zfs_scan_summary(scan);
+            let color = match severity {
+                Some(rigtop_core::view::Severity::Critical) => BAD,
+                Some(rigtop_core::view::Severity::Warning) => WARN,
+                None => DIM,
+            };
+            ui.label(colored(format!("· {text}"), color))
+                .on_hover_text(scan);
+        }
+    });
+}
+
+/// Every vdev and device of a pool, indented, with its state and errors
+/// (read/write/checksum), like `zpool status`.
+fn zfs_devices_text(pool: &ZfsPool) -> String {
+    let mut lines = vec![format!("{} ({})", pool.name, pool.state)];
+    let mut section = String::new();
+    for device in &pool.devices {
+        if device.section != section {
+            section = device.section.clone();
+            lines.push(format!("  {section}"));
+        }
+        let indent = "  ".repeat(usize::from(device.depth) + 1);
+        let errors = if device.errors() > 0 {
+            format!(
+                "  errors {}/{}/{}",
+                device.read_errors, device.write_errors, device.checksum_errors
+            )
+        } else {
+            String::new()
+        };
+        lines.push(format!("{indent}{} {}{errors}", device.name, device.state));
+    }
+    lines.join("\n")
+}
+
+/// A ZFS pool's health: "ok", "errors" when ONLINE with errors, or its
+/// state in the color of its severity.
 pub fn zfs_state(ui: &mut Ui, pool: &ZfsPool) {
-    if pool.is_online() {
+    if pool.is_online() && pool.has_errors() {
+        ui.label(colored("errors", BAD).strong());
+    } else if pool.is_online() {
         ui.label(colored("ok", OK));
     } else if pool.is_failing() {
         ui.label(colored(&pool.state, BAD).strong());

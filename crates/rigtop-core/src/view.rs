@@ -925,6 +925,70 @@ pub fn link_rtt_text(snapshot: &Snapshot) -> Option<(String, bool)> {
 /// Hover text for [`link_rtt_text`].
 pub const LINK_RTT_HINT: &str = "round trip to the agent over SSH (every 5 s)";
 
+/// The "42.1%" of a running scan's "42.12% done".
+fn scan_percent(scan: &str) -> Option<String> {
+    let done = scan.find("% done")?;
+    let start = scan[..done].rfind(' ').map_or(0, |i| i + 1);
+    let value: f32 = scan[start..done].parse().ok()?;
+    Some(format!("{value:.1}%"))
+}
+
+/// A ZFS pool's `scan:` line made short, with how much attention it needs:
+/// "scrub Oct 31, repaired 27.7M" (warning), "scrub Oct 31, 442 errors"
+/// (critical), "resilver 42.1% done", "no scrub yet" (warning).
+pub fn zfs_scan_summary(scan: &str) -> (String, Option<Severity>) {
+    // "... on Sat Oct 31 19:33:41 2026" -> "Oct 31".
+    let date = scan.rsplit_once(" on ").map(|(_, when)| {
+        let words: Vec<&str> = when.split_whitespace().collect();
+        match words.as_slice() {
+            [_, month, day, ..] => format!("{month} {day}"),
+            _ => when.to_owned(),
+        }
+    });
+    let errors = scan
+        .split_once(" with ")
+        .and_then(|(_, rest)| rest.split_whitespace().next()?.parse::<u64>().ok())
+        .unwrap_or(0);
+    let repaired = scan
+        .split_once("repaired ")
+        .and_then(|(_, rest)| rest.split_whitespace().next())
+        .filter(|amount| *amount != "0B");
+    if scan.starts_with("none requested") {
+        return ("no scrub yet".to_owned(), Some(Severity::Warning));
+    }
+    if scan.contains("in progress") || scan.starts_with("scrub paused") {
+        let what = scan.split_whitespace().next().unwrap_or("scan");
+        let state = if scan.starts_with("scrub paused") {
+            "paused"
+        } else {
+            "running"
+        };
+        let done = scan_percent(scan).map_or(String::new(), |p| format!(" {p}"));
+        let severity = (what == "resilver").then_some(Severity::Warning);
+        return (format!("{what} {state}{done}"), severity);
+    }
+    let what = if scan.starts_with("resilvered") {
+        "resilver"
+    } else {
+        "scrub"
+    };
+    let mut text = match &date {
+        Some(date) => format!("{what} {date}"),
+        None => what.to_owned(),
+    };
+    let severity = if errors > 0 {
+        text.push_str(&format!(", {errors} errors"));
+        Some(Severity::Critical)
+    } else if let (Some(amount), "scrub") = (repaired, what) {
+        text.push_str(&format!(", repaired {amount}"));
+        Some(Severity::Warning)
+    } else {
+        text.push_str(", ok");
+        None
+    };
+    (text, severity)
+}
+
 /// Label before the pressure readings ("Stall cpu 3% mem 0% io 6%").
 pub const PRESSURE_LABEL: &str = "Stall";
 
@@ -1074,6 +1138,34 @@ pub fn alerts_with(snapshot: &Snapshot, limits: &AlertsConfig) -> Vec<Alert> {
             add(
                 Severity::Warning,
                 format!("zfs {} {}", pool.name, pool.state),
+            );
+        }
+        if let Some(errors) = pool.data_errors.filter(|e| *e > 0) {
+            add(
+                Severity::Critical,
+                format!("zfs {}: {errors} data errors", pool.name),
+            );
+        }
+        for device in pool.troubled_devices() {
+            let text = if device.is_unhealthy() {
+                format!("zfs {}: {} {}", pool.name, device.name, device.state)
+            } else {
+                format!(
+                    "zfs {}: {} has {} errors",
+                    pool.name,
+                    device.name,
+                    device.errors()
+                )
+            };
+            add(Severity::Warning, text);
+        }
+        if let Some(scan) = &pool.scan
+            && scan.starts_with("resilver in progress")
+        {
+            let done = scan_percent(scan).unwrap_or_default();
+            add(
+                Severity::Warning,
+                format!("zfs {} resilver {done}", pool.name),
             );
         }
     }
@@ -1979,14 +2071,17 @@ mod tests {
                     ZfsPool {
                         name: "tank".to_owned(),
                         state: "DEGRADED".to_owned(),
+                        ..Default::default()
                     },
                     ZfsPool {
                         name: "cold".to_owned(),
                         state: "OFFLINE".to_owned(),
+                        ..Default::default()
                     },
                     ZfsPool {
                         name: "fast".to_owned(),
                         state: "ONLINE".to_owned(),
+                        ..Default::default()
                     },
                 ],
             },
@@ -2105,6 +2200,79 @@ mod tests {
         assert!(log.update("nas", &[], 6_000).is_empty());
         let last = log.events().last().unwrap();
         assert_eq!((last.change, &last.alert), (AlertChange::Notice, &exited));
+    }
+
+    #[test]
+    fn zfs_devices_data_errors_and_scans() {
+        use crate::snapshot::{RaidStats, ZfsDevice, ZfsPool};
+        let device = |name: &str, depth, state: &str, checksum| ZfsDevice {
+            name: name.to_owned(),
+            depth,
+            state: state.to_owned(),
+            checksum_errors: checksum,
+            ..Default::default()
+        };
+        let snapshot = Snapshot {
+            raid: RaidStats {
+                zfs: vec![ZfsPool {
+                    name: "tank".to_owned(),
+                    state: "DEGRADED".to_owned(),
+                    devices: vec![
+                        device("raidz1-0", 0, "DEGRADED", 0),
+                        device("sda", 1, "ONLINE", 491),
+                        device("sdb", 1, "OFFLINE", 0),
+                        device("sdc", 1, "ONLINE", 0),
+                    ],
+                    scan: Some(
+                        "resilver in progress since Sat Oct 31 19:33:41 2026 · 42.12% done"
+                            .to_owned(),
+                    ),
+                    data_errors: Some(3),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let texts: Vec<String> = alerts(&snapshot).into_iter().map(|a| a.text).collect();
+        for expected in [
+            "zfs tank DEGRADED",
+            "zfs tank: 3 data errors",
+            "zfs tank: sda has 491 errors",
+            "zfs tank: sdb OFFLINE",
+            "zfs tank resilver 42.1%",
+        ] {
+            assert!(
+                texts.iter().any(|t| t == expected),
+                "{expected} in {texts:?}"
+            );
+        }
+
+        let summary = |s| zfs_scan_summary(s);
+        assert_eq!(
+            summary("scrub repaired 0B in 00:00:00 with 0 errors on Sat Oct 31 19:33:21 2026"),
+            ("scrub Oct 31, ok".to_owned(), None)
+        );
+        assert_eq!(
+            summary("scrub repaired 27.7M in 00:00:00 with 0 errors on Sat Oct 31 19:33:41 2026"),
+            (
+                "scrub Oct 31, repaired 27.7M".to_owned(),
+                Some(Severity::Warning)
+            )
+        );
+        assert_eq!(
+            summary("scrub repaired 22K in 00:00:00 with 442 errors on Sat Oct 31 19:33:54 2026").1,
+            Some(Severity::Critical)
+        );
+        assert_eq!(
+            summary("resilvered 36K in 00:00:00 with 0 errors on Sat Oct 31 19:33:54 2026").0,
+            "resilver Oct 31, ok"
+        );
+        assert_eq!(
+            summary("scrub paused since Sat Oct 31 19:34:09 2026 · 0B repaired, 75.76% done").0,
+            "scrub paused 75.8%"
+        );
+        assert_eq!(summary("none requested").0, "no scrub yet");
     }
 
     #[test]

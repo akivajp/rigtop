@@ -1,0 +1,19 @@
+  pool: backup
+ state: ONLINE
+  scan: scrub paused since Sat Oct 31 19:34:09 2026
+	scrub started on Sat Oct 31 19:34:09 2026
+	170K / 206K scanned, 112K / 148K issued
+	0B repaired, 75.76% done
+config:
+
+	NAME               STATE     READ WRITE CKSUM
+	backup             ONLINE       0     0     0
+	  mirror-0         ONLINE       0     0     0
+	    virtio-disk4   ONLINE       0     0     0
+	    virtio-disk5   ONLINE       0     0     0
+	logs	
+	  /var/tmp/log1    ONLINE       0     0     0
+	spares
+	  /var/tmp/spare1  AVAIL   
+
+errors: No known data errors
