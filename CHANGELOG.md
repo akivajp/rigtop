@@ -7,6 +7,14 @@ include breaking changes).
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-11-01
+
+### Changed
+- Overview cards use room to spare: first for details (the CPU model, each
+  GPU's name and power, swap in the TUI, each disk's I/O, busy share,
+  request time and temperature), then for the CPU and network history
+  graphs, which the TUI now draws too. Small cards look as before.
+
 ## [0.24.0] - 2026-11-01
 
 ### Added
@@ -21,10 +29,6 @@ include breaking changes).
   `networkd-dispatcher`), and Node.js processes named after their main
   thread (`MainThread`) show as `node`. This also helps
   `[watch] processes` match them.
-- Overview cards use room to spare: first for details (the CPU model, each
-  GPU's name and power, swap in the TUI, each disk's I/O, busy share,
-  request time and temperature), then for the CPU and network history
-  graphs, which the TUI now draws too. Small cards look as before.
 - Overview cards leave out GPUs with neither a utilization nor a memory
   reading (an Intel iGPU showed only `--%`); the host view still lists
   them.
@@ -533,7 +537,8 @@ First release.
 - Windows support (CPU, memory, processes, network with link speeds, drives,
   NVIDIA GPUs; temperatures, fans and CPU power are not available yet)
 
-[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.24.0...HEAD
+[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.25.0...HEAD
+[0.25.0]: https://github.com/akivajp/rigtop/compare/v0.24.0...v0.25.0
 [0.24.0]: https://github.com/akivajp/rigtop/compare/v0.23.0...v0.24.0
 [0.23.0]: https://github.com/akivajp/rigtop/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/akivajp/rigtop/compare/v0.21.0...v0.22.0
