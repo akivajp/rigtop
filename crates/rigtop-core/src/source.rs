@@ -143,6 +143,8 @@ pub struct LocalSource {
     containers: linux::containers::ContainerTracker,
     #[cfg(target_os = "linux")]
     oom: linux::oom::OomTracker,
+    #[cfg(target_os = "linux")]
+    battery: linux::battery::BatteryMeter,
     /// Package and core id of each logical core, read again only when the
     /// number of cores changes.
     #[cfg(target_os = "linux")]
@@ -194,6 +196,8 @@ impl LocalSource {
             containers: linux::containers::ContainerTracker::new(),
             #[cfg(target_os = "linux")]
             oom: linux::oom::OomTracker::new(),
+            #[cfg(target_os = "linux")]
+            battery: linux::battery::BatteryMeter::default(),
             #[cfg(target_os = "linux")]
             core_locations: Vec::new(),
             #[cfg(target_os = "linux")]
@@ -322,7 +326,7 @@ impl LocalSource {
                 .filter(|c| c.is_apu)
                 .flat_map(|c| c.power_w.iter().map(|(_, w)| Some(*w))),
         );
-        snapshot.power.battery = linux::battery::read_battery(&self.roots);
+        snapshot.power.battery = self.battery.read(&self.roots);
 
         // AMD and Intel GPUs after NVIDIA's; discrete ones add to GPU power.
         let first = snapshot.gpus.len() as u32;

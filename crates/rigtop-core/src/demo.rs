@@ -881,6 +881,12 @@ fn laptop(t: f64) -> Snapshot {
                 percent: Some((78.0 - t / 600.0).max(5.0) as f32),
                 status: "Discharging".to_owned(),
                 power_w: Some((soc_w + 3.0) as f32),
+                // 57 Wh designed, 44 Wh left after a few years, at a steady
+                // 12 W (the smoothed rate).
+                time_left_secs: Some(
+                    ((78.0 - t / 600.0).max(5.0) / 100.0 * 44.0 / 12.0 * 3600.0) as u64,
+                ),
+                health_percent: Some(77.0),
             }),
             ..Default::default()
         },

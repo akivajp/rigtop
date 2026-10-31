@@ -688,6 +688,9 @@ fn cpu_info_lines(app: &App, snapshot: &Snapshot) -> Vec<Line<'static>> {
     if let Some(battery) = &power.battery {
         second.push(dim("   Bat "));
         second.push(Span::raw(battery.summary()));
+        if let Some(note) = battery.health_note() {
+            second.push(colored(format!(" {note}"), WARN));
+        }
     }
     let fans: Vec<_> = snapshot
         .sensors
@@ -1784,11 +1787,13 @@ mod tests {
             percent: Some(72.0),
             status: "Discharging".to_owned(),
             power_w: Some(12.3),
+            time_left_secs: Some(9000),
+            health_percent: Some(77.0),
         });
         app.apply(Event::Snapshot(Box::new(snapshot)));
         let screen = render(&mut app, 160, 50);
         assert!(screen.contains("Power SoC 6W"), "{screen}");
-        assert!(screen.contains("Bat 72% -12W"), "{screen}");
+        assert!(screen.contains("Bat 72% -12W 2h30m health 77%"), "{screen}");
     }
 
     #[test]

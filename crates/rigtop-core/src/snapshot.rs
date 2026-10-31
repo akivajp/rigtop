@@ -384,11 +384,16 @@ pub struct BatteryStats {
     pub status: String,
     /// Charge or discharge power (not signed; see `status`).
     pub power_w: Option<f32>,
+    /// Until empty while discharging, until full while charging, at the
+    /// recent (smoothed) rate.
+    pub time_left_secs: Option<u64>,
+    /// Full charge as a share of the design capacity (wear), in percent.
+    pub health_percent: Option<f32>,
 }
 
 impl BatteryStats {
-    /// Short form for status lines: `72% -12W` while discharging, `+20W`
-    /// while charging.
+    /// Short form for status lines: `72% -12W 3h10m` while discharging
+    /// (with the time left when known), `+20W` while charging.
     pub fn summary(&self) -> String {
         let percent = self
             .percent
@@ -398,10 +403,46 @@ impl BatteryStats {
             "Charging" => "+",
             _ => return percent,
         };
-        match self.power_w {
+        let mut text = match self.power_w {
             Some(w) if w >= 0.5 => format!("{percent} {sign}{w:.0}W"),
             _ => percent,
+        };
+        if let Some(secs) = self.time_left_secs {
+            text.push(' ');
+            text.push_str(&crate::format::hours_minutes(secs));
         }
+        text
+    }
+
+    /// The health worth showing next to the charge: below 80% of the design
+    /// capacity, where batteries are usually considered worn.
+    pub fn health_note(&self) -> Option<String> {
+        self.health_percent
+            .filter(|h| *h < 80.0)
+            .map(|h| format!("health {h:.0}%"))
+    }
+
+    /// Hover text: what the time means, and the health.
+    pub fn details(&self) -> String {
+        let mut lines = Vec::new();
+        if let Some(secs) = self.time_left_secs {
+            let until = if self.status == "Charging" {
+                "full"
+            } else {
+                "empty"
+            };
+            lines.push(format!(
+                "{} until {until} at the recent rate",
+                crate::format::hours_minutes(secs)
+            ));
+        }
+        if let Some(health) = self.health_percent {
+            lines.push(format!("full charge {health:.0}% of the design capacity"));
+        }
+        if lines.is_empty() {
+            lines.push(self.status.clone());
+        }
+        lines.join("\n")
     }
 }
 

@@ -491,8 +491,12 @@ fn cpu_info(ui: &mut Ui, state: &GuiState, snapshot: &Snapshot) -> CpuRequests {
         ui.label(dim("Σ"));
         ui.label(colored(watts(power.total_w), TEXT).strong());
         if let Some(battery) = &power.battery {
-            ui.label(dim("   Bat"));
-            ui.label(battery.summary());
+            ui.label(dim("   Bat")).on_hover_text(battery.details());
+            ui.label(battery.summary()).on_hover_text(battery.details());
+            if let Some(note) = battery.health_note() {
+                ui.label(colored(note, WARN))
+                    .on_hover_text(battery.details());
+            }
         }
         let fans: Vec<_> = snapshot
             .sensors

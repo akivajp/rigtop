@@ -1667,10 +1667,12 @@ mod tests {
             percent: Some(72.0),
             status: "Charging".to_owned(),
             power_w: Some(20.0),
+            time_left_secs: Some(2700),
+            health_percent: Some(77.0),
         });
         let mut harness = harness_with(snapshot);
         harness.run();
-        for label in ["Power SoC", "72% +20W"] {
+        for label in ["Power SoC", "72% +20W 45m", "health 77%"] {
             assert!(
                 harness.query_all_by_label_contains(label).next().is_some(),
                 "missing {label:?}"

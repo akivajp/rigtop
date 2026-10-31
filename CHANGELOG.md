@@ -22,6 +22,10 @@ include breaking changes).
   these programs on every host, by name or by a file in their command line,
   and runs the command when one exits ("train.py (pid 1234) exited after
   3h12m"), whatever the `level`. Remote hosts need rigtop 0.21 or later.
+- Battery time left (Linux): until empty or full at the recent, smoothed
+  rate (`72% -12W 2h33m`), and its health, the full charge as a share of
+  the design capacity: in the tooltip, and next to the charge once below
+  80% (`health 77%`).
 - Disk request time in the storage panel (Linux): the average time a
   request took since the last sample (`0.3ms`, `12ms`), yellow from 100 ms
   and red from 500 ms, so a member of a RAID that slowed down (retrying
