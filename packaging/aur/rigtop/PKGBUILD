@@ -1,7 +1,7 @@
 # Maintainer: Akiva Miura <akiva.miura@gmail.com>
 
 pkgname=rigtop
-pkgver=0.22.0
+pkgver=0.23.0
 pkgrel=1
 pkgdesc='System monitor for workstations, laptops and NAS (TUI and native GUI), a btop alternative with storage health, GPU usage and many hosts over SSH'
 arch=('x86_64' 'aarch64')
@@ -17,7 +17,7 @@ optdepends=('smartmontools: SMART data (set up with sudo rigtop --install-collec
             'openssh: monitoring remote hosts')
 options=('!lto')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz")
-sha256sums=('98b2c7f695ce690bacb60b06de747951a129d704d702bad7aac80eade79482ee')
+sha256sums=('803b22cadacc4e867e5d787f78c6659fb3fef5f78f5bb5142dd4c6a8145f0bb0')
 
 prepare() {
   cd "$pkgname-$pkgver"
