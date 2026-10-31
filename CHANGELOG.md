@@ -7,6 +7,13 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Changed
+- Process names cut to 15 characters by Linux (`gnome-keyring-d`) show in
+  full from the command line (`gnome-keyring-daemon`, also scripts such as
+  `networkd-dispatcher`), and Node.js processes named after their main
+  thread (`MainThread`) show as `node`. This also helps
+  `[watch] processes` match them.
+
 ## [0.23.0] - 2026-11-01
 
 ### Added

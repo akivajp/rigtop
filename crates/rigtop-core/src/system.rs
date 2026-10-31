@@ -325,10 +325,18 @@ impl SystemCollector {
                     .map(|arg| arg.to_string_lossy())
                     .collect::<Vec<_>>()
                     .join(" ");
+                let name = p.name().to_string_lossy();
+                let leading: Vec<_> = p
+                    .cmd()
+                    .iter()
+                    .take(2)
+                    .map(|a| a.to_string_lossy())
+                    .collect();
+                let leading: Vec<&str> = leading.iter().map(|a| a.as_ref()).collect();
                 ProcessInfo {
                     pid: p.pid().as_u32(),
                     parent_pid: p.parent().map(|pid| pid.as_u32()),
-                    name: p.name().to_string_lossy().into_owned(),
+                    name: full_name(&name, &leading),
                     command,
                     user,
                     state: p.status().to_string(),
@@ -409,9 +417,94 @@ fn rate(bytes: u64, elapsed_secs: Option<f64>) -> f64 {
     }
 }
 
+/// Longest process name Linux keeps (`TASK_COMM_LEN` minus the NUL);
+/// longer ones are cut, e.g. `gnome-keyring-d` for `gnome-keyring-daemon`.
+const COMM_LEN: usize = 15;
+
+/// The name to show for a process: its kernel name, unless that is cut
+/// short (Linux keeps 15 bytes) or a thread name its program set for its
+/// main thread (`MainThread` in Node.js), where the file name of the
+/// program in its command line says more. `leading` is the start of the
+/// command line: the program, then (for a script) the script.
+fn full_name(name: &str, leading: &[&str]) -> String {
+    let file = |arg: &str| {
+        arg.rsplit(['/', '\\'])
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .to_owned()
+    };
+    if name == "MainThread"
+        && let Some(program) = leading.first().map(|a| file(a)).filter(|f| !f.is_empty())
+    {
+        return program;
+    }
+    // A script's name is the kernel name too: `python3 /usr/bin/networkd-dispatcher`.
+    if cfg!(target_os = "linux") && name.len() == COMM_LEN {
+        for arg in leading {
+            let file = file(arg);
+            if file.len() > name.len() && file.starts_with(name) {
+                return file;
+            }
+        }
+    }
+    name.to_owned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn names_cut_short_or_renamed_take_the_program_file() {
+        let linux = cfg!(target_os = "linux");
+        let cut = full_name(
+            "gnome-keyring-d",
+            &["/usr/bin/gnome-keyring-daemon", "--start"],
+        );
+        assert_eq!(
+            cut,
+            if linux {
+                "gnome-keyring-daemon"
+            } else {
+                "gnome-keyring-d"
+            }
+        );
+        let script = full_name(
+            "networkd-dispat",
+            &["/usr/bin/python3", "/usr/bin/networkd-dispatcher"],
+        );
+        assert_eq!(
+            script,
+            if linux {
+                "networkd-dispatcher"
+            } else {
+                "networkd-dispat"
+            }
+        );
+        assert_eq!(
+            full_name("MainThread", &["/usr/local/bin/node", "server.js"]),
+            "node"
+        );
+        // A name that fits stays, whatever the command line says.
+        assert_eq!(full_name("python3", &["/usr/bin/python3.12"]), "python3");
+        // Programs that rewrite their command line (setproctitle) keep the
+        // kernel name: the line no longer starts with the program.
+        assert_eq!(
+            full_name(
+                "Isolated Web Co",
+                &["/usr/lib/firefox/firefox", "-contentproc"]
+            ),
+            "Isolated Web Co"
+        );
+        assert_eq!(
+            full_name("postgres", &["postgres: checkpointer"]),
+            "postgres"
+        );
+        // Kernel threads have no command line.
+        assert_eq!(full_name("kworker/0:1H-ev", &[]), "kworker/0:1H-ev");
+        assert_eq!(full_name("MainThread", &[]), "MainThread");
+    }
 
     #[test]
     fn cpu_sensor_labels() {
