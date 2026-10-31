@@ -64,6 +64,9 @@ pub struct App {
     pub details: bool,
     /// Processes to announce when they exit (`x`).
     pub exit_watch: ExitWatch,
+    /// [`rigtop_core::view::alert_key`]s of this host's snoozed alerts,
+    /// left out of [`App::alerts`].
+    pub snoozed_keys: Vec<String>,
     /// Process table geometry from the last frame.
     pub proc_hit: Option<ProcTableHit>,
     status: Option<(String, Instant)>,
@@ -108,6 +111,7 @@ impl App {
             confirm: None,
             details: false,
             exit_watch: ExitWatch::default(),
+            snoozed_keys: Vec::new(),
             proc_hit: None,
             status: None,
             interval,
@@ -121,6 +125,14 @@ impl App {
             alerts_unread: None,
             release_note: None,
         }
+    }
+
+    /// The alerts of `snapshot` under this host's thresholds, without the
+    /// snoozed ones: what status dots and boxes show.
+    pub fn alerts(&self, snapshot: &Snapshot) -> Vec<rigtop_core::view::Alert> {
+        let mut alerts = rigtop_core::view::alerts_with(snapshot, &self.config.alerts);
+        alerts.retain(|a| !self.snoozed_keys.contains(&rigtop_core::view::alert_key(a)));
+        alerts
     }
 
     /// Applies a message from the worker.

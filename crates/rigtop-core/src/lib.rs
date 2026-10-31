@@ -9,6 +9,7 @@
 //! - [`agent`], [`remote`]: remote monitoring over SSH (`rigtop --agent` and
 //!   the [`remote::RemoteSource`] that talks to it).
 //! - [`demo`]: made-up hosts for trying the interface (`--demo`).
+//! - [`snooze`]: alerts silenced for a while, shared by the front-ends.
 //! - [`worker`], [`view`], [`format`]: front-end helpers shared by the TUI
 //!   and the GUI (background polling thread, process table logic, units).
 
@@ -27,6 +28,7 @@ pub mod linux;
 pub mod remote;
 pub mod smart;
 pub mod snapshot;
+pub mod snooze;
 pub mod source;
 pub mod system;
 pub mod update;

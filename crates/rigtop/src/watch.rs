@@ -18,6 +18,7 @@ use chrono::Local;
 use rigtop_core::config::{ConfigWatcher, NotifyLevel, WatchConfig};
 use rigtop_core::hosts::HostSpec;
 use rigtop_core::snapshot::Snapshot;
+use rigtop_core::snooze::{Snoozes, snooze_path};
 use rigtop_core::update::version_at_least;
 use rigtop_core::view::{
     Alert, AlertChange, AlertEvent, AlertLog, ExitWatch, Severity, alert_log_path, alerts_with,
@@ -128,6 +129,9 @@ struct Watched {
     exits: ExitWatch,
     /// The host was told its rigtop is too old to find processes by name.
     told_too_old: bool,
+    /// The name its alerts are snoozed under (the machine's own name for
+    /// "local", as in the TUI and the GUI), once a snapshot told it.
+    alert_name: Option<String>,
 }
 
 impl Watched {
@@ -144,6 +148,7 @@ impl Watched {
             state,
             exits: ExitWatch::default(),
             told_too_old: false,
+            alert_name: None,
         }
     }
 
@@ -216,6 +221,11 @@ pub fn run(
         Some(path) => AlertLog::persistent(path),
         None => AlertLog::default(),
     };
+    // Alerts snoozed in the TUI or the GUI are not sent either.
+    let mut snoozes = match snooze_path() {
+        Some(path) => Snoozes::persistent(path),
+        None => Snoozes::default(),
+    };
 
     let now = SystemTime::now();
     let mut hosts: Vec<Watched> = specs(&config)
@@ -228,6 +238,7 @@ pub fn run(
     loop {
         thread::sleep(TICK);
         let now = SystemTime::now();
+        snoozes.reload();
 
         // An edited configuration applies without a restart.
         if let Some(result) = watcher.as_mut().and_then(ConfigWatcher::poll) {
@@ -249,8 +260,15 @@ pub fn run(
             while let Some(event) = host.worker.try_recv() {
                 match event {
                     Event::Snapshot(snapshot) => {
-                        host.state
-                            .on_snapshot(alerts_with(&snapshot, &host.spec.alerts), now);
+                        let alerts = alerts_with(&snapshot, &host.spec.alerts);
+                        let name = if host.spec.is_local() {
+                            snapshot.host.hostname.clone()
+                        } else {
+                            host.spec.name.clone()
+                        };
+                        snoozes.prune(&name, &alerts, millis(now));
+                        host.alert_name = Some(name);
+                        host.state.on_snapshot(alerts, now);
                         exits.extend(host.check_processes(&snapshot, &config.watch.processes, now));
                         changed = true;
                     }
@@ -262,8 +280,11 @@ pub fn run(
             if !changed {
                 continue;
             }
-            let mut events =
-                log.update(&host.state.name, &host.state.current_alerts(), millis(now));
+            let (alerts, snoozed) = match &host.alert_name {
+                Some(name) => snoozes.split(name, host.state.current_alerts(), millis(now)),
+                None => (host.state.current_alerts(), Vec::new()),
+            };
+            let mut events = log.update_snoozed(&host.state.name, &alerts, &snoozed, millis(now));
             // Exits are one-off notices, not alerts that clear.
             for alert in exits {
                 events.push(log.record(&host.state.name, alert, millis(now)));

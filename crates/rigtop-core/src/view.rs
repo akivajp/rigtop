@@ -483,6 +483,24 @@ impl AlertLog {
         new_events
     }
 
+    /// [`AlertLog::update`] for `alerts` that leave out `snoozed` ones (see
+    /// [`crate::snooze`]): an alert snoozed while it was raised leaves
+    /// quietly instead of logging "cleared", and is raised again if it is
+    /// still there when the snooze ends.
+    pub fn update_snoozed(
+        &mut self,
+        host: &str,
+        alerts: &[Alert],
+        snoozed: &[Alert],
+        at_ms: u64,
+    ) -> Vec<AlertEvent> {
+        if let Some(previous) = self.active.get_mut(host) {
+            let quiet: HashSet<String> = snoozed.iter().map(alert_key).collect();
+            previous.retain(|a| !quiet.contains(&alert_key(a)));
+        }
+        self.update(host, alerts, at_ms)
+    }
+
     /// Records a one-off event of `host` ([`AlertChange::Notice`]), such as
     /// a watched process exiting, and returns it.
     pub fn record(&mut self, host: &str, alert: Alert, at_ms: u64) -> AlertEvent {
@@ -1919,6 +1937,34 @@ mod tests {
         let week_ago = now - Duration::from_secs(10 * 86_400);
         assert!(event_time(ms(week_ago), now).contains(' '));
         assert_ne!(event_time(ms(week_ago), now).len(), 8);
+    }
+
+    #[test]
+    fn snoozing_a_raised_alert_logs_no_clearing() {
+        let disk = Alert {
+            severity: Severity::Warning,
+            text: "sdc: SMART warning".to_owned(),
+        };
+        let mut log = AlertLog::default();
+        assert_eq!(log.update("nas", std::slice::from_ref(&disk), 1).len(), 1);
+        // Snoozed: it leaves quietly.
+        assert!(
+            log.update_snoozed("nas", &[], std::slice::from_ref(&disk), 2)
+                .is_empty()
+        );
+        assert!(
+            log.update_snoozed("nas", &[], std::slice::from_ref(&disk), 3)
+                .is_empty()
+        );
+        // The snooze ended with the alert still there: raised again.
+        let events = log.update_snoozed("nas", std::slice::from_ref(&disk), &[], 4);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].change, AlertChange::Raised);
+        // A real clearing is still logged.
+        assert_eq!(
+            log.update_snoozed("nas", &[], &[], 5)[0].change,
+            AlertChange::Cleared
+        );
     }
 
     #[test]

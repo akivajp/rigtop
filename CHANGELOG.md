@@ -22,6 +22,12 @@ include breaking changes).
   these programs on every host, by name or by a file in their command line,
   and runs the command when one exits ("train.py (pid 1234) exited after
   3h12m"), whatever the `level`. Remote hosts need rigtop 0.21 or later.
+- Snooze alerts for 1 hour, 1 day or until they clear: from the list of
+  current alerts at the top of the alert window ("alerts…" in the GUI, `a`
+  then `z` in the TUI). Snoozed alerts leave status dots, cards,
+  notifications and the `rigtop --watch` command (the front-ends share the
+  list in `~/.local/state/rigtop/snoozed.json`) without logging a clearing,
+  and are announced again if still there when the snooze ends.
 - Pause and resume processes (SIGSTOP / SIGCONT), and change their
   priority by 5 nice steps: `p`, `]` and `[` in the TUI, the right-click
   menu in the GUI (Linux, macOS). Pausing asks first; paused processes are

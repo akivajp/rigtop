@@ -12,6 +12,7 @@ use rigtop_core::config::{ConfigWatcher, HostConfig, OverviewSection, SensorConf
 use rigtop_core::demo::DemoSource;
 use rigtop_core::hosts::{HostKind, HostSpec, host_specs};
 use rigtop_core::remote::RemoteSource;
+use rigtop_core::snooze::Snoozes;
 use rigtop_core::update::ReleaseChecker;
 use rigtop_core::view::{
     AlertLog, ExitWatch, GraphSpan, MetricHistory, ProcessQuery, ProcessRow, Severity, SortKey,
@@ -198,10 +199,21 @@ pub struct GuiState {
     pub remote: bool,
     /// The LibreHardwareMonitor setup window (Windows).
     pub lhm_setup: LhmSetup,
+    /// [`rigtop_core::view::alert_key`]s of this host's snoozed alerts,
+    /// left out of [`GuiState::alerts`].
+    pub snoozed_keys: Vec<String>,
     status: Option<(String, Instant)>,
 }
 
 impl GuiState {
+    /// The alerts of `snapshot` under this host's thresholds, without the
+    /// snoozed ones: what status dots and cards show.
+    pub fn alerts(&self, snapshot: &Snapshot) -> Vec<rigtop_core::view::Alert> {
+        let mut alerts = rigtop_core::view::alerts_with(snapshot, &self.config.alerts);
+        alerts.retain(|a| !self.snoozed_keys.contains(&rigtop_core::view::alert_key(a)));
+        alerts
+    }
+
     /// Creates an empty state.
     pub fn new(config: Config) -> Self {
         Self {
@@ -233,6 +245,7 @@ impl GuiState {
             interval: Duration::from_secs(1),
             is_local: false,
             remote: false,
+            snoozed_keys: Vec::new(),
             lhm_setup: LhmSetup::default(),
             status: None,
         }
@@ -358,6 +371,16 @@ pub struct HostEntry {
 }
 
 impl HostEntry {
+    /// The name alerts of this host are logged and snoozed under: the
+    /// machine's own name for "local", else the configured one.
+    fn alert_name(&self) -> Option<String> {
+        if self.spec.is_local() {
+            Some(self.state.snapshot.as_ref()?.host.hostname.clone())
+        } else {
+            Some(self.spec.name.clone())
+        }
+    }
+
     /// Applies queued events; returns true if a snapshot was among them.
     fn drain(&mut self) -> bool {
         let mut snapshot = false;
@@ -442,6 +465,8 @@ pub struct RigtopApp {
     exe: Option<PathBuf>,
     /// Alerts of every host as they appeared and cleared.
     alert_log: AlertLog,
+    /// Snoozed alerts, shared with the other front-ends through a file.
+    snoozes: Snoozes,
     alert_log_open: bool,
     /// Desktop notifications for new alerts.
     notifier: Notifier,
@@ -499,6 +524,9 @@ impl RigtopApp {
         if !demo && let Some(path) = rigtop_core::view::alert_log_path("gui") {
             app.alert_log = AlertLog::persistent(path);
         }
+        if !demo && let Some(path) = rigtop_core::snooze::snooze_path() {
+            app.snoozes = Snoozes::persistent(path);
+        }
         app.release_checker = app
             .config
             .updates
@@ -548,6 +576,7 @@ impl RigtopApp {
             release_announced: None,
             exe: None,
             alert_log: AlertLog::default(),
+            snoozes: Snoozes::default(),
             alert_log_open: false,
             notifier,
             widgets: Vec::new(),
@@ -888,6 +917,38 @@ impl RigtopApp {
         &mut self.hosts[0].state
     }
 
+    /// Picks up snoozes made elsewhere and ended snoozes, for every host.
+    fn refresh_snoozes(&mut self) {
+        self.snoozes.reload();
+        let now_ms = now_millis();
+        for host in &mut self.hosts {
+            if let Some(name) = host.alert_name() {
+                host.state.snoozed_keys = self.snoozes.keys(&name, now_ms);
+            }
+        }
+    }
+
+    /// Every host's alerts as they stand, snoozed ones included, for the
+    /// alert window.
+    fn current_alerts(&self) -> Vec<alert_log::CurrentAlert> {
+        let now_ms = now_millis();
+        let mut current = Vec::new();
+        for host in &self.hosts {
+            let (Some(name), Some(snapshot)) = (host.alert_name(), &host.state.snapshot) else {
+                continue;
+            };
+            for alert in rigtop_core::view::alerts_with(snapshot, &host.state.config.alerts) {
+                let snoozed = self.snoozes.get(&name, &alert, now_ms).map(|s| s.until_ms);
+                current.push(alert_log::CurrentAlert {
+                    host: name.clone(),
+                    alert,
+                    snoozed,
+                });
+            }
+        }
+        current
+    }
+
     /// Applies everything the workers have sent since the last call, and
     /// announces alerts that are new in the fresh snapshots.
     fn drain_events(&mut self) {
@@ -909,7 +970,11 @@ impl RigtopApp {
             let now_ms = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_millis() as u64);
-            self.alert_log.update(name, &alerts, now_ms);
+            self.snoozes.prune(name, &alerts, now_ms);
+            let (alerts, snoozed) = self.snoozes.split(name, alerts, now_ms);
+            host.state.snoozed_keys = self.snoozes.keys(name, now_ms);
+            self.alert_log
+                .update_snoozed(name, &alerts, &snoozed, now_ms);
             for alert in self.notifier.new_alerts(&host.spec.name, &alerts) {
                 // Tests run without workers (and without notifications).
                 if self.repaint.is_some() {
@@ -944,6 +1009,7 @@ impl RigtopApp {
             set_zoom(&ctx, ctx.zoom_factor() * wheel_zoom);
         }
         self.zoom = ctx.zoom_factor();
+        self.refresh_snoozes();
         self.drain_events();
         let release = self.release_note();
         if let View::Host(index) = self.view
@@ -1077,7 +1143,19 @@ impl RigtopApp {
         if let Some(sensors) = sensors {
             self.save_sensors(sensors);
         }
-        alert_log::show(&ctx, &mut self.alert_log_open, &mut self.alert_log);
+        let current = self.current_alerts();
+        for (host, alert, snooze) in alert_log::show(
+            &ctx,
+            &mut self.alert_log_open,
+            &mut self.alert_log,
+            &current,
+        ) {
+            let now_ms = now_millis();
+            match snooze {
+                Some(duration) => self.snoozes.snooze(&host, &alert, duration, now_ms),
+                None => self.snoozes.unsnooze(&host, &alert),
+            }
+        }
         match self
             .update_dialog
             .show(&ctx, &self.hosts, self.exe.as_deref())
@@ -1366,6 +1444,13 @@ impl egui_tiles::Behavior<Pane> for Behavior<'_> {
     fn gap_width(&self, _style: &egui::Style) -> f32 {
         4.0
     }
+}
+
+/// This machine's clock in milliseconds since the Unix epoch.
+fn now_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64)
 }
 
 #[cfg(test)]
@@ -1659,6 +1744,33 @@ mod tests {
         harness.get_by_label("include this machine").click();
         harness.run();
         assert!(!harness.state().overview.include_local);
+    }
+
+    #[test]
+    fn alerts_window_snoozes_an_alert() {
+        let mut snapshot = sample_snapshot();
+        snapshot.failed_units = vec!["backup.service".to_owned()];
+        let mut harness = harness_with(snapshot);
+        harness.state_mut().alert_log_open = true;
+        harness.run();
+        let shown = |app: &RigtopApp| {
+            let state = app.primary();
+            state.alerts(state.snapshot.as_ref().unwrap()).len()
+        };
+        let before = shown(harness.state());
+        assert!(before > 0);
+        harness.query_all_by_label("1 hour").next().unwrap().click();
+        harness.run();
+        harness.run();
+        let app = harness.state();
+        assert_eq!(app.snoozes.entries().len(), 1);
+        assert_eq!(shown(app), before - 1, "left out of cards and dots");
+        // The window offers to end it.
+        harness.get_by_label("unsnooze").click();
+        harness.run();
+        harness.run();
+        assert!(harness.state().snoozes.entries().is_empty());
+        assert_eq!(shown(harness.state()), before);
     }
 
     #[test]

@@ -1,8 +1,10 @@
-//! A window listing the alerts of every host as they appeared and cleared
-//! (kept between runs), to see what happened while nobody watched.
+//! A window with the alerts of every host now, to snooze them, and as they
+//! appeared and cleared (kept between runs), to see what happened while
+//! nobody watched.
 
 use egui::{RichText, Ui};
-use rigtop_core::view::{AlertChange, AlertLog, Severity, event_time};
+use rigtop_core::snooze::SnoozeFor;
+use rigtop_core::view::{Alert, AlertChange, AlertLog, Severity, event_time};
 
 use crate::app::ViewAction;
 use crate::widgets::{BAD, DIM, TEXT, WARN};
@@ -29,10 +31,28 @@ pub fn button(ui: &mut Ui, unread: (usize, Option<Severity>), actions: &mut Vec<
     }
 }
 
+/// An alert a host has now, and its snooze: `None` when not snoozed,
+/// `Some(None)` until it clears, `Some(Some(ms))` until then.
+pub struct CurrentAlert {
+    pub host: String,
+    pub alert: Alert,
+    pub snoozed: Option<Option<u64>>,
+}
+
+/// A snooze to make (`Some`) or end (`None`).
+pub type SnoozeAction = (String, Alert, Option<SnoozeFor>);
+
 /// Draws the window while `open`; showing it marks the alerts as read.
-pub fn show(ctx: &egui::Context, open: &mut bool, log: &mut AlertLog) {
+/// Returns the snoozes asked for.
+pub fn show(
+    ctx: &egui::Context,
+    open: &mut bool,
+    log: &mut AlertLog,
+    current: &[CurrentAlert],
+) -> Vec<SnoozeAction> {
+    let mut actions = Vec::new();
     if !*open {
-        return;
+        return actions;
     }
     log.mark_read();
     let screen = ctx.content_rect();
@@ -43,7 +63,66 @@ pub fn show(ctx: &egui::Context, open: &mut bool, log: &mut AlertLog) {
         .collapsible(false)
         .resizable(true)
         .default_width(560.0)
-        .show(ctx, |ui| contents(ui, log, screen.height()));
+        .show(ctx, |ui| {
+            now_section(ui, current, &mut actions);
+            contents(ui, log, screen.height());
+        });
+    actions
+}
+
+/// The alerts of now, each with its snooze buttons.
+fn now_section(ui: &mut Ui, current: &[CurrentAlert], actions: &mut Vec<SnoozeAction>) {
+    ui.label(RichText::new("Now").color(TEXT).strong());
+    if current.is_empty() {
+        ui.label(RichText::new("No alerts.").color(DIM));
+        ui.separator();
+        return;
+    }
+    let now = std::time::SystemTime::now();
+    egui::Grid::new("alerts_now")
+        .striped(true)
+        .num_columns(3)
+        .spacing([12.0, 3.0])
+        .show(ui, |ui| {
+            for item in current {
+                ui.label(RichText::new(&item.host).color(TEXT));
+                match item.snoozed {
+                    None => {
+                        ui.label(
+                            RichText::new(&item.alert.text)
+                                .color(severity_color(item.alert.severity)),
+                        );
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new("snooze").color(DIM));
+                            for duration in SnoozeFor::ALL {
+                                if ui.small_button(duration.label()).clicked() {
+                                    actions.push((
+                                        item.host.clone(),
+                                        item.alert.clone(),
+                                        Some(duration),
+                                    ));
+                                }
+                            }
+                        });
+                    }
+                    Some(until) => {
+                        let until = match until {
+                            Some(ms) => format!("until {}", event_time(ms, now)),
+                            None => "until it clears".to_owned(),
+                        };
+                        ui.label(
+                            RichText::new(format!("{} (snoozed {until})", item.alert.text))
+                                .color(DIM),
+                        );
+                        if ui.small_button("unsnooze").clicked() {
+                            actions.push((item.host.clone(), item.alert.clone(), None));
+                        }
+                    }
+                }
+                ui.end_row();
+            }
+        });
+    ui.separator();
 }
 
 fn contents(ui: &mut Ui, log: &AlertLog, screen_height: f32) {
@@ -51,7 +130,7 @@ fn contents(ui: &mut Ui, log: &AlertLog, screen_height: f32) {
         ui.label(RichText::new("No alerts yet.").color(DIM));
         return;
     }
-    ui.label(RichText::new("Newest first.").color(DIM));
+    ui.label(RichText::new("History, newest first.").color(DIM));
     ui.add_space(4.0);
     let now = std::time::SystemTime::now();
     egui::ScrollArea::vertical()

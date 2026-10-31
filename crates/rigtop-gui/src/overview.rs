@@ -5,11 +5,10 @@ use std::time::Duration;
 
 use egui::text::LayoutJob;
 use egui::{Align, Color32, FontId, Layout, RichText, Sense, TextFormat, Ui, vec2};
-use rigtop_core::config::AlertsConfig;
 use rigtop_core::config::OverviewSection;
 use rigtop_core::format;
 use rigtop_core::snapshot::Snapshot;
-use rigtop_core::view::{Severity, alerts_with, attention_rank};
+use rigtop_core::view::{Severity, attention_rank};
 
 use crate::app::{HostEntry, OverviewSettings, ViewAction};
 use crate::widgets::{self, BAD, BORDER, DIM, OK, TEXT, WARN, percent_color, temperature_color};
@@ -54,7 +53,8 @@ pub fn host_status(host: &HostEntry) -> (Color32, String) {
         }
         Some(_) => {
             let critical = state.snapshot.as_ref().is_some_and(|s| {
-                alerts_with(s, &state.config.alerts)
+                state
+                    .alerts(s)
                     .iter()
                     .any(|a| a.severity == Severity::Critical)
             });
@@ -73,7 +73,7 @@ fn attention(host: &HostEntry) -> u8 {
     let alerts = state
         .snapshot
         .as_ref()
-        .map(|s| alerts_with(s, &state.config.alerts))
+        .map(|s| state.alerts(s))
         .unwrap_or_default();
     let stale = state
         .last_update
@@ -335,7 +335,7 @@ fn card(
                     .unwrap_or_else(|| "disconnected".to_owned());
                 ui.label(colored(format!("{note}: {error}"), WARN));
             }
-            alert_lines(ui, snapshot, &host.state.config.alerts);
+            alert_lines(ui, snapshot, &host.state);
             let graphs = graph_heights(ui.available_height(), snapshot, sections, processes);
             for &section in sections {
                 if ui.available_height() < section_min_height(section) {
@@ -469,8 +469,8 @@ fn sections_menu(
     result
 }
 
-fn alert_lines(ui: &mut Ui, snapshot: &Snapshot, limits: &AlertsConfig) {
-    let alerts = alerts_with(snapshot, limits);
+fn alert_lines(ui: &mut Ui, snapshot: &Snapshot, state: &crate::app::GuiState) {
+    let alerts = state.alerts(snapshot);
     for alert in alerts.iter().take(MAX_ALERTS) {
         let color = match alert.severity {
             Severity::Critical => BAD,

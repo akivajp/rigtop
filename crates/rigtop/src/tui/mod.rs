@@ -51,6 +51,16 @@ pub struct HostTui {
 }
 
 impl HostTui {
+    /// The name alerts of this host are logged and snoozed under: the
+    /// machine's own name for "local", else the configured one.
+    pub fn alert_name(&self) -> Option<String> {
+        if self.spec.is_local() {
+            Some(self.app.snapshot.as_ref()?.host.hostname.clone())
+        } else {
+            Some(self.spec.name.clone())
+        }
+    }
+
     /// Starts collecting from `spec`.
     fn start(spec: HostSpec, config: &Config, interval: Duration) -> Self {
         let worker = spawn_worker(&spec, config, interval);
@@ -185,6 +195,9 @@ pub fn run(
         .any(|h| matches!(h.spec.kind, HostKind::Demo(_)));
     if !demo && let Some(path) = rigtop_core::view::alert_log_path("tui") {
         screen.alert_log.log = rigtop_core::view::AlertLog::persistent(path);
+    }
+    if !demo && let Some(path) = rigtop_core::snooze::snooze_path() {
+        screen.alert_log.snoozes = rigtop_core::snooze::Snoozes::persistent(path);
     }
     let mut reload = Reload {
         watcher: config_path.map(ConfigWatcher::new),
@@ -325,6 +338,7 @@ fn event_loop(
                 dirty = true;
             }
         }
+        screen.alert_log.refresh(hosts);
         // With one host there is no tab bar; its CPU box shows new alerts.
         let unread = screen.alert_log.log.unread();
         if !multi {
