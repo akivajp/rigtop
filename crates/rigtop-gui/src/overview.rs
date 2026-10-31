@@ -377,18 +377,20 @@ fn card(
                 ui.label(colored(format!("{note}: {error}"), WARN));
             }
             alert_lines(ui, snapshot, &host.state);
-            let graphs = graph_heights(ui.available_height(), snapshot, sections, processes);
+            let graphs = card_layout(ui.available_height(), snapshot, sections, processes);
             for &section in sections {
                 if ui.available_height() < section_min_height(section) {
                     break;
                 }
                 match section {
-                    OverviewSection::Cpu => cpu_section(ui, host, snapshot, graphs.cpu),
-                    OverviewSection::Gpu => gpu_section(ui, snapshot),
+                    OverviewSection::Cpu => {
+                        cpu_section(ui, host, snapshot, graphs.cpu, graphs.cpu_model)
+                    }
+                    OverviewSection::Gpu => gpu_section(ui, snapshot, graphs.gpu_names),
                     OverviewSection::Memory => memory_section(ui, snapshot),
                     OverviewSection::Processes => process_section(ui, snapshot, processes),
                     OverviewSection::Network => network_section(ui, host, snapshot, graphs.network),
-                    OverviewSection::Storage => storage_section(ui, snapshot),
+                    OverviewSection::Storage => storage_section(ui, snapshot, graphs.disks),
                 }
                 ui.add_space(3.0);
             }
@@ -396,11 +398,22 @@ fn card(
     response
 }
 
-/// Heights of the history graphs on a card.
-struct GraphHeights {
+/// What a card shows beyond the essentials, by the room it has: detail
+/// rows first, then the history graphs.
+struct CardLayout {
+    /// Heights of the CPU and network history graphs (0: none).
     cpu: f32,
     network: f32,
+    /// The CPU model under its meter.
+    cpu_model: bool,
+    /// Each GPU's name and power above its meter.
+    gpu_names: bool,
+    /// Each disk's I/O under the filesystems.
+    disks: bool,
 }
+
+/// Disks listed with their I/O when a card has room.
+const MAX_DISKS: usize = 4;
 
 /// Rows the text of a section takes (graphs excluded).
 fn section_rows(section: OverviewSection, snapshot: &Snapshot, processes: usize) -> usize {
@@ -415,21 +428,39 @@ fn section_rows(section: OverviewSection, snapshot: &Snapshot, processes: usize)
     }
 }
 
-/// Splits the height left after the text of all sections between the CPU
-/// and network graphs (3:2), so tall cards show longer history instead of
-/// empty space. Graphs of sections that are not shown get nothing.
-fn graph_heights(
+/// Uses the height left after the text of all sections: detail rows
+/// (CPU model, GPU names, disk I/O) section by section while they fit, then
+/// the CPU and network graphs (3:2), so tall cards show more instead of
+/// empty space. Sections that are not shown get nothing.
+fn card_layout(
     available: f32,
     snapshot: &Snapshot,
     sections: &[OverviewSection],
     processes: usize,
-) -> GraphHeights {
+) -> CardLayout {
     let rows: usize = sections
         .iter()
         .map(|&s| section_rows(s, snapshot, processes))
         .sum();
     let text = rows as f32 * ROW + sections.len() as f32 * 3.0;
-    let spare = (available - text - 8.0).max(0.0);
+    let mut spare = (available - text - 8.0).max(0.0);
+    let (mut cpu_model, mut gpu_names, mut disks) = (false, false, false);
+    for &section in sections {
+        let (rows, flag) = match section {
+            OverviewSection::Cpu if !snapshot.cpu.model.trim().is_empty() => (1, &mut cpu_model),
+            OverviewSection::Gpu => (
+                rigtop_core::view::card_gpus(snapshot).count(),
+                &mut gpu_names,
+            ),
+            OverviewSection::Storage => (snapshot.disks.len().min(MAX_DISKS), &mut disks),
+            _ => continue,
+        };
+        let height = rows as f32 * ROW;
+        if rows > 0 && height <= spare {
+            spare -= height;
+            *flag = true;
+        }
+    }
     let has_cpu = sections.contains(&OverviewSection::Cpu);
     let has_net = sections.contains(&OverviewSection::Network);
     let (cpu_share, net_share) = match (has_cpu, has_net) {
@@ -443,9 +474,12 @@ fn graph_heights(
         let height = (spare * share).min(cap);
         if height >= 18.0 { height } else { 0.0 }
     };
-    GraphHeights {
+    CardLayout {
         cpu: size(cpu_share, 400.0),
         network: size(net_share, 260.0),
+        cpu_model,
+        gpu_names,
+        disks,
     }
 }
 
@@ -539,7 +573,7 @@ fn meter_row(ui: &mut Ui, label: &str, ratio: f32, value: RichText) {
     });
 }
 
-fn cpu_section(ui: &mut Ui, host: &HostEntry, snapshot: &Snapshot, graph_height: f32) {
+fn cpu_section(ui: &mut Ui, host: &HostEntry, snapshot: &Snapshot, graph_height: f32, model: bool) {
     let cpu = &snapshot.cpu;
     meter_row(
         ui,
@@ -554,6 +588,9 @@ fn cpu_section(ui: &mut Ui, host: &HostEntry, snapshot: &Snapshot, graph_height:
             percent_color(cpu.total_percent),
         ),
     );
+    if model {
+        ui.add(egui::Label::new(dim(cpu.model.trim())).truncate());
+    }
     ui.horizontal_wrapped(|ui| {
         for temp in &cpu.temperatures {
             if host.state.config.is_hidden(&temp.key) {
@@ -597,8 +634,14 @@ fn cpu_section(ui: &mut Ui, host: &HostEntry, snapshot: &Snapshot, graph_height:
     }
 }
 
-fn gpu_section(ui: &mut Ui, snapshot: &Snapshot) {
+fn gpu_section(ui: &mut Ui, snapshot: &Snapshot, names: bool) {
     for gpu in rigtop_core::view::card_gpus(snapshot) {
+        if names {
+            ui.horizontal(|ui| {
+                ui.add_space(48.0);
+                ui.add(egui::Label::new(dim(rigtop_core::view::gpu_detail(gpu))).truncate());
+            });
+        }
         let util = gpu.utilization_percent.unwrap_or(0.0);
         let mut value = format::percent(gpu.utilization_percent);
         if let (Some(used), Some(total)) = (gpu.memory_used_bytes, gpu.memory_total_bytes) {
@@ -740,7 +783,32 @@ fn network_section(ui: &mut Ui, host: &HostEntry, snapshot: &Snapshot, graph_hei
     }
 }
 
-fn storage_section(ui: &mut Ui, snapshot: &Snapshot) {
+/// One disk's I/O: "nvme0n1  R 1.2M/s  W 40K/s  3%  0.4ms  52°C".
+fn disk_row(ui: &mut Ui, disk: &rigtop_core::snapshot::DiskIo) {
+    ui.horizontal(|ui| {
+        ui.add_sized([64.0, ROW - 2.0], egui::Label::new(&disk.name).truncate());
+        ui.label(dim("R"));
+        ui.label(format!("{:>8}", format::rate(disk.read_bytes_per_sec)));
+        ui.label(dim("W"));
+        ui.label(format!("{:>8}", format::rate(disk.write_bytes_per_sec)));
+        if let Some(busy) = disk.busy_percent {
+            ui.label(colored(format!("{busy:>3.0}%"), percent_color(busy)));
+        }
+        if let Some(ms) = disk.latency_ms {
+            let color = match rigtop_core::view::latency_severity(ms) {
+                Some(Severity::Critical) => BAD,
+                Some(Severity::Warning) => WARN,
+                None => DIM,
+            };
+            ui.label(colored(format!("{:>5}", format::latency(ms)), color));
+        }
+        if let Some(t) = disk.temperature_c {
+            ui.label(colored(format!("{t:.0}°C"), temperature_color(t)));
+        }
+    });
+}
+
+fn storage_section(ui: &mut Ui, snapshot: &Snapshot, disks: bool) {
     // Fullest filesystems first.
     let mut filesystems: Vec<_> = snapshot.filesystems.iter().collect();
     filesystems.sort_by(|a, b| {
@@ -766,6 +834,11 @@ fn storage_section(ui: &mut Ui, snapshot: &Snapshot) {
                 percent_color(ratio * 100.0),
             ),
         );
+    }
+    if disks {
+        for disk in snapshot.disks.iter().take(MAX_DISKS) {
+            disk_row(ui, disk);
+        }
     }
     // One-line health summary: SMART, btrfs, md.
     ui.horizontal_wrapped(|ui| {

@@ -13,10 +13,26 @@ use rigtop_core::snapshot::Snapshot;
 use rigtop_core::view::{Severity, attention_rank};
 
 use super::HostTui;
+use super::graph::{self, BrailleGraph};
 use super::ui::{
     BAD, BORDER, DIM, GPU_TITLE, OK, PROC_TITLE, WARN, colored, dim, link_label, meter,
     percent_color, temperature_color,
 };
+
+/// What a host box shows, top to bottom: lines of text, and history
+/// graphs given the rows the text leaves over.
+enum BoxRow {
+    Text(Line<'static>),
+    /// CPU usage history, this many rows high.
+    CpuGraph(u16),
+    /// Download over upload history of the network interface shown.
+    NetGraph(u16),
+}
+
+/// Rows a graph needs to be worth drawing, and the most it gets.
+const MIN_GRAPH_ROWS: usize = 2;
+const MAX_CPU_GRAPH_ROWS: usize = 20;
+const MAX_NET_GRAPH_ROWS: usize = 14;
 
 /// Narrowest host box; more hosts than fit side by side wrap to new rows.
 const BOX_MIN_WIDTH: u16 = 52;
@@ -24,6 +40,9 @@ const BOX_MIN_WIDTH: u16 = 52;
 const STALE_AFTER: Duration = Duration::from_secs(10);
 /// Alerts listed per host box.
 const MAX_ALERTS: usize = 3;
+
+/// Disks listed with their I/O when a box has room.
+const MAX_DISKS: usize = 4;
 /// Columns taken by the label before a meter ("CPU  ").
 const LABEL_WIDTH: usize = 5;
 /// Columns kept for the value after a meter.
@@ -280,9 +299,11 @@ fn draw_host_box(frame: &mut Frame, area: Rect, host: &HostTui, processes: usize
         )));
     }
     // Add whole sections while they fit; the process list may be shortened.
+    let mut shown: Vec<(OverviewSection, Vec<Line<'static>>)> = Vec::new();
+    let mut used = lines.len();
     for &section in &host.spec.sections {
-        let left = budget.saturating_sub(lines.len());
-        let mut section_lines = match section {
+        let left = budget.saturating_sub(used);
+        let section_lines = match section {
             OverviewSection::Cpu => cpu_lines(host, snapshot, width),
             OverviewSection::Gpu => gpu_lines(snapshot, width),
             OverviewSection::Memory => memory_lines(snapshot, width),
@@ -298,9 +319,243 @@ fn draw_host_box(frame: &mut Frame, area: Rect, host: &HostTui, processes: usize
         if section_lines.len() > left {
             break;
         }
-        lines.append(&mut section_lines);
+        used += section_lines.len();
+        shown.push((section, section_lines));
     }
-    frame.render_widget(Paragraph::new(lines), inner);
+
+    // Rows to spare go first to details (CPU and GPU names, swap, disk
+    // I/O), section by section, then to the CPU and network graphs.
+    let mut spare = budget.saturating_sub(used);
+    for (section, section_lines) in &mut shown {
+        let detailed = match section {
+            OverviewSection::Cpu => cpu_details(snapshot, width, section_lines),
+            OverviewSection::Gpu => gpu_details(snapshot, section_lines),
+            OverviewSection::Memory => memory_details(snapshot, width, section_lines),
+            OverviewSection::Storage => storage_details(snapshot, section_lines),
+            _ => None,
+        };
+        if let Some(detailed) = detailed
+            && detailed.len() - section_lines.len() <= spare
+        {
+            spare -= detailed.len() - section_lines.len();
+            *section_lines = detailed;
+        }
+    }
+    let has = |wanted| shown.iter().any(|(s, _)| *s == wanted);
+    let (cpu_rows, net_rows) = graph_rows(
+        spare,
+        has(OverviewSection::Cpu),
+        has(OverviewSection::Network) && host.app.history.net_interface.is_some(),
+    );
+
+    let mut rows: Vec<BoxRow> = lines.into_iter().map(BoxRow::Text).collect();
+    for (section, section_lines) in shown {
+        rows.extend(section_lines.into_iter().map(BoxRow::Text));
+        match section {
+            OverviewSection::Cpu if cpu_rows > 0 => rows.push(BoxRow::CpuGraph(cpu_rows)),
+            OverviewSection::Network if net_rows > 0 => rows.push(BoxRow::NetGraph(net_rows)),
+            _ => {}
+        }
+    }
+    draw_rows(frame, inner, host, rows);
+}
+
+/// Splits `spare` rows between the CPU and network graphs (3:2, like the
+/// GUI), each at least [`MIN_GRAPH_ROWS`] or nothing, within their caps.
+fn graph_rows(spare: usize, cpu: bool, net: bool) -> (u16, u16) {
+    let (cpu_share, net_share) = match (cpu, net) {
+        (true, true) => (spare * 3 / 5, spare - spare * 3 / 5),
+        (true, false) => (spare, 0),
+        (false, true) => (0, spare),
+        (false, false) => (0, 0),
+    };
+    let size = |rows: usize, cap: usize| {
+        let rows = rows.min(cap);
+        if rows >= MIN_GRAPH_ROWS {
+            rows as u16
+        } else {
+            0
+        }
+    };
+    (
+        size(cpu_share, MAX_CPU_GRAPH_ROWS),
+        size(net_share, MAX_NET_GRAPH_ROWS),
+    )
+}
+
+/// Draws the rows of a box from the top of `area`.
+fn draw_rows(frame: &mut Frame, area: Rect, host: &HostTui, rows: Vec<BoxRow>) {
+    let app = &host.app;
+    let mut y = area.y;
+    let bottom = area.y + area.height;
+    let mut text: Vec<Line<'static>> = Vec::new();
+    let flush = |frame: &mut Frame, text: &mut Vec<Line<'static>>, y: &mut u16| {
+        let height = (text.len() as u16).min(bottom.saturating_sub(*y));
+        if height > 0 {
+            let rect = Rect {
+                y: *y,
+                height,
+                ..area
+            };
+            frame.render_widget(Paragraph::new(std::mem::take(text)), rect);
+        }
+        text.clear();
+        *y += height;
+    };
+    for row in rows {
+        match row {
+            BoxRow::Text(line) => text.push(line),
+            BoxRow::CpuGraph(height) | BoxRow::NetGraph(height) => {
+                flush(frame, &mut text, &mut y);
+                let height = height.min(bottom.saturating_sub(y));
+                if height == 0 {
+                    continue;
+                }
+                let rect = Rect { y, height, ..area };
+                let capacity = BrailleGraph::capacity(rect.width);
+                if matches!(row, BoxRow::CpuGraph(_)) {
+                    let samples = app
+                        .history
+                        .cpu
+                        .graph(capacity, app.graph_span, app.interval);
+                    frame.render_widget(BrailleGraph::new(&samples, 100.0), rect);
+                } else {
+                    let rx = app
+                        .history
+                        .net_rx
+                        .graph(capacity, app.graph_span, app.interval);
+                    let tx = app
+                        .history
+                        .net_tx
+                        .graph(capacity, app.graph_span, app.interval);
+                    // A shared scale of at least 10 KiB/s, as in the host view.
+                    let max = rx
+                        .iter()
+                        .chain(&tx)
+                        .fold(10.0 * 1024.0, |a: f64, &b| a.max(b));
+                    let top = Rect {
+                        height: height.div_ceil(2),
+                        ..rect
+                    };
+                    let under = Rect {
+                        y: rect.y + top.height,
+                        height: height - top.height,
+                        ..rect
+                    };
+                    frame.render_widget(BrailleGraph::new(&rx, max).color(graph::rx_color), top);
+                    if under.height > 0 {
+                        frame.render_widget(
+                            BrailleGraph::new(&tx, max)
+                                .color(graph::tx_color)
+                                .inverted(true),
+                            under,
+                        );
+                    }
+                }
+                y += height;
+            }
+        }
+    }
+    flush(frame, &mut text, &mut y);
+}
+
+/// The CPU lines with the model name under the meter.
+fn cpu_details(
+    snapshot: &Snapshot,
+    width: usize,
+    lines: &[Line<'static>],
+) -> Option<Vec<Line<'static>>> {
+    let model = snapshot.cpu.model.trim();
+    if model.is_empty() {
+        return None;
+    }
+    let mut detailed = lines.to_vec();
+    detailed.insert(
+        1.min(detailed.len()),
+        Line::from(dim(format::truncate(model, width))),
+    );
+    Some(detailed)
+}
+
+/// The GPU lines, each after the GPU's name and power.
+fn gpu_details(snapshot: &Snapshot, lines: &[Line<'static>]) -> Option<Vec<Line<'static>>> {
+    let gpus: Vec<_> = rigtop_core::view::card_gpus(snapshot).collect();
+    if gpus.is_empty() || gpus.len() != lines.len() {
+        return None;
+    }
+    let mut detailed = Vec::new();
+    for (gpu, line) in gpus.iter().zip(lines) {
+        detailed.push(Line::from(dim(format!(
+            "{:<LABEL_WIDTH$}{}",
+            "",
+            rigtop_core::view::gpu_detail(gpu)
+        ))));
+        detailed.push(line.clone());
+    }
+    Some(detailed)
+}
+
+/// The memory line with swap under it, when there is swap.
+fn memory_details(
+    snapshot: &Snapshot,
+    width: usize,
+    lines: &[Line<'static>],
+) -> Option<Vec<Line<'static>>> {
+    let memory = &snapshot.memory;
+    if memory.swap_total_bytes == 0 {
+        return None;
+    }
+    let ratio = memory.swap_used_bytes as f64 / memory.swap_total_bytes as f64;
+    let value = Span::raw(format!(
+        "{}/{} {:.0}%",
+        format::bytes(memory.swap_used_bytes),
+        format::bytes(memory.swap_total_bytes),
+        ratio * 100.0
+    ));
+    let mut detailed = lines.to_vec();
+    detailed.push(meter_line("Swap", ratio, width, value));
+    Some(detailed)
+}
+
+/// The storage lines with each disk's I/O after the filesystems (before
+/// the health line).
+fn storage_details(snapshot: &Snapshot, lines: &[Line<'static>]) -> Option<Vec<Line<'static>>> {
+    if snapshot.disks.is_empty() {
+        return None;
+    }
+    let disk_lines = snapshot.disks.iter().take(MAX_DISKS).map(|disk| {
+        let mut spans = vec![
+            Span::raw(format::pad(&disk.name, 8)),
+            dim(" R "),
+            Span::raw(format!("{:>7}", format::rate(disk.read_bytes_per_sec))),
+            dim(" W "),
+            Span::raw(format!("{:>7}", format::rate(disk.write_bytes_per_sec))),
+        ];
+        if let Some(busy) = disk.busy_percent {
+            spans.push(colored(
+                format!(" {busy:>3.0}%"),
+                percent_color(busy as f64),
+            ));
+        }
+        if let Some(ms) = disk.latency_ms {
+            let color = match rigtop_core::view::latency_severity(ms) {
+                Some(Severity::Critical) => BAD,
+                Some(Severity::Warning) => WARN,
+                None => DIM,
+            };
+            spans.push(colored(format!(" {:>5}", format::latency(ms)), color));
+        }
+        if let Some(t) = disk.temperature_c {
+            spans.push(colored(format!(" {t:.0}°C"), temperature_color(t)));
+        }
+        Line::from(spans)
+    });
+    // The health line, if any, stays last.
+    let filesystems = snapshot.filesystems.len().min(3);
+    let mut detailed: Vec<Line<'static>> = lines[..filesystems.min(lines.len())].to_vec();
+    detailed.extend(disk_lines);
+    detailed.extend(lines[filesystems.min(lines.len())..].iter().cloned());
+    Some(detailed)
 }
 
 /// "Label ■■■■■■ value" filling `width`.
@@ -530,4 +785,23 @@ fn storage_lines(snapshot: &Snapshot, width: usize) -> Vec<Line<'static>> {
         lines.push(Line::from(health));
     }
     lines
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn spare_rows_go_to_graphs_three_to_two() {
+        assert_eq!(graph_rows(10, true, true), (6, 4));
+        assert_eq!(graph_rows(10, true, false), (10, 0));
+        // Too little for a graph: none rather than a stub.
+        assert_eq!(graph_rows(3, true, true), (0, 2));
+        assert_eq!(graph_rows(1, true, false), (0, 0));
+        // Capped, the rest stays empty.
+        assert_eq!(
+            graph_rows(100, true, true),
+            (MAX_CPU_GRAPH_ROWS as u16, MAX_NET_GRAPH_ROWS as u16)
+        );
+    }
 }

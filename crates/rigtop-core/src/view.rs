@@ -795,6 +795,18 @@ pub fn card_gpus(snapshot: &Snapshot) -> impl Iterator<Item = &GpuStats> {
         .filter(|g| g.utilization_percent.is_some() || g.memory_used_bytes.is_some())
 }
 
+/// A GPU's name with its power draw, for a card's detail line:
+/// "NVIDIA GeForce RTX 4090 · 52/450W".
+pub fn gpu_detail(gpu: &GpuStats) -> String {
+    let mut text = gpu.name.clone();
+    match (gpu.power_w, gpu.power_limit_w) {
+        (Some(w), Some(limit)) => text.push_str(&format!(" · {w:.0}/{limit:.0}W")),
+        (Some(w), None) => text.push_str(&format!(" · {w:.0}W")),
+        _ => {}
+    }
+    text
+}
+
 /// Short notes for a GPU's title line, with how much attention each needs
 /// (`None`: just information): running at its power limit, slowed down by
 /// the hardware, ECC memory errors.

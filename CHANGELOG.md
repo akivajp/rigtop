@@ -21,6 +21,10 @@ include breaking changes).
   `networkd-dispatcher`), and Node.js processes named after their main
   thread (`MainThread`) show as `node`. This also helps
   `[watch] processes` match them.
+- Overview cards use room to spare: first for details (the CPU model, each
+  GPU's name and power, swap in the TUI, each disk's I/O, busy share,
+  request time and temperature), then for the CPU and network history
+  graphs, which the TUI now draws too. Small cards look as before.
 - Overview cards leave out GPUs with neither a utilization nor a memory
   reading (an Intel iGPU showed only `--%`); the host view still lists
   them.
