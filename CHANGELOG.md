@@ -7,6 +7,8 @@ include breaking changes).
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-11-01
+
 ### Added
 - ZFS pools in depth (Linux): the layout (raidz1, mirror, 2 × mirror, log,
   cache and spare devices), each device's state and read, write and
@@ -550,7 +552,8 @@ First release.
 - Windows support (CPU, memory, processes, network with link speeds, drives,
   NVIDIA GPUs; temperatures, fans and CPU power are not available yet)
 
-[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.25.0...HEAD
+[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.26.0...HEAD
+[0.26.0]: https://github.com/akivajp/rigtop/compare/v0.25.0...v0.26.0
 [0.25.0]: https://github.com/akivajp/rigtop/compare/v0.24.0...v0.25.0
 [0.24.0]: https://github.com/akivajp/rigtop/compare/v0.23.0...v0.24.0
 [0.23.0]: https://github.com/akivajp/rigtop/compare/v0.22.0...v0.23.0
