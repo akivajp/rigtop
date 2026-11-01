@@ -258,11 +258,25 @@ pub fn show(
         .auto_shrink(false)
         .show(ui, |ui| {
             for row in visible.chunks(columns) {
+                // The cards of a row are laid out together so their sections
+                // line up.
+                let sections: Vec<Vec<OverviewSection>> = row
+                    .iter()
+                    .map(|&i| settings.sections_for(&hosts[i].spec))
+                    .collect();
+                let cards: Vec<RowCard> = row
+                    .iter()
+                    .zip(&sections)
+                    .map(|(&i, sections)| RowCard {
+                        host: &hosts[i],
+                        sections,
+                    })
+                    .collect();
+                let mut planner = RowPlanner::new(ui.ctx(), cards, processes);
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = gap;
-                    for &index in row {
+                    for (position, &index) in row.iter().enumerate() {
                         let host = &hosts[index];
-                        let sections = settings.sections_for(&host.spec);
                         let (rect, _) =
                             ui.allocate_exact_size(vec2(card_width, card_height), Sense::hover());
                         let mut card_ui = ui.new_child(
@@ -271,7 +285,7 @@ pub fn show(
                                 .layout(Layout::top_down(Align::Min))
                                 .id_salt(("card", index)),
                         );
-                        let response = card(&mut card_ui, host, &sections, processes);
+                        let response = card(&mut card_ui, host, &mut planner, position);
                         if response.open {
                             open = Some(index);
                         }
@@ -280,6 +294,7 @@ pub fn show(
                         }
                     }
                 });
+                planner.remember(ui.ctx());
                 ui.add_space(gap);
             }
         });
@@ -304,12 +319,8 @@ struct CardResponse {
     sections: Option<Option<Vec<OverviewSection>>>,
 }
 
-fn card(
-    ui: &mut Ui,
-    host: &HostEntry,
-    sections: &[OverviewSection],
-    processes: usize,
-) -> CardResponse {
+fn card(ui: &mut Ui, host: &HostEntry, planner: &mut RowPlanner, position: usize) -> CardResponse {
+    let sections = planner.cards[position].sections;
     let mut response = CardResponse {
         open: false,
         sections: None,
@@ -369,6 +380,17 @@ fn card(
                 }
                 return;
             };
+            let plan = planner.plan(ui.available_height()).remove(position);
+            // Each part is padded to the height planned for the row, and
+            // what it took beyond its estimate (wrapped lines) is measured
+            // for the next frame's plan.
+            let pad_to = |ui: &mut Ui, bottom: f32| {
+                let gap = bottom - ui.cursor().top();
+                if gap > 0.0 {
+                    ui.add_space(gap);
+                }
+            };
+            let top = ui.cursor().top();
             if let Some(error) = &host.state.connection_error {
                 let note = host
                     .state
@@ -377,29 +399,55 @@ fn card(
                 ui.label(colored(format!("{note}: {error}"), WARN));
             }
             alert_lines(ui, snapshot, &host.state);
-            let graphs = card_layout(ui.available_height(), snapshot, sections, processes);
-            for &section in sections {
-                if ui.available_height() < section_min_height(section) {
-                    break;
+            let card = &planner.cards[position];
+            let estimate = card.head_rows() as f32 * ROW;
+            let mut measured = [0.0; EXTRAS];
+            measured[0] = (ui.cursor().top() - top - estimate).max(0.0);
+            pad_to(ui, top + plan.head);
+            for slot in &plan.slots {
+                let top = ui.cursor().top();
+                if sections.contains(&slot.section) {
+                    let layout = &plan.layout;
+                    let graph = match slot.section {
+                        OverviewSection::Cpu => {
+                            cpu_section(ui, host, snapshot, layout.cpu, layout.cpu_model);
+                            layout.cpu
+                        }
+                        OverviewSection::Gpu => {
+                            gpu_section(ui, snapshot, layout.gpu_names);
+                            0.0
+                        }
+                        OverviewSection::Memory => {
+                            memory_section(ui, snapshot);
+                            0.0
+                        }
+                        OverviewSection::Processes => {
+                            process_section(ui, snapshot, plan.process_rows);
+                            0.0
+                        }
+                        OverviewSection::Network => {
+                            network_section(ui, host, snapshot, layout.network)
+                        }
+                        OverviewSection::Storage => {
+                            storage_section(ui, snapshot, layout.disks);
+                            0.0
+                        }
+                    };
+                    let estimate =
+                        card.text_rows(slot.section, layout, plan.process_rows) as f32 * ROW;
+                    measured[extra_index(slot.section)] =
+                        (ui.cursor().top() - top - graph - estimate).max(0.0);
                 }
-                match section {
-                    OverviewSection::Cpu => {
-                        cpu_section(ui, host, snapshot, graphs.cpu, graphs.cpu_model)
-                    }
-                    OverviewSection::Gpu => gpu_section(ui, snapshot, graphs.gpu_names),
-                    OverviewSection::Memory => memory_section(ui, snapshot),
-                    OverviewSection::Processes => process_section(ui, snapshot, processes),
-                    OverviewSection::Network => network_section(ui, host, snapshot, graphs.network),
-                    OverviewSection::Storage => storage_section(ui, snapshot, graphs.disks),
-                }
-                ui.add_space(3.0);
+                pad_to(ui, top + slot.text + slot.graph + SECTION_GAP);
             }
+            planner.measured[position] = measured;
         });
     response
 }
 
 /// What a card shows beyond the essentials, by the room it has: detail
 /// rows first, then the history graphs.
+#[derive(Debug, Clone, Default, PartialEq)]
 struct CardLayout {
     /// Heights of the CPU and network history graphs (0: none).
     cpu: f32,
@@ -414,56 +462,314 @@ struct CardLayout {
 
 /// Disks listed with their I/O when a card has room.
 const MAX_DISKS: usize = 4;
+/// Space after each section.
+const SECTION_GAP: f32 = 3.0;
+/// Measured extra heights of a card: its alert lines, then each section.
+const EXTRAS: usize = 1 + OverviewSection::ALL.len();
+type Extras = [f32; EXTRAS];
 
-/// Rows the text of a section takes (graphs excluded).
-fn section_rows(section: OverviewSection, snapshot: &Snapshot, processes: usize) -> usize {
-    match section {
-        OverviewSection::Cpu => 2,
-        OverviewSection::Gpu => rigtop_core::view::card_gpus(snapshot).count(),
-        OverviewSection::Memory => 1 + usize::from(snapshot.memory.swap_total_bytes > 0),
-        // Always the full height, so the sections below stay in place.
-        OverviewSection::Processes => 1 + processes,
-        OverviewSection::Network => 1,
-        OverviewSection::Storage => snapshot.filesystems.len().min(3) + 1,
+/// Where a section's extra height is kept in [`Extras`].
+fn extra_index(section: OverviewSection) -> usize {
+    1 + OverviewSection::ALL
+        .iter()
+        .position(|&s| s == section)
+        .unwrap_or(0)
+}
+
+/// One card of a row of cards laid out together.
+struct RowCard<'a> {
+    host: &'a HostEntry,
+    sections: &'a [OverviewSection],
+}
+
+impl RowCard<'_> {
+    fn snapshot(&self) -> Option<&Snapshot> {
+        self.host.state.snapshot.as_ref()
+    }
+
+    /// Lines above the sections: a lost connection and the alerts.
+    fn head_rows(&self) -> usize {
+        let Some(snapshot) = self.snapshot() else {
+            return 0;
+        };
+        let alerts = self.host.state.alerts(snapshot).len();
+        usize::from(self.host.state.connection_error.is_some())
+            + alerts.min(MAX_ALERTS)
+            + usize::from(alerts > MAX_ALERTS)
+    }
+
+    /// Rows the text of a section takes on this card (graphs excluded);
+    /// 0 if the card does not show it.
+    fn text_rows(&self, section: OverviewSection, layout: &CardLayout, processes: usize) -> usize {
+        let Some(snapshot) = self.snapshot() else {
+            return 0;
+        };
+        if !self.sections.contains(&section) {
+            return 0;
+        }
+        match section {
+            OverviewSection::Cpu => {
+                2 + usize::from(layout.cpu_model && !snapshot.cpu.model.trim().is_empty())
+            }
+            OverviewSection::Gpu => {
+                rigtop_core::view::card_gpus(snapshot).count() * (1 + usize::from(layout.gpu_names))
+            }
+            OverviewSection::Memory => 1 + usize::from(snapshot.memory.swap_total_bytes > 0),
+            // Always the full height, so the sections below stay in place.
+            OverviewSection::Processes => 1 + processes,
+            OverviewSection::Network => usize::from(self.has_network(snapshot)),
+            OverviewSection::Storage => {
+                let disks = if layout.disks {
+                    snapshot.disks.len().min(MAX_DISKS)
+                } else {
+                    0
+                };
+                snapshot.filesystems.len().min(3) + disks + 1
+            }
+        }
+    }
+
+    /// Whether the network section has an interface to show.
+    fn has_network(&self, snapshot: &Snapshot) -> bool {
+        self.host
+            .state
+            .history
+            .net_interface
+            .as_deref()
+            .is_some_and(|name| snapshot.networks.iter().any(|n| n.name == name))
+    }
+
+    /// The layout with the details of `section` turned on, if it has any.
+    fn with_details(&self, section: OverviewSection, layout: &CardLayout) -> Option<CardLayout> {
+        let snapshot = self.snapshot()?;
+        if !self.sections.contains(&section) {
+            return None;
+        }
+        let mut detailed = layout.clone();
+        match section {
+            OverviewSection::Cpu if !snapshot.cpu.model.trim().is_empty() => {
+                detailed.cpu_model = true
+            }
+            OverviewSection::Gpu if rigtop_core::view::card_gpus(snapshot).next().is_some() => {
+                detailed.gpu_names = true
+            }
+            OverviewSection::Storage if !snapshot.disks.is_empty() => detailed.disks = true,
+            _ => return None,
+        }
+        Some(detailed)
     }
 }
 
-/// Uses the height left after the text of all sections: detail rows
-/// (CPU model, GPU names, disk I/O) section by section while they fit, then
-/// the CPU and network graphs (3:2), so tall cards show more instead of
-/// empty space. Sections that are not shown get nothing.
-fn card_layout(
-    available: f32,
-    snapshot: &Snapshot,
-    sections: &[OverviewSection],
+/// A section's place on the cards of a row: the height of its text on the
+/// card that needs the most, then its graph.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Slot {
+    section: OverviewSection,
+    text: f32,
+    graph: f32,
+}
+
+/// How one card of a row is laid out.
+#[derive(Debug, Clone, PartialEq)]
+struct CardPlan {
+    /// Height kept for the alert lines.
+    head: f32,
+    slots: Vec<Slot>,
+    layout: CardLayout,
+    /// Process rows shown under the header row.
+    process_rows: usize,
+}
+
+/// Plans the cards of a row once (on the first card drawn, which knows the
+/// height left under the title) and collects what each card measured.
+struct RowPlanner<'a> {
+    cards: Vec<RowCard<'a>>,
     processes: usize,
-) -> CardLayout {
-    let rows: usize = sections
-        .iter()
-        .map(|&s| section_rows(s, snapshot, processes))
-        .sum();
-    let text = rows as f32 * ROW + sections.len() as f32 * 3.0;
-    let mut spare = (available - text - 8.0).max(0.0);
-    let (mut cpu_model, mut gpu_names, mut disks) = (false, false, false);
-    for &section in sections {
-        let (rows, flag) = match section {
-            OverviewSection::Cpu if !snapshot.cpu.model.trim().is_empty() => (1, &mut cpu_model),
-            OverviewSection::Gpu => (
-                rigtop_core::view::card_gpus(snapshot).count(),
-                &mut gpu_names,
-            ),
-            OverviewSection::Storage => (snapshot.disks.len().min(MAX_DISKS), &mut disks),
-            _ => continue,
-        };
-        let height = rows as f32 * ROW;
-        if rows > 0 && height <= spare {
-            spare -= height;
-            *flag = true;
+    /// Extra heights each card measured on the previous frame.
+    extras: Vec<Extras>,
+    /// Extra heights each card measures on this frame.
+    measured: Vec<Extras>,
+    plans: Option<Vec<CardPlan>>,
+}
+
+impl<'a> RowPlanner<'a> {
+    fn new(ctx: &egui::Context, cards: Vec<RowCard<'a>>, processes: usize) -> Self {
+        let extras: Vec<Extras> = cards
+            .iter()
+            .map(|card| {
+                ctx.data(|d| d.get_temp(extras_id(card.host)))
+                    .unwrap_or([0.0; EXTRAS])
+            })
+            .collect();
+        let measured = vec![[0.0; EXTRAS]; cards.len()];
+        Self {
+            cards,
+            processes,
+            extras,
+            measured,
+            plans: None,
         }
     }
-    let has_cpu = sections.contains(&OverviewSection::Cpu);
-    let has_net = sections.contains(&OverviewSection::Network);
-    let (cpu_share, net_share) = match (has_cpu, has_net) {
+
+    /// The plan of every card, given the height under the cards' titles.
+    fn plan(&mut self, available: f32) -> Vec<CardPlan> {
+        self.plans
+            .get_or_insert_with(|| row_plan(available, &self.cards, self.processes, &self.extras))
+            .clone()
+    }
+
+    /// Keeps what the cards measured for the next frame.
+    fn remember(&self, ctx: &egui::Context) {
+        for (card, measured) in self.cards.iter().zip(&self.measured) {
+            if card.snapshot().is_some() {
+                ctx.data_mut(|d| d.insert_temp(extras_id(card.host), *measured));
+            }
+        }
+    }
+}
+
+fn extras_id(host: &HostEntry) -> egui::Id {
+    egui::Id::unique(("overview_extras", host.spec.name.as_str()))
+}
+
+/// The order of the sections across `cards` (with data), if every card
+/// lists them in an order consistent with it.
+fn section_order(cards: &[RowCard]) -> Option<Vec<OverviewSection>> {
+    let cards: Vec<&RowCard> = cards.iter().filter(|c| c.snapshot().is_some()).collect();
+    let mut order: Vec<OverviewSection> = Vec::new();
+    for card in &cards {
+        for &section in card.sections {
+            if !order.contains(&section) {
+                order.push(section);
+            }
+        }
+    }
+    let consistent = cards.iter().all(|card| {
+        let positions: Vec<usize> = card
+            .sections
+            .iter()
+            .filter_map(|s| order.iter().position(|o| o == s))
+            .collect();
+        positions.windows(2).all(|w| w[0] < w[1])
+    });
+    consistent.then_some(order)
+}
+
+/// Lays out the cards of a row, `available` high under their titles, so
+/// that each section starts at the same height on every card: a section
+/// takes the height it needs on the card that needs the most, the others
+/// are padded. Whole sections are added while they fit (the process list
+/// may be shortened); the height left goes to detail rows (CPU model, GPU
+/// names, disk I/O) section by section, then to the CPU and network graphs
+/// (3:2), the same on every card of the row.
+fn row_plan(
+    available: f32,
+    cards: &[RowCard],
+    processes: usize,
+    extras: &[Extras],
+) -> Vec<CardPlan> {
+    let Some(order) = section_order(cards) else {
+        // Sections in different orders cannot line up: each card alone.
+        return cards
+            .iter()
+            .zip(extras)
+            .flat_map(|(card, extra)| {
+                row_plan(
+                    available,
+                    std::slice::from_ref(card),
+                    processes,
+                    std::slice::from_ref(extra),
+                )
+            })
+            .collect();
+    };
+    let shown = |card: &RowCard| card.snapshot().is_some();
+    let head = cards
+        .iter()
+        .zip(extras)
+        .filter(|(card, _)| shown(card))
+        .map(|(card, extra)| card.head_rows() as f32 * ROW + extra[0])
+        .fold(0.0, f32::max);
+    let mut layouts = vec![CardLayout::default(); cards.len()];
+    // A card's text height for a section, with its measured extra.
+    let text = |card: &RowCard, extra: &Extras, section, layout: &CardLayout, rows| {
+        let lines = card.text_rows(section, layout, rows);
+        if lines == 0 {
+            0.0
+        } else {
+            lines as f32 * ROW + extra[extra_index(section)]
+        }
+    };
+
+    let mut slots: Vec<Slot> = Vec::new();
+    let mut used = head;
+    let mut process_rows = processes;
+    for section in order {
+        let left = available - used;
+        if section == OverviewSection::Processes {
+            // Fewer processes when short, but at least two.
+            let fit = ((left - SECTION_GAP) / ROW).floor().max(0.0) as usize;
+            process_rows = processes.min(fit.saturating_sub(1));
+            if process_rows < 2 {
+                break;
+            }
+        }
+        let height = cards
+            .iter()
+            .zip(extras)
+            .zip(&layouts)
+            .map(|((card, extra), layout)| text(card, extra, section, layout, process_rows))
+            .fold(0.0, f32::max);
+        if height == 0.0 {
+            continue;
+        }
+        if height + SECTION_GAP > left {
+            break;
+        }
+        used += height + SECTION_GAP;
+        slots.push(Slot {
+            section,
+            text: height,
+            graph: 0.0,
+        });
+    }
+
+    let mut spare = (available - used - 8.0).max(0.0);
+    for slot in &mut slots {
+        let detailed: Vec<Option<(CardLayout, f32)>> = cards
+            .iter()
+            .zip(extras)
+            .zip(&layouts)
+            .map(|((card, extra), layout)| {
+                let detailed = card.with_details(slot.section, layout)?;
+                let height = text(card, extra, slot.section, &detailed, process_rows);
+                Some((detailed, height))
+            })
+            .collect();
+        let full = detailed
+            .iter()
+            .flatten()
+            .map(|(_, height)| *height)
+            .fold(slot.text, f32::max);
+        let grow = full - slot.text;
+        if grow <= spare {
+            spare -= grow;
+            slot.text = full;
+        }
+        // Details that fit the section's height, even if it cannot grow:
+        // a card with less text than the tallest uses its padding.
+        for (layout, detailed) in layouts.iter_mut().zip(detailed) {
+            if let Some((detailed, height)) = detailed
+                && height <= slot.text
+            {
+                *layout = detailed;
+            }
+        }
+    }
+
+    let has = |wanted| slots.iter().any(|slot: &Slot| slot.section == wanted);
+    let has_net = has(OverviewSection::Network);
+    let (cpu_share, net_share) = match (has(OverviewSection::Cpu), has_net) {
         (true, true) => (0.6, 0.4),
         (true, false) => (1.0, 0.0),
         (false, true) => (0.0, 1.0),
@@ -474,22 +780,32 @@ fn card_layout(
         let height = (spare * share).min(cap);
         if height >= 18.0 { height } else { 0.0 }
     };
-    CardLayout {
-        cpu: size(cpu_share, 400.0),
-        network: size(net_share, 260.0),
-        cpu_model,
-        gpu_names,
-        disks,
+    let (cpu_graph, net_graph) = (size(cpu_share, 400.0), size(net_share, 260.0));
+    for slot in &mut slots {
+        slot.graph = match slot.section {
+            OverviewSection::Cpu => cpu_graph,
+            OverviewSection::Network => net_graph,
+            _ => 0.0,
+        };
     }
-}
-
-/// Rows a section needs at least; smaller cards skip it.
-fn section_min_height(section: OverviewSection) -> f32 {
-    match section {
-        OverviewSection::Processes => ROW * 3.0,
-        OverviewSection::Storage => ROW * 2.0,
-        _ => ROW,
-    }
+    cards
+        .iter()
+        .zip(layouts)
+        .map(|(card, mut layout)| {
+            if card.sections.contains(&OverviewSection::Cpu) {
+                layout.cpu = cpu_graph;
+            }
+            if card.snapshot().is_some_and(|s| card.has_network(s)) {
+                layout.network = net_graph;
+            }
+            CardPlan {
+                head,
+                slots: slots.clone(),
+                layout,
+                process_rows,
+            }
+        })
+        .collect()
 }
 
 /// Lets the user show, hide and reorder sections for one host.
@@ -690,19 +1006,15 @@ fn memory_section(ui: &mut Ui, snapshot: &Snapshot) {
     }
 }
 
-/// The top `limit` processes by CPU (fewer if the card is short), leaving
-/// the rest of the card to the following sections. The rows are reserved
-/// even when there are fewer processes, so later sections do not jump.
-fn process_section(ui: &mut Ui, snapshot: &Snapshot, limit: usize) {
+/// The top `rows` processes by CPU. The rows are reserved even when there
+/// are fewer processes, so later sections do not jump.
+fn process_section(ui: &mut Ui, snapshot: &Snapshot, rows: usize) {
     let mut processes: Vec<_> = snapshot
         .processes
         .iter()
         .filter(|p| !p.kernel_thread)
         .collect();
     processes.sort_by(|a, b| b.cpu_percent.total_cmp(&a.cpu_percent));
-    let rows = ((ui.available_height() / ROW).floor() as usize)
-        .saturating_sub(1)
-        .min(limit);
     let has_vram = snapshot.gpus.iter().any(|g| !g.processes.is_empty());
     egui::Grid::new(ui.next_auto_id())
         .num_columns(4)
@@ -747,13 +1059,14 @@ fn process_section(ui: &mut Ui, snapshot: &Snapshot, limit: usize) {
         });
 }
 
-fn network_section(ui: &mut Ui, host: &HostEntry, snapshot: &Snapshot, graph_height: f32) {
+/// The network line and its graph; the height of the graph drawn.
+fn network_section(ui: &mut Ui, host: &HostEntry, snapshot: &Snapshot, graph_height: f32) -> f32 {
     let history = &host.state.history;
     let Some(name) = history.net_interface.as_deref() else {
-        return;
+        return 0.0;
     };
     let Some(net) = snapshot.networks.iter().find(|n| n.name == name) else {
-        return;
+        return 0.0;
     };
     ui.horizontal(|ui| {
         ui.add_sized([44.0, ROW - 2.0], egui::Label::new(dim("Net")));
@@ -780,7 +1093,9 @@ fn network_section(ui: &mut Ui, host: &HostEntry, snapshot: &Snapshot, graph_hei
             widgets::rx_color,
             false,
         );
+        return graph_height;
     }
+    0.0
 }
 
 /// One disk's I/O: "nvme0n1  R 1.2M/s  W 40K/s  3%  0.4ms  52°C".

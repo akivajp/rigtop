@@ -7,6 +7,12 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Changed
+- GUI overview: the cards of a row line up like in the TUI, each section
+  starting at the same height on every card; detail rows and graphs are
+  sized for the whole row. Lines that wrap are measured and taken into
+  account on the next frame.
+
 ## [0.26.1] - 2026-11-01
 
 ### Changed

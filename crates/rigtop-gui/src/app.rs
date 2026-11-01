@@ -1777,6 +1777,41 @@ mod tests {
     }
 
     #[test]
+    fn overview_cards_line_up_their_sections() {
+        let mut app = RigtopApp::for_test(Config::default(), &["local", "zefat"]);
+        for host in &mut app.hosts {
+            for _ in 0..5 {
+                host.state
+                    .apply(Event::Snapshot(Box::new(sample_snapshot())));
+            }
+        }
+        // A lost connection adds a line above zefat's sections only.
+        app.hosts[1]
+            .state
+            .apply(Event::Error("ssh: connection reset".to_owned()));
+        let mut harness = Harness::builder()
+            .with_size([1400.0, 900.0])
+            .build_ui_state(|ui, app: &mut RigtopApp| app.show(ui), app);
+        harness.run();
+        // "Mem" is also a column of the process list: each place a label
+        // appears at must be on both cards.
+        for label in ["CPU", "GPU0", "Mem", "Program"] {
+            let mut tops: Vec<f32> = harness
+                .query_all_by_label(label)
+                .map(|node| node.rect().top())
+                .collect();
+            tops.sort_by(f32::total_cmp);
+            assert!(
+                !tops.is_empty() && tops.len().is_multiple_of(2),
+                "{label}: {tops:?}"
+            );
+            for pair in tops.chunks(2) {
+                assert!((pair[0] - pair[1]).abs() < 0.5, "{label}: {tops:?}");
+            }
+        }
+    }
+
+    #[test]
     fn clicking_a_tab_opens_the_detail_view() {
         let mut harness = multi_host_harness();
         harness.run();
