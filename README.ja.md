@@ -68,11 +68,14 @@ Debian と Ubuntu（22.04 以降）向けには、Releases のページに `.deb
 sudo apt install ./rigtop_*_amd64.deb
 ```
 
-Windows では [Scoop](https://scoop.sh) でも入れられます（スタートメニューに rigtop-gui が登録され、`scoop update rigtop` で更新できます）。
+Windows では [Scoop](https://scoop.sh) で [akivajp のバケット](https://github.com/akivajp/scoop-bucket) からも入れられます（スタートメニューに rigtop-gui が登録され、`scoop update rigtop` で更新できます）。
 
 ```powershell
-scoop install https://raw.githubusercontent.com/akivajp/rigtop/main/packaging/scoop/rigtop.json
+scoop bucket add akivajp https://github.com/akivajp/scoop-bucket
+scoop install akivajp/rigtop
 ```
+
+以前に定義ファイルの URL から入れた場合は、更新が届くように、バケットの README の手順でバケットに切り替えてください。
 
 [Homebrew](https://brew.sh)（Apple Silicon の macOS、Linux）では、[akivajp/tap](https://github.com/akivajp/homebrew-tap) から入れられます（`brew upgrade rigtop` で更新できます）。
 

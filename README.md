@@ -68,11 +68,14 @@ On Debian and Ubuntu (22.04 or newer), the Releases page also has `.deb` package
 sudo apt install ./rigtop_*_amd64.deb
 ```
 
-On Windows with [Scoop](https://scoop.sh), which also adds rigtop-gui to the Start menu (`scoop update rigtop` updates it):
+On Windows with [Scoop](https://scoop.sh), from the [akivajp bucket](https://github.com/akivajp/scoop-bucket), which also adds rigtop-gui to the Start menu (`scoop update rigtop` updates it):
 
 ```powershell
-scoop install https://raw.githubusercontent.com/akivajp/rigtop/main/packaging/scoop/rigtop.json
+scoop bucket add akivajp https://github.com/akivajp/scoop-bucket
+scoop install akivajp/rigtop
 ```
+
+If you installed it from the manifest URL before, switch to the bucket as its README explains, so that updates keep coming.
 
 With [Homebrew](https://brew.sh) (macOS on Apple Silicon, Linux), from the [akivajp/tap](https://github.com/akivajp/homebrew-tap) tap (`brew upgrade rigtop` updates it):
 
