@@ -279,8 +279,11 @@ mod tests {
         while worker.try_recv().is_some() {
             queued += 1;
         }
+        // Draining frees room the worker may fill meanwhile (a slow CI
+        // machine can stall this thread): allow a little over the bound,
+        // still far from the ~15 polls an unbounded queue would hold.
         assert!(
-            (1..=EVENT_QUEUE).contains(&queued),
+            (1..=EVENT_QUEUE + 2).contains(&queued),
             "{queued} events queued"
         );
         // The worker kept polling: the next snapshot is a recent one.
