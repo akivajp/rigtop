@@ -7,6 +7,8 @@ include breaking changes).
 
 ## [Unreleased]
 
+## [0.26.2] - 2026-11-01
+
 ### Changed
 - GUI overview: the cards of a row line up like in the TUI, each section
   starting at the same height on every card; detail rows and graphs are
@@ -566,7 +568,8 @@ First release.
 - Windows support (CPU, memory, processes, network with link speeds, drives,
   NVIDIA GPUs; temperatures, fans and CPU power are not available yet)
 
-[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.26.1...HEAD
+[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.26.2...HEAD
+[0.26.2]: https://github.com/akivajp/rigtop/compare/v0.26.1...v0.26.2
 [0.26.1]: https://github.com/akivajp/rigtop/compare/v0.26.0...v0.26.1
 [0.26.0]: https://github.com/akivajp/rigtop/compare/v0.25.0...v0.26.0
 [0.25.0]: https://github.com/akivajp/rigtop/compare/v0.24.0...v0.25.0
