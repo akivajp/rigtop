@@ -13,7 +13,7 @@ A system monitor for workstations, laptops and NAS — an alternative to btop th
 
 [日本語版 README](README.ja.md)
 
-![rigtop TUI: CPU cores, memory, two GPUs, storage health with SMART and btrfs RAID, network, and a process list with per-process disk I/O and VRAM](docs/images/rigtop-tui.png)
+![rigtop TUI: CPU cores, memory, two GPUs, storage health with SMART and btrfs RAID, network, and a process list with each process's container and GPU use](docs/images/rigtop-tui.png)
 
 ## Goals
 
@@ -207,7 +207,7 @@ In the GUI, **hosts…** (in the tab bar, or in the CPU panel title while only t
 
 With more than one host, rigtop opens on an **overview** with one card per host, plus a tab per host (this machine included) for the full detail view. Cards show alerts (storage errors, failing SMART, degraded RAID, nearly full filesystems, hot CPUs, GPUs and drives) and then CPU, GPU, memory, the top processes, network and storage, in that order and as far as the card has room; room to spare goes to details (CPU model, GPU names, disk I/O) and then to CPU and network graphs. In the TUI, the cards of a row line up section by section. Change the default order with `[overview] sections`, per host with `sections`, or in the GUI with each card's "sections" menu. Whether this machine gets a card is `[overview] include_local` (or the checkbox in the GUI, `l` in the TUI). Cards follow the configured order; with `[overview] alerts_first = true` (or "alerts first" in the GUI), hosts that need attention come first: unreachable or with a critical alert, then with warnings, the others in their order. In the TUI, `Tab` and `0`-`9` switch between the overview and the hosts.
 
-![rigtop-gui showing an overview of three hosts: a workstation training on two GPUs, a laptop on battery, and a NAS flagged red for a drive with reallocated sectors, with a RAID resync and a nearly full filesystem; a clock and Claude Code widget on the right](docs/images/rigtop-gui-overview.png)
+![rigtop-gui showing an overview of three hosts: a workstation training on two GPUs, a laptop on battery, and a NAS flagged red for a drive with reallocated sectors, with a RAID resync, a nearly full filesystem and a ZFS pool; a clock and Claude Code widget on the right](docs/images/rigtop-gui-overview.png)
 
 rigtop starts `rigtop --agent` on each remote host through your system's `ssh` (the built-in OpenSSH client on Windows), so `~/.ssh/config`, keys and `ProxyJump` work as usual. There is no daemon to run and no port to open; the agent exits when the connection closes, and rigtop reconnects by itself. While a host cannot be reached, its card, tab and title say for how long and since when (`offline for 5m (since 14:03)`). Hosts not shown in detail only send their top processes.
 
