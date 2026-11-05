@@ -386,6 +386,12 @@ processes = []         # programs to announce the exit of, e.g. ["train.py"]
 hidden_panels = []   # e.g. ["gpu", "network"]
 show_widgets = true  # the widget column (`w`)
 
+[gpu]
+# An integrated GPU on a host that also has a discrete one: "compact" (one
+# line in the host view, none on overview cards), "hide", or "full".
+# A host with only an integrated GPU always shows it in full.
+integrated = "compact"
+
 [lhm]
 # Windows: LibreHardwareMonitor's web server ("" to disable).
 url = "http://127.0.0.1:8085/data.json"

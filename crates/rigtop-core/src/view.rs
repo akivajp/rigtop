@@ -12,7 +12,7 @@ use std::time::{Duration, SystemTime};
 use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 
-use crate::config::AlertsConfig;
+use crate::config::{AlertsConfig, IntegratedGpu};
 use crate::format;
 use crate::snapshot::{GpuStats, OomKill, PcieLink, Pressure, ProcessInfo, Snapshot};
 use crate::source::ProcessSignal;
@@ -785,14 +785,51 @@ pub fn attention_rank(alerts: &[Alert], unreachable: bool, stale: bool) -> u8 {
     }
 }
 
+/// Whether `gpu` is an integrated GPU on a host that also has a discrete
+/// one: then it mostly sits idle or draws the desktop, and the discrete
+/// GPU is the one worth watching.
+pub fn is_secondary_gpu(snapshot: &Snapshot, gpu: &GpuStats) -> bool {
+    gpu.integrated && snapshot.gpus.iter().any(|g| !g.integrated)
+}
+
+/// How a GPU is drawn in the host view's GPU panel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GpuRow {
+    /// Name, meters and history graph.
+    Full,
+    /// A single line.
+    Compact,
+}
+
+/// The GPUs of the host view's GPU panel, each with its position in
+/// `snapshot.gpus` (the index of its history) and how it is drawn:
+/// integrated GPUs next to a discrete one as `mode` says.
+pub fn panel_gpus(snapshot: &Snapshot, mode: IntegratedGpu) -> Vec<(usize, &GpuStats, GpuRow)> {
+    snapshot
+        .gpus
+        .iter()
+        .enumerate()
+        .filter_map(|(i, gpu)| {
+            let row = match (is_secondary_gpu(snapshot, gpu), mode) {
+                (false, _) | (true, IntegratedGpu::Full) => GpuRow::Full,
+                (true, IntegratedGpu::Compact) => GpuRow::Compact,
+                (true, IntegratedGpu::Hide) => return None,
+            };
+            Some((i, gpu, row))
+        })
+        .collect()
+}
+
 /// The GPUs worth a line on an overview card: those with a utilization or
 /// memory reading (an Intel iGPU, whose utilization needs perf, would only
-/// say "--%"). The host view lists them all.
-pub fn card_gpus(snapshot: &Snapshot) -> impl Iterator<Item = &GpuStats> {
+/// say "--%"), and no integrated GPU next to a discrete one unless `mode`
+/// is [`IntegratedGpu::Full`].
+pub fn card_gpus(snapshot: &Snapshot, mode: IntegratedGpu) -> impl Iterator<Item = &GpuStats> {
     snapshot
         .gpus
         .iter()
         .filter(|g| g.utilization_percent.is_some() || g.memory_used_bytes.is_some())
+        .filter(move |g| mode == IntegratedGpu::Full || !is_secondary_gpu(snapshot, g))
 }
 
 /// A GPU's name with its power draw, for a card's detail line:
@@ -2293,8 +2330,52 @@ mod tests {
             ],
             ..Default::default()
         };
-        let shown: Vec<u32> = card_gpus(&snapshot).map(|g| g.index).collect();
+        let shown: Vec<u32> = card_gpus(&snapshot, IntegratedGpu::Compact)
+            .map(|g| g.index)
+            .collect();
         assert_eq!(shown, [1]);
+    }
+
+    #[test]
+    fn integrated_gpus_step_aside_for_a_discrete_one() {
+        let gpu = |index, integrated| GpuStats {
+            index,
+            integrated,
+            utilization_percent: Some(1.0),
+            memory_used_bytes: Some(1 << 30),
+            ..Default::default()
+        };
+        let desktop = Snapshot {
+            gpus: vec![gpu(0, false), gpu(1, false), gpu(2, true)],
+            ..Default::default()
+        };
+        let rows = |snapshot, mode| -> Vec<(usize, GpuRow)> {
+            panel_gpus(snapshot, mode)
+                .into_iter()
+                .map(|(i, _, row)| (i, row))
+                .collect()
+        };
+        assert_eq!(
+            rows(&desktop, IntegratedGpu::Compact),
+            [(0, GpuRow::Full), (1, GpuRow::Full), (2, GpuRow::Compact)]
+        );
+        assert_eq!(
+            rows(&desktop, IntegratedGpu::Hide),
+            [(0, GpuRow::Full), (1, GpuRow::Full)]
+        );
+        assert_eq!(rows(&desktop, IntegratedGpu::Full).len(), 3);
+        let cards =
+            |snapshot, mode| -> Vec<u32> { card_gpus(snapshot, mode).map(|g| g.index).collect() };
+        assert_eq!(cards(&desktop, IntegratedGpu::Compact), [0, 1]);
+        assert_eq!(cards(&desktop, IntegratedGpu::Full), [0, 1, 2]);
+
+        // A laptop with only its APU shows it in full, whatever the mode.
+        let laptop = Snapshot {
+            gpus: vec![gpu(0, true)],
+            ..Default::default()
+        };
+        assert_eq!(rows(&laptop, IntegratedGpu::Hide), [(0, GpuRow::Full)]);
+        assert_eq!(cards(&laptop, IntegratedGpu::Compact), [0]);
     }
 
     #[test]

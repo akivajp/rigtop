@@ -7,6 +7,14 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Changed
+- An integrated GPU on a host that also has a discrete one (e.g. the Radeon
+  graphics of a Ryzen desktop next to an NVIDIA card) takes one line in the
+  host view's GPU panel instead of its meters and graph, and is left out of
+  overview cards, so the discrete GPUs get the room. `[gpu] integrated`
+  chooses `"compact"` (the default), `"hide"` or `"full"` (as before). A
+  host with only an integrated GPU shows it in full; its alerts are kept.
+
 ## [0.26.2] - 2026-11-01
 
 ### Changed

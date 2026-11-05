@@ -414,7 +414,7 @@ fn card(ui: &mut Ui, host: &HostEntry, planner: &mut RowPlanner, position: usize
                             layout.cpu
                         }
                         OverviewSection::Gpu => {
-                            gpu_section(ui, snapshot, layout.gpu_names);
+                            gpu_section(ui, snapshot, layout.gpu_names, card.integrated_gpu());
                             0.0
                         }
                         OverviewSection::Memory => {
@@ -487,6 +487,11 @@ impl RowCard<'_> {
         self.host.state.snapshot.as_ref()
     }
 
+    /// How this host's integrated GPU is shown (the viewer's setting).
+    fn integrated_gpu(&self) -> rigtop_core::config::IntegratedGpu {
+        self.host.state.config.gpu.integrated
+    }
+
     /// Lines above the sections: a lost connection and the alerts.
     fn head_rows(&self) -> usize {
         let Some(snapshot) = self.snapshot() else {
@@ -512,7 +517,8 @@ impl RowCard<'_> {
                 2 + usize::from(layout.cpu_model && !snapshot.cpu.model.trim().is_empty())
             }
             OverviewSection::Gpu => {
-                rigtop_core::view::card_gpus(snapshot).count() * (1 + usize::from(layout.gpu_names))
+                rigtop_core::view::card_gpus(snapshot, self.integrated_gpu()).count()
+                    * (1 + usize::from(layout.gpu_names))
             }
             OverviewSection::Memory => 1 + usize::from(snapshot.memory.swap_total_bytes > 0),
             // Always the full height, so the sections below stay in place.
@@ -550,7 +556,11 @@ impl RowCard<'_> {
             OverviewSection::Cpu if !snapshot.cpu.model.trim().is_empty() => {
                 detailed.cpu_model = true
             }
-            OverviewSection::Gpu if rigtop_core::view::card_gpus(snapshot).next().is_some() => {
+            OverviewSection::Gpu
+                if rigtop_core::view::card_gpus(snapshot, self.integrated_gpu())
+                    .next()
+                    .is_some() =>
+            {
                 detailed.gpu_names = true
             }
             OverviewSection::Storage if !snapshot.disks.is_empty() => detailed.disks = true,
@@ -950,8 +960,13 @@ fn cpu_section(ui: &mut Ui, host: &HostEntry, snapshot: &Snapshot, graph_height:
     }
 }
 
-fn gpu_section(ui: &mut Ui, snapshot: &Snapshot, names: bool) {
-    for gpu in rigtop_core::view::card_gpus(snapshot) {
+fn gpu_section(
+    ui: &mut Ui,
+    snapshot: &Snapshot,
+    names: bool,
+    integrated: rigtop_core::config::IntegratedGpu,
+) {
+    for gpu in rigtop_core::view::card_gpus(snapshot, integrated) {
         if names {
             ui.horizontal(|ui| {
                 ui.add_space(48.0);

@@ -31,6 +31,9 @@
 #io_pressure_warning_percent = 30
 #ignored_units = []                 # failed systemd units not to warn about
 
+#[gpu]
+#integrated = "compact"             # an iGPU next to a discrete GPU: "compact" (one line), "hide" or "full"
+
 #[sensors]
 # Names for sensor channels, keyed by the channel key rigtop shows, and
 # channels to hide (the GUI's "sensors…" edits these).

@@ -386,6 +386,12 @@ processes = []         # 終わったら知らせるプログラム。例: ["tra
 hidden_panels = []   # 例: ["gpu", "network"]
 show_widgets = true  # ウィジェットの列（`w`）
 
+[gpu]
+# 外付けの GPU もあるホストでの内蔵 GPU の表示: "compact"（ホストの画面では
+# 1行、オーバービューのカードには出さない）、"hide"（出さない）、"full"（全部出す）。
+# 内蔵 GPU しか無いホストでは、常に全部出す。
+integrated = "compact"
+
 [lhm]
 # Windows: LibreHardwareMonitor の Web サーバー（"" で無効）
 url = "http://127.0.0.1:8085/data.json"

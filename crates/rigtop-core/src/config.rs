@@ -177,6 +177,8 @@ pub struct Config {
     pub overview: OverviewConfig,
     /// The terminal UI.
     pub tui: TuiConfig,
+    /// GPU panels and overview cards.
+    pub gpu: GpuConfig,
     /// When a reading becomes an alert.
     pub alerts: AlertsConfig,
     /// Desktop notifications for new alerts (GUI).
@@ -451,6 +453,29 @@ impl Default for AlertsConfig {
             ignored_units: Vec::new(),
         }
     }
+}
+
+/// GPU panels and overview cards.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct GpuConfig {
+    /// How an integrated GPU is shown on a host that also has a discrete
+    /// one.
+    pub integrated: IntegratedGpu,
+}
+
+/// How an integrated GPU is shown next to a discrete GPU. A host with only
+/// an integrated GPU (a laptop, say) always shows it in full.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum IntegratedGpu {
+    /// One line in the host view, none on overview cards.
+    #[default]
+    Compact,
+    /// Not shown at all (its alerts still are).
+    Hide,
+    /// Like a discrete GPU.
+    Full,
 }
 
 /// Desktop notification settings.

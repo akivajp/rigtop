@@ -12,7 +12,8 @@ use rigtop_core::snapshot::{
     device_matches_disk,
 };
 use rigtop_core::view::{
-    self, LHM_HINT, Severity, SortKey, disk_rate_text, is_virtual_interface, lhm_help, signal_name,
+    self, GpuRow, LHM_HINT, Severity, SortKey, disk_rate_text, is_virtual_interface, lhm_help,
+    signal_name,
 };
 use rigtop_core::worker::Command;
 
@@ -632,21 +633,35 @@ fn gpus(ui: &mut Ui, state: &GuiState) {
         ui.label(dim("no GPU found"));
         return;
     }
+    // An integrated GPU next to a discrete one gets one line (or none, as
+    // configured); the others share the rest of the panel.
+    let gpus = view::panel_gpus(snapshot, state.config.gpu.integrated);
+    let compact = gpus
+        .iter()
+        .filter(|(_, _, r)| *r == GpuRow::Compact)
+        .count();
+    let full = gpus.len() - compact;
+    let compact_height = compact as f32 * (ROW_HEIGHT + 4.0);
     // A name row, utilization and VRAM per GPU; with less room VRAM joins
     // the utilization row, and with even less (three GPUs in a short panel)
     // each GPU gets one line, as on overview cards.
     let rows_fit = |rows: f32| {
-        ui.available_height() >= snapshot.gpus.len() as f32 * (rows * (ROW_HEIGHT + 3.0) + 4.0)
+        ui.available_height() - compact_height >= full as f32 * (rows * (ROW_HEIGHT + 3.0) + 4.0)
     };
     let vram_row = rows_fit(3.0);
     if !vram_row && !rows_fit(2.0) {
-        for gpu in &snapshot.gpus {
+        for (_, gpu, _) in &gpus {
             compact_gpu_row(ui, gpu);
         }
         return;
     }
-    let per_gpu = (ui.available_height() / snapshot.gpus.len() as f32).max(ROW_HEIGHT * 2.0);
-    for (i, gpu) in snapshot.gpus.iter().enumerate() {
+    let per_gpu =
+        ((ui.available_height() - compact_height) / full.max(1) as f32).max(ROW_HEIGHT * 2.0);
+    for (i, gpu, row) in gpus {
+        if row == GpuRow::Compact {
+            compact_gpu_row(ui, gpu);
+            continue;
+        }
         let top = ui.cursor().top();
         // Wraps on narrow panels instead of cutting off power and clocks.
         ui.horizontal_wrapped(|ui| {

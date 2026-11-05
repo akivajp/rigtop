@@ -19,16 +19,18 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Cell, Clear, Paragraph, Row, Table, TableState};
 use rigtop_core::Snapshot;
-use rigtop_core::config::OverviewSection;
+use rigtop_core::config::{IntegratedGpu, OverviewSection};
 use rigtop_core::snapshot::{
-    BtrfsFilesystem, CpuStats, MemoryStats, NetworkStats, SmartDevice, ZfsPool, device_matches_disk,
+    BtrfsFilesystem, CpuStats, GpuStats, MemoryStats, NetworkStats, SmartDevice, ZfsPool,
+    device_matches_disk,
 };
 
 use super::app::{App, ProcTableHit};
 use super::graph::{self, BrailleGraph};
 use rigtop_core::format;
 use rigtop_core::view::{
-    GraphSpan, LHM_HINT, Severity, SortKey, disk_rate_text, is_virtual_interface, signal_name,
+    GpuRow, GraphSpan, LHM_HINT, Severity, SortKey, disk_rate_text, is_virtual_interface,
+    signal_name,
 };
 
 /// Box border color.
@@ -145,7 +147,7 @@ fn draw_screen(
     let [left, right] =
         Layout::horizontal([Constraint::Length(left_width), Constraint::Fill(1)]).areas(bottom);
 
-    let heights = left_column_heights(snapshot, left, &shown);
+    let heights = left_column_heights(snapshot, left, &shown, app.config.gpu.integrated);
     let [mem, gpu, storage, net] = Layout::vertical([
         Constraint::Length(heights.memory),
         Constraint::Length(heights.gpu),
@@ -220,6 +222,7 @@ fn left_column_heights(
     snapshot: &Snapshot,
     area: Rect,
     shown: &dyn Fn(OverviewSection) -> bool,
+    integrated: IntegratedGpu,
 ) -> LeftHeights {
     let mut remaining = area.height;
     // Takes up to `wanted` rows if at least `minimum` are left.
@@ -232,11 +235,18 @@ fn left_column_heights(
         got
     };
 
-    // A hidden box wants no rows.
-    let gpus = if shown(OverviewSection::Gpu) {
-        snapshot.gpus.len() as u16
+    // A hidden box wants no rows. GPUs drawn in full get text rows and a
+    // share of the graph rows; compact ones (an iGPU next to a discrete
+    // GPU) one line.
+    let (gpus, compact_gpus) = if shown(OverviewSection::Gpu) {
+        let rows = rigtop_core::view::panel_gpus(snapshot, integrated);
+        let compact = rows
+            .iter()
+            .filter(|(_, _, r)| *r == GpuRow::Compact)
+            .count();
+        ((rows.len() - compact) as u16, compact as u16)
     } else {
-        0
+        (0, 0)
     };
     let memory_wanted = if shown(OverviewSection::Memory) {
         memory_rows(&snapshot.memory).len() as u16 + 2
@@ -250,10 +260,10 @@ fn left_column_heights(
         0
     };
     let storage = take(storage_needed, MIN_BOX_HEIGHT);
-    let gpu_text = if gpus == 0 {
+    let gpu_text = if gpus + compact_gpus == 0 {
         0
     } else {
-        gpus * GPU_TEXT_ROWS + 2
+        gpus * GPU_TEXT_ROWS + compact_gpus + 2
     };
     let mut gpu = take(gpu_text, gpu_text);
     let network_wanted = if shown(OverviewSection::Network) {
@@ -263,7 +273,7 @@ fn left_column_heights(
     };
     let mut network = take(network_wanted, NET_COMPACT_HEIGHT);
 
-    if gpu > 0 {
+    if gpu > 0 && gpus > 0 {
         // Half of the spare height becomes GPU history graph rows.
         let per_gpu = (remaining / 2 / gpus).min(GPU_GRAPH_MAX_ROWS);
         gpu += per_gpu * gpus;
@@ -792,13 +802,33 @@ fn draw_gpus(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    // The layout decides how many history graph rows each GPU gets (possibly none).
-    let gpus = snapshot.gpus.len().max(1) as u16;
-    let rows_per_gpu = (inner.height / gpus).max(GPU_TEXT_ROWS);
+    // The layout decides how many history graph rows each GPU drawn in
+    // full gets (possibly none); compact ones take one line.
+    let gpus = rigtop_core::view::panel_gpus(snapshot, app.config.gpu.integrated);
+    let compact = gpus
+        .iter()
+        .filter(|(_, _, r)| *r == GpuRow::Compact)
+        .count() as u16;
+    let full = (gpus.len() as u16 - compact).max(1);
+    let rows_per_gpu = (inner.height.saturating_sub(compact) / full).max(GPU_TEXT_ROWS);
     let graph_rows = rows_per_gpu - GPU_TEXT_ROWS;
-    for (i, gpu) in snapshot.gpus.iter().enumerate() {
-        let y = inner.y + i as u16 * rows_per_gpu;
-        if y + rows_per_gpu > inner.y + inner.height {
+    let bottom = inner.y + inner.height;
+    let mut y = inner.y;
+    for (i, gpu, row) in gpus {
+        let rows = Rect {
+            y,
+            height: 1,
+            ..inner
+        };
+        if row == GpuRow::Compact {
+            if y >= bottom {
+                break;
+            }
+            frame.render_widget(Paragraph::new(compact_gpu_line(gpu)), rows);
+            y += 1;
+            continue;
+        }
+        if y + rows_per_gpu > bottom {
             break;
         }
         let util = gpu.utilization_percent.unwrap_or(0.0) as f64;
@@ -843,13 +873,9 @@ fn draw_gpus(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
                 format::bytes(total)
             )));
         }
-        let rows = Rect {
-            y,
-            height: 1,
-            ..inner
-        };
         frame.render_widget(Paragraph::new(Line::from(line1)), rows);
         frame.render_widget(Paragraph::new(Line::from(line2)), Rect { y: y + 1, ..rows });
+        y += rows_per_gpu;
         if graph_rows == 0 {
             continue;
         }
@@ -868,12 +894,39 @@ fn draw_gpus(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
         frame.render_widget(
             BrailleGraph::new(&samples, 100.0),
             Rect {
-                y: y + GPU_TEXT_ROWS,
+                y: rows.y + GPU_TEXT_ROWS,
                 height: graph_rows,
                 ..rows
             },
         );
     }
+}
+
+/// One line for an integrated GPU next to a discrete one:
+/// "2 AMD Granite Ridge [Ra… 42°C util 0% vram 368M/2.0G".
+fn compact_gpu_line(gpu: &GpuStats) -> Line<'static> {
+    let util = gpu.utilization_percent.unwrap_or(0.0) as f64;
+    let mut spans = vec![
+        colored(format!("{} ", gpu.index), GPU_TITLE),
+        dim(format!("{} ", format::truncate(&gpu.name, 22))),
+    ];
+    if let Some(t) = gpu.temperature_c {
+        spans.push(colored(format!("{t:.0}°C "), temperature_color(t)));
+    }
+    spans.push(dim("util "));
+    spans.push(colored(
+        format!("{} ", format::percent(gpu.utilization_percent)),
+        percent_color(util),
+    ));
+    if let (Some(used), Some(total)) = (gpu.memory_used_bytes, gpu.memory_total_bytes) {
+        spans.push(dim("vram "));
+        spans.push(Span::raw(format!(
+            "{}/{}",
+            format::bytes(used),
+            format::bytes(total)
+        )));
+    }
+    Line::from(spans)
 }
 
 // ---------------------------------------------------------------- storage
@@ -1998,13 +2051,23 @@ mod tests {
     fn left_column_hides_boxes_that_do_not_fit() {
         let snapshot = sample_snapshot();
         // Tall: everything shown, the network box absorbs the rest.
-        let tall = left_column_heights(&snapshot, Rect::new(0, 0, 90, 60), &|_| true);
+        let tall = left_column_heights(
+            &snapshot,
+            Rect::new(0, 0, 90, 60),
+            &|_| true,
+            IntegratedGpu::Compact,
+        );
         assert!(
             tall.memory > 0 && tall.gpu > 0 && tall.storage > 0 && tall.network >= NET_MIN_HEIGHT
         );
         assert_eq!(tall.memory + tall.gpu + tall.storage + tall.network, 60);
         // Short: memory and storage win, the rest is hidden rather than squashed.
-        let short = left_column_heights(&snapshot, Rect::new(0, 0, 90, 12), &|_| true);
+        let short = left_column_heights(
+            &snapshot,
+            Rect::new(0, 0, 90, 12),
+            &|_| true,
+            IntegratedGpu::Compact,
+        );
         assert!(short.memory > 0 && short.storage > 0);
         assert_eq!(short.gpu, 0);
         assert!(short.memory + short.gpu + short.storage + short.network <= 12);

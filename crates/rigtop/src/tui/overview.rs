@@ -7,7 +7,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Paragraph, Wrap};
-use rigtop_core::config::OverviewSection;
+use rigtop_core::config::{IntegratedGpu, OverviewSection};
 use rigtop_core::format;
 use rigtop_core::snapshot::Snapshot;
 use rigtop_core::view::{Severity, attention_rank};
@@ -517,7 +517,7 @@ fn section_lines(
     let (snapshot, width) = (card.snapshot, card.width);
     match section {
         OverviewSection::Cpu => cpu_lines(card.app, snapshot, width),
-        OverviewSection::Gpu => gpu_lines(snapshot, width),
+        OverviewSection::Gpu => gpu_lines(snapshot, width, card.app.config.gpu.integrated),
         OverviewSection::Memory => memory_lines(snapshot, width),
         OverviewSection::Processes => {
             process_lines(snapshot, processes.min(left.saturating_sub(1)))
@@ -536,7 +536,7 @@ fn section_details(
     let snapshot = card.snapshot;
     match section {
         OverviewSection::Cpu => cpu_details(snapshot, card.width, lines),
-        OverviewSection::Gpu => gpu_details(snapshot, lines),
+        OverviewSection::Gpu => gpu_details(snapshot, lines, card.app.config.gpu.integrated),
         OverviewSection::Memory => memory_details(snapshot, card.width, lines),
         OverviewSection::Storage => storage_details(snapshot, lines),
         _ => None,
@@ -660,8 +660,12 @@ fn cpu_details(
 }
 
 /// The GPU lines, each after the GPU's name and power.
-fn gpu_details(snapshot: &Snapshot, lines: &[Line<'static>]) -> Option<Vec<Line<'static>>> {
-    let gpus: Vec<_> = rigtop_core::view::card_gpus(snapshot).collect();
+fn gpu_details(
+    snapshot: &Snapshot,
+    lines: &[Line<'static>],
+    integrated: IntegratedGpu,
+) -> Option<Vec<Line<'static>>> {
+    let gpus: Vec<_> = rigtop_core::view::card_gpus(snapshot, integrated).collect();
     if gpus.is_empty() || gpus.len() != lines.len() {
         return None;
     }
@@ -790,8 +794,8 @@ fn cpu_lines(app: &App, snapshot: &Snapshot, width: usize) -> Vec<Line<'static>>
     ]
 }
 
-fn gpu_lines(snapshot: &Snapshot, width: usize) -> Vec<Line<'static>> {
-    rigtop_core::view::card_gpus(snapshot)
+fn gpu_lines(snapshot: &Snapshot, width: usize, integrated: IntegratedGpu) -> Vec<Line<'static>> {
+    rigtop_core::view::card_gpus(snapshot, integrated)
         .map(|gpu| {
             let util = gpu.utilization_percent.unwrap_or(0.0) as f64;
             let mut value = format::percent(gpu.utilization_percent);
