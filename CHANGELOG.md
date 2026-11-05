@@ -7,6 +7,8 @@ include breaking changes).
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-11-05
+
 ### Changed
 - An integrated GPU on a host that also has a discrete one (e.g. the Radeon
   graphics of a Ryzen desktop next to an NVIDIA card) takes one line in the
@@ -576,7 +578,8 @@ First release.
 - Windows support (CPU, memory, processes, network with link speeds, drives,
   NVIDIA GPUs; temperatures, fans and CPU power are not available yet)
 
-[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.26.2...HEAD
+[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.27.0...HEAD
+[0.27.0]: https://github.com/akivajp/rigtop/compare/v0.26.2...v0.27.0
 [0.26.2]: https://github.com/akivajp/rigtop/compare/v0.26.1...v0.26.2
 [0.26.1]: https://github.com/akivajp/rigtop/compare/v0.26.0...v0.26.1
 [0.26.0]: https://github.com/akivajp/rigtop/compare/v0.25.0...v0.26.0
