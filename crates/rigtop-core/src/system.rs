@@ -170,6 +170,7 @@ impl SystemCollector {
                 tx_bytes_per_sec: rate(data.transmitted(), elapsed_secs),
                 rx_total_bytes: data.total_received(),
                 tx_total_bytes: data.total_transmitted(),
+                addresses: addresses(data.ip_networks()),
                 // Link state is platform-specific and filled in by the caller.
                 ..Default::default()
             })
@@ -449,6 +450,26 @@ fn full_name(name: &str, leading: &[&str]) -> String {
         }
     }
     name.to_owned()
+}
+
+/// An interface's addresses as text ("192.168.1.10/24"), IPv4 first and
+/// without IPv6 link-local ones (every interface has one; they are of no
+/// use elsewhere).
+fn addresses(networks: &[sysinfo::IpNetwork]) -> Vec<String> {
+    let mut found: Vec<&sysinfo::IpNetwork> = networks
+        .iter()
+        .filter(|n| match n.addr {
+            std::net::IpAddr::V4(_) => true,
+            // fe80::/10
+            std::net::IpAddr::V6(v6) => v6.segments()[0] & 0xffc0 != 0xfe80,
+        })
+        .collect();
+    found.sort_by_key(|n| (n.addr.is_ipv6(), n.addr));
+    found.dedup_by_key(|n| n.addr);
+    found
+        .into_iter()
+        .map(|n| format!("{}/{}", n.addr, n.prefix))
+        .collect()
 }
 
 #[cfg(test)]

@@ -70,6 +70,8 @@ pub struct DemoSource {
     tx_total: f64,
     /// See [`DataSource::watch_processes`]; demo processes never exit.
     watched_pids: Vec<u32>,
+    /// See [`DataSource::set_public_ip`]; answered without asking anyone.
+    public_ip: bool,
 }
 
 impl DemoSource {
@@ -82,6 +84,7 @@ impl DemoSource {
             rx_total: 412.0 * GIB as f64,
             tx_total: 38.0 * GIB as f64,
             watched_pids: Vec::new(),
+            public_ip: false,
         }
     }
 }
@@ -105,6 +108,12 @@ impl DataSource for DemoSource {
         snapshot.timestamp_ms = now_ms();
         snapshot.process_count = snapshot.processes.len();
         snapshot.watched_pids = self.watched_pids.clone();
+        // Addresses from the ranges reserved for documentation (RFC 5737,
+        // RFC 3849), so screenshots show no real ones.
+        snapshot.public_ip = self.public_ip.then(|| match self.host {
+            DemoHost::Laptop => "198.51.100.23".to_owned(),
+            _ => "203.0.113.7".to_owned(),
+        });
         Ok(snapshot)
     }
 
@@ -115,6 +124,10 @@ impl DataSource for DemoSource {
 
     fn watch_processes(&mut self, pids: Vec<u32>) {
         self.watched_pids = pids;
+    }
+
+    fn set_public_ip(&mut self, lookup: Option<crate::public_ip::PublicIpLookup>) {
+        self.public_ip = lookup.is_some();
     }
 }
 
@@ -799,6 +812,7 @@ fn workstation(t: f64) -> Snapshot {
         networks: vec![
             NetworkStats {
                 name: "enp9s0".to_owned(),
+                addresses: vec!["192.0.2.10/24".to_owned(), "2001:db8::10/64".to_owned()],
                 rx_bytes_per_sec: 280e6 * download + 60e3 * wobble(12, t, 1.5),
                 tx_bytes_per_sec: 4e6 * download + 25e3 * wobble(13, t, 2.0),
                 link_speed_mbps: Some(10_000),
@@ -807,6 +821,7 @@ fn workstation(t: f64) -> Snapshot {
             },
             NetworkStats {
                 name: "tailscale0".to_owned(),
+                addresses: vec!["198.51.100.10/32".to_owned()],
                 rx_bytes_per_sec: 9e3 * wobble(14, t, 3.0),
                 tx_bytes_per_sec: 40e3 * wobble(15, t, 4.0),
                 rx_total_bytes: 3 * GIB,
@@ -908,6 +923,7 @@ fn laptop(t: f64) -> Snapshot {
         }],
         networks: vec![NetworkStats {
             name: "wlp1s0".to_owned(),
+            addresses: vec!["192.0.2.24/24".to_owned()],
             rx_bytes_per_sec: 1.5e6 * busy + 20e3 * wobble(41, t, 2.0),
             tx_bytes_per_sec: 0.3e6 * busy + 8e3 * wobble(42, t, 3.0),
             link_up: Some(true),
@@ -1113,6 +1129,7 @@ fn nas(t: f64) -> Snapshot {
         smart: (0..4).map(smart).collect(),
         networks: vec![NetworkStats {
             name: "eno1".to_owned(),
+            addresses: vec!["192.0.2.5/24".to_owned()],
             rx_bytes_per_sec: 2e6 * wobble(70, t, 6.0),
             tx_bytes_per_sec: 95e6 * ((wobble(71, t, 10.0) - 0.3).max(0.0) / 0.7),
             link_speed_mbps: Some(2_500),

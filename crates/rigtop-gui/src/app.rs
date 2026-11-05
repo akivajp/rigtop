@@ -11,6 +11,7 @@ use egui_tiles::{Container, SimplificationOptions, Tile, TileId, Tiles, Tree, Ui
 use rigtop_core::config::{ConfigWatcher, HostConfig, OverviewSection, SensorConfig};
 use rigtop_core::demo::DemoSource;
 use rigtop_core::hosts::{HostKind, HostSpec, host_specs};
+use rigtop_core::public_ip::PublicIpLookup;
 use rigtop_core::remote::RemoteSource;
 use rigtop_core::snooze::Snoozes;
 use rigtop_core::update::ReleaseChecker;
@@ -47,6 +48,7 @@ const ZOOM_KEY: &str = "zoom";
 const LAYOUT_KEY: &str = "layout";
 const OVERVIEW_KEY: &str = "overview";
 const WIDGETS_KEY: &str = "widgets_visible";
+const ADDRESSES_KEY: &str = "show_addresses";
 /// eframe storage key for the time the graphs cover (seconds, 0 to fit).
 const GRAPH_SPAN_KEY: &str = "graph_span";
 
@@ -130,6 +132,8 @@ pub enum ViewAction {
     ToggleWidgets,
     /// Switch the graphs to the next time span.
     NextGraphSpan,
+    /// Show or hide the network panel's addresses.
+    ToggleAddresses,
     /// Open the window for naming and hiding sensors.
     EditSensors,
     /// Open the history of alerts.
@@ -199,6 +203,8 @@ pub struct GuiState {
     pub hidden_panes: Vec<Pane>,
     /// How much time the graphs cover.
     pub graph_span: GraphSpan,
+    /// Show the network panel's addresses (the same on every host).
+    pub show_addresses: bool,
     /// Collection interval, to turn a time span into samples.
     pub interval: Duration,
     /// Whether this is the machine rigtop runs on (setup offers apply only
@@ -254,6 +260,7 @@ impl GuiState {
             release: None,
             hidden_panes: Vec::new(),
             graph_span: GraphSpan::default(),
+            show_addresses: true,
             interval: Duration::from_secs(1),
             is_local: false,
             remote: false,
@@ -381,6 +388,8 @@ pub struct HostEntry {
     sent_limit: Option<Option<usize>>,
     /// Watched processes last sent to the worker.
     sent_watch: Option<Vec<u32>>,
+    /// Public address lookup last sent to the worker.
+    sent_public_ip: Option<Option<PublicIpLookup>>,
 }
 
 impl HostEntry {
@@ -423,6 +432,11 @@ impl HostEntry {
         if self.sent_watch.as_ref() != Some(&pids) {
             worker.send(Command::WatchProcesses(pids.clone()));
             self.sent_watch = Some(pids);
+        }
+        let lookup = self.state.config.network.public_ip_lookup();
+        if self.sent_public_ip.as_ref() != Some(&lookup) {
+            worker.send(Command::SetPublicIp(lookup.clone()));
+            self.sent_public_ip = Some(lookup);
         }
     }
 
@@ -488,6 +502,9 @@ pub struct RigtopApp {
     /// Whether the widget column is shown (it can be hidden for room).
     show_widgets: bool,
     graph_span: GraphSpan,
+    /// The "IP" choice in the network panel, over `[network] show_addresses`
+    /// (`None`: as configured).
+    show_addresses: Option<bool>,
     tree: Tree<Pane>,
     /// Processes per overview card (hosts not shown in detail send only these).
     overview_processes: usize,
@@ -552,6 +569,7 @@ impl RigtopApp {
         app.show_widgets = storage
             .and_then(|s| eframe::get_value::<bool>(s, WIDGETS_KEY))
             .unwrap_or(true);
+        app.show_addresses = storage.and_then(|s| eframe::get_value::<bool>(s, ADDRESSES_KEY));
         let repaint = cc.egui_ctx.clone();
         app.widgets = rigtop_core::widget::start_widgets(&app.config.widgets, move || {
             repaint.request_repaint()
@@ -595,6 +613,7 @@ impl RigtopApp {
             widgets: Vec::new(),
             show_widgets: true,
             graph_span: GraphSpan::default(),
+            show_addresses: None,
             tree,
             styled: false,
             initial_zoom,
@@ -631,6 +650,7 @@ impl RigtopApp {
             state,
             sent_limit: None,
             sent_watch: None,
+            sent_public_ip: None,
         }
     }
 
@@ -815,6 +835,7 @@ impl RigtopApp {
         let host = &mut self.hosts[index];
         host.sent_limit = None;
         host.sent_watch = None;
+        host.sent_public_ip = None;
         std::mem::replace(&mut host.worker, fresh.worker)
     }
 
@@ -1075,9 +1096,13 @@ impl RigtopApp {
         }
 
         // Cards and panels alike draw their graphs over the same span.
+        let show_addresses = self
+            .show_addresses
+            .unwrap_or(self.config.network.show_addresses);
         for host in &mut self.hosts {
             host.state.graph_span = self.graph_span;
             host.state.interval = self.interval;
+            host.state.show_addresses = show_addresses;
         }
         let mut actions = Vec::new();
         egui::Frame::new()
@@ -1163,6 +1188,12 @@ impl RigtopApp {
                 ViewAction::OpenConfigFolder => self.open_config(true),
                 ViewAction::ToggleWidgets => self.show_widgets = !self.show_widgets,
                 ViewAction::NextGraphSpan => self.graph_span = self.graph_span.next(),
+                ViewAction::ToggleAddresses => {
+                    let shown = self
+                        .show_addresses
+                        .unwrap_or(self.config.network.show_addresses);
+                    self.show_addresses = Some(!shown);
+                }
                 ViewAction::EditSensors => self.sensors_dialog.open(&self.config.sensors),
                 ViewAction::ShowAlertLog => self.alert_log_open = true,
                 ViewAction::UpdateAgent => {
@@ -1362,6 +1393,9 @@ impl eframe::App for RigtopApp {
         eframe::set_value(storage, OVERVIEW_KEY, &self.overview);
         eframe::set_value(storage, WIDGETS_KEY, &self.show_widgets);
         eframe::set_value(storage, GRAPH_SPAN_KEY, &self.graph_span.as_secs());
+        if let Some(shown) = self.show_addresses {
+            eframe::set_value(storage, ADDRESSES_KEY, &shown);
+        }
     }
 }
 
@@ -1603,6 +1637,7 @@ mod tests {
                 name: "enp9s0".to_owned(),
                 link_speed_mbps: Some(10_000),
                 link_up: Some(true),
+                addresses: vec!["192.0.2.10/24".to_owned()],
                 ..Default::default()
             }],
             processes: vec![
@@ -1659,6 +1694,22 @@ mod tests {
                 "missing {label:?}"
             );
         }
+    }
+
+    #[test]
+    fn network_addresses_can_be_hidden() {
+        let mut harness = harness_with(sample_snapshot());
+        harness.run();
+        assert!(harness.query_by_label_contains("192.0.2.10/24").is_some());
+        harness
+            .get_by(|node| {
+                node.role() == egui::accesskit::Role::CheckBox
+                    && node.label().as_deref() == Some("IP")
+            })
+            .click();
+        harness.run();
+        assert!(harness.query_by_label_contains("192.0.2.10/24").is_none());
+        assert_eq!(harness.state().show_addresses, Some(false));
     }
 
     #[test]

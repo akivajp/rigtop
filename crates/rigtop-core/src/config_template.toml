@@ -31,6 +31,12 @@
 #io_pressure_warning_percent = 30
 #ignored_units = []                 # failed systemd units not to warn about
 
+#[network]
+#show_addresses = true              # the shown interface's addresses (TUI `i`, GUI "IP")
+#public_ip = false                  # also look up the public IPv4 address (contacts public_ip_url)
+#public_ip_url = "https://api.ipify.org"
+#public_ip_interval = "30m"
+
 #[gpu]
 #integrated = "compact"             # an iGPU next to a discrete GPU: "compact" (one line), "hide" or "full"
 

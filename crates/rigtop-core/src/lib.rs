@@ -25,6 +25,7 @@ pub mod hosts;
 mod lhm;
 #[cfg(target_os = "linux")]
 pub mod linux;
+pub mod public_ip;
 pub mod remote;
 pub mod smart;
 pub mod snapshot;

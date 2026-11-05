@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::{AlertsConfig, IntegratedGpu};
 use crate::format;
-use crate::snapshot::{GpuStats, OomKill, PcieLink, Pressure, ProcessInfo, Snapshot};
+use crate::snapshot::{GpuStats, NetworkStats, OomKill, PcieLink, Pressure, ProcessInfo, Snapshot};
 use crate::source::ProcessSignal;
 
 /// Number of samples kept for graphs: over an hour at the default interval
@@ -783,6 +783,27 @@ pub fn attention_rank(alerts: &[Alert], unreachable: bool, stale: bool) -> u8 {
     } else {
         2
     }
+}
+
+/// The addresses line of the network panel for interface `net`: its IPv4
+/// addresses, the public one, then the first IPv6 address with how many
+/// more there are (SLAAC and temporary addresses add up):
+/// "192.168.1.10/24 · public 203.0.113.7 · 2001:db8::10/64 +2". `None`
+/// when there is nothing to show. [`NetworkStats::addresses`] has them all.
+pub fn address_text(net: Option<&NetworkStats>, public_ip: Option<&str>) -> Option<String> {
+    let addresses = net.map_or(&[][..], |n| n.addresses.as_slice());
+    let (v6, v4): (Vec<&String>, Vec<&String>) = addresses.iter().partition(|a| a.contains(':'));
+    let mut parts: Vec<String> = v4.into_iter().cloned().collect();
+    if let Some(public) = public_ip {
+        parts.push(format!("public {public}"));
+    }
+    if let Some(first) = v6.first() {
+        parts.push(match v6.len() - 1 {
+            0 => (*first).clone(),
+            more => format!("{first} +{more}"),
+        });
+    }
+    (!parts.is_empty()).then(|| parts.join(" · "))
 }
 
 /// Whether `gpu` is an integrated GPU on a host that also has a discrete
@@ -2334,6 +2355,41 @@ mod tests {
             .map(|g| g.index)
             .collect();
         assert_eq!(shown, [1]);
+    }
+
+    #[test]
+    fn address_line_lists_the_interface_then_the_public_address() {
+        let net = NetworkStats {
+            addresses: vec!["192.0.2.10/24".to_owned(), "2001:db8::10/64".to_owned()],
+            ..Default::default()
+        };
+        assert_eq!(
+            address_text(Some(&net), Some("203.0.113.7")).as_deref(),
+            Some("192.0.2.10/24 · public 203.0.113.7 · 2001:db8::10/64")
+        );
+        let many = NetworkStats {
+            addresses: vec![
+                "192.0.2.10/24".to_owned(),
+                "2001:db8::10/64".to_owned(),
+                "2001:db8::a/64".to_owned(),
+                "2001:db8::b/64".to_owned(),
+            ],
+            ..Default::default()
+        };
+        assert_eq!(
+            address_text(Some(&many), None).as_deref(),
+            Some("192.0.2.10/24 · 2001:db8::10/64 +2")
+        );
+        assert_eq!(
+            address_text(Some(&net), None).as_deref(),
+            Some("192.0.2.10/24 · 2001:db8::10/64")
+        );
+        assert_eq!(address_text(None, None), None);
+        assert_eq!(
+            address_text(Some(&NetworkStats::default()), None),
+            None,
+            "an interface without addresses"
+        );
     }
 
     #[test]

@@ -1304,32 +1304,44 @@ fn draw_network(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
         .iter()
         .filter(|n| !is_virtual_interface(&n.name) && n.link_up != Some(false))
         .collect();
-    let list_rows = (listed.len() as u16).min(inner.height.saturating_sub(NET_GRAPH_MIN_ROWS));
+    // The shown interface's addresses (and the public one) above the list.
+    let addresses = app
+        .show_addresses
+        .then(|| rigtop_core::view::address_text(selected, snapshot.public_ip.as_deref()))
+        .flatten();
+    let address_rows = u16::from(addresses.is_some());
+    let list_rows =
+        (listed.len() as u16 + address_rows).min(inner.height.saturating_sub(NET_GRAPH_MIN_ROWS));
     let [graphs, list_area] =
         Layout::vertical([Constraint::Fill(1), Constraint::Length(list_rows)]).areas(inner);
     draw_network_graphs(frame, app, selected, graphs);
 
-    let lines: Vec<Line> = listed
-        .iter()
-        .take(list_rows as usize)
-        .map(|n| {
-            let marker = if Some(&n.name) == app.history.net_interface.as_ref() {
-                "▸"
-            } else {
-                " "
-            };
-            Line::from(vec![
-                colored(marker, NET_TITLE),
-                Span::raw(format::pad(&n.name, 12)),
-                dim(format::pad(&link_label(n).unwrap_or_default(), 22)),
-                Span::raw(format!(
-                    "▼{:>8} ▲{:>8}",
-                    format::rate(n.rx_bytes_per_sec),
-                    format::rate(n.tx_bytes_per_sec)
-                )),
-            ])
+    let mut lines: Vec<Line> = addresses
+        .map(|text| {
+            Line::from(dim(format!(
+                " {}",
+                format::truncate(&text, (inner.width as usize).saturating_sub(1))
+            )))
         })
+        .into_iter()
         .collect();
+    lines.extend(listed.iter().take(list_rows as usize).map(|n| {
+        let marker = if Some(&n.name) == app.history.net_interface.as_ref() {
+            "▸"
+        } else {
+            " "
+        };
+        Line::from(vec![
+            colored(marker, NET_TITLE),
+            Span::raw(format::pad(&n.name, 12)),
+            dim(format::pad(&link_label(n).unwrap_or_default(), 22)),
+            Span::raw(format!(
+                "▼{:>8} ▲{:>8}",
+                format::rate(n.rx_bytes_per_sec),
+                format::rate(n.tx_bytes_per_sec)
+            )),
+        ])
+    }));
     frame.render_widget(Paragraph::new(lines), list_area);
 }
 

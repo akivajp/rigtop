@@ -28,6 +28,8 @@ pub enum Command {
     /// Processes to report the exit of by name (see
     /// [`DataSource::watch_process_names`]).
     WatchProcessNames(Vec<String>),
+    /// Look up the public address (see [`DataSource::set_public_ip`]).
+    SetPublicIp(Option<crate::public_ip::PublicIpLookup>),
 }
 
 /// Messages from the worker to the UI.
@@ -177,6 +179,7 @@ fn run<S: DataSource, N: Fn()>(
             Ok(Command::SetProcessLimit(limit)) => source.set_process_limit(limit),
             Ok(Command::WatchProcesses(pids)) => source.watch_processes(pids),
             Ok(Command::WatchProcessNames(names)) => source.watch_process_names(names),
+            Ok(Command::SetPublicIp(lookup)) => source.set_public_ip(lookup),
             Err(RecvTimeoutError::Timeout) => {
                 let event = match source.poll() {
                     Ok(snapshot) => Event::Snapshot(Box::new(snapshot)),

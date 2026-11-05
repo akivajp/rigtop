@@ -24,6 +24,7 @@ use rigtop_core::config::ConfigWatcher;
 use rigtop_core::config::{OverviewSection, UpdatesConfig};
 use rigtop_core::demo::DemoSource;
 use rigtop_core::hosts::{HostKind, HostSpec};
+use rigtop_core::public_ip::PublicIpLookup;
 use rigtop_core::remote::RemoteSource;
 use rigtop_core::update::{ReleaseChecker, UpdateJob};
 use rigtop_core::widget::{Widget, start_widgets};
@@ -48,6 +49,8 @@ pub struct HostTui {
     sent_limit: Option<Option<usize>>,
     /// Watched processes last sent to the worker.
     sent_watch: Option<Vec<u32>>,
+    /// Public address lookup last sent to the worker.
+    sent_public_ip: Option<Option<PublicIpLookup>>,
 }
 
 impl HostTui {
@@ -76,6 +79,7 @@ impl HostTui {
             app,
             sent_limit: None,
             sent_watch: None,
+            sent_public_ip: None,
         }
     }
 }
@@ -457,6 +461,11 @@ fn event_loop(
                 host.worker.send(Command::WatchProcesses(pids.clone()));
                 host.sent_watch = Some(pids);
             }
+            let lookup = host.app.config.network.public_ip_lookup();
+            if host.sent_public_ip.as_ref() != Some(&lookup) {
+                host.worker.send(Command::SetPublicIp(lookup.clone()));
+                host.sent_public_ip = Some(lookup);
+            }
         }
     }
     Ok(())
@@ -507,6 +516,7 @@ fn apply_config(
             stopped.push(std::mem::replace(&mut host.worker, worker));
             host.sent_limit = None;
             host.sent_watch = None;
+            host.sent_public_ip = None;
         }
     }
     stop_workers(stopped);
@@ -523,6 +533,11 @@ fn apply_config(
         let installed = screen.releases.installed.take();
         screen.releases = Releases::new(&config.updates, exe);
         screen.releases.installed = installed;
+    }
+    if old.network.show_addresses != config.network.show_addresses {
+        for host in hosts.iter_mut() {
+            host.app.show_addresses = config.network.show_addresses;
+        }
     }
     if old.tui.show_widgets != config.tui.show_widgets {
         screen.show_widgets = config.tui.show_widgets;
@@ -754,6 +769,7 @@ fn reconnect(hosts: &mut [HostTui], index: usize) {
         stop_workers(vec![std::mem::replace(&mut entry.worker, worker)]);
         entry.sent_limit = None;
         entry.sent_watch = None;
+        entry.sent_public_ip = None;
     }
 }
 
@@ -857,10 +873,12 @@ fn handle_key(
         if let Some(command) = hosts[i].app.handle_key(key) {
             hosts[i].worker.send(command);
         }
-        // Every host's graphs cover the same time, like in the GUI.
-        let span = hosts[i].app.graph_span;
+        // Every host's graphs cover the same time, like in the GUI, and
+        // shows or hides its addresses alike.
+        let (span, addresses) = (hosts[i].app.graph_span, hosts[i].app.show_addresses);
         for host in hosts.iter_mut() {
             host.app.graph_span = span;
+            host.app.show_addresses = addresses;
         }
     }
 }

@@ -179,6 +179,8 @@ pub struct Config {
     pub tui: TuiConfig,
     /// GPU panels and overview cards.
     pub gpu: GpuConfig,
+    /// The network panel.
+    pub network: NetworkConfig,
     /// When a reading becomes an alert.
     pub alerts: AlertsConfig,
     /// Desktop notifications for new alerts (GUI).
@@ -452,6 +454,50 @@ impl Default for AlertsConfig {
             io_pressure_warning_percent: 30.0,
             ignored_units: Vec::new(),
         }
+    }
+}
+
+/// The network panel.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct NetworkConfig {
+    /// Show the addresses of the interface shown (the TUI's `i` and the
+    /// GUI's "IP" switch them for the moment).
+    pub show_addresses: bool,
+    /// Also look up each host's public IPv4 address with an outside
+    /// service (`public_ip_url`); off by default, as it contacts a third
+    /// party.
+    pub public_ip: bool,
+    /// Service answering with the caller's address as plain text.
+    pub public_ip_url: String,
+    /// Time between lookups, written like "30m" or "1h".
+    #[serde(with = "duration_text")]
+    pub public_ip_interval: Duration,
+}
+
+/// Default service for [`NetworkConfig::public_ip_url`].
+pub const DEFAULT_PUBLIC_IP_URL: &str = "https://api.ipify.org";
+
+impl Default for NetworkConfig {
+    fn default() -> Self {
+        Self {
+            show_addresses: true,
+            public_ip: false,
+            public_ip_url: DEFAULT_PUBLIC_IP_URL.to_owned(),
+            public_ip_interval: Duration::from_secs(30 * 60),
+        }
+    }
+}
+
+impl NetworkConfig {
+    /// The lookup to ask every host's data source for, if any.
+    pub fn public_ip_lookup(&self) -> Option<crate::public_ip::PublicIpLookup> {
+        (self.public_ip && !self.public_ip_url.is_empty()).then(|| {
+            crate::public_ip::PublicIpLookup {
+                url: self.public_ip_url.clone(),
+                interval: self.public_ip_interval,
+            }
+        })
     }
 }
 

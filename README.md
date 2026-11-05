@@ -128,6 +128,7 @@ cargo run --release -p rigtop -- --help  # options (--interval-ms, --config, --d
 | `C` | show what each container uses (processes, CPU, memory, GPU) above the process table; `/` and its name lists its processes |
 | `]` / `[` | lower / raise the selected process's priority by 5 nice steps (raising needs root; Linux, macOS; remote hosts need rigtop 0.22 or later) |
 | `n` | switch the network interface |
+| `i` | show or hide the interface's addresses (and the public one, with `[network] public_ip`), e.g. before a screenshot |
 | `+` / `-` | slower / faster updates |
 | `U` | update this machine's rigtop to a new release, when the title says one is out (asks first; runs after a restart) |
 | `u` | update rigtop on this remote host to your version, when it runs an older one (asks first) |
@@ -386,6 +387,18 @@ processes = []         # programs to announce the exit of, e.g. ["train.py"]
 hidden_panels = []   # e.g. ["gpu", "network"]
 show_widgets = true  # the widget column (`w`)
 
+[network]
+# The network panel shows the interface's addresses (IPv4, then the first
+# IPv6 one; all of them in the GUI's tooltip). The TUI's `i` and the GUI's
+# "IP" hide them for the moment.
+show_addresses = true
+# Also look up each host's public IPv4 address, from that host, with a
+# service answering with the caller's address (off: it contacts a third
+# party; see Privacy).
+public_ip = false
+public_ip_url = "https://api.ipify.org"
+public_ip_interval = "30m"
+
 [gpu]
 # An integrated GPU on a host that also has a discrete one: "compact" (one
 # line in the host view, none on overview cards), "hide", or "full".
@@ -411,6 +424,7 @@ rigtop collects no telemetry. It connects only to:
 - the hosts you list for remote monitoring, through your own `ssh`;
 - LibreHardwareMonitor on this machine (Windows, `[lhm] url`);
 - github.com, to see whether a new release is out, at startup and every hour. It only asks which release is the latest and sends nothing about your machine; `[updates] check = false` in the [configuration](#configuration) turns it off. An update you choose to install is downloaded from github.com.
+- only if you turn on `[network] public_ip` (off by default): the service in `public_ip_url` (api.ipify.org by default), from each monitored host, every 30 minutes, to learn the host's public address. Like any web request, it shows the service that address.
 
 Widgets run the commands you configure.
 

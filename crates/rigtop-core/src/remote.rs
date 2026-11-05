@@ -14,9 +14,10 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::agent::{
-    AgentMessage, ClientMessage, FEATURE_PING, FEATURE_PROCESS_CONTROL, FEATURE_WATCH_PROCESSES,
-    PROTOCOL_VERSION, write_message,
+    AgentMessage, ClientMessage, FEATURE_PING, FEATURE_PROCESS_CONTROL, FEATURE_PUBLIC_IP,
+    FEATURE_WATCH_PROCESSES, PROTOCOL_VERSION, write_message,
 };
+use crate::public_ip::PublicIpLookup;
 use crate::snapshot::Snapshot;
 use crate::source::{DataSource, ProcessSignal, SourceError};
 
@@ -255,6 +256,10 @@ pub struct RemoteSource {
     agent_controls: bool,
     /// The connected agent answers pings.
     agent_pings: bool,
+    /// See [`DataSource::set_public_ip`].
+    public_ip: Option<PublicIpLookup>,
+    /// The connected agent looks up public addresses.
+    agent_public_ip: bool,
     /// The ping waiting for its answer: its id and when it was sent.
     ping: Option<(u64, Instant)>,
     /// When the last ping went out, and the round trip it measured.
@@ -287,6 +292,8 @@ impl RemoteSource {
             agent_watches: false,
             agent_controls: false,
             agent_pings: false,
+            public_ip: None,
+            agent_public_ip: false,
             ping: None,
             last_ping: None,
             link_rtt: None,
@@ -340,6 +347,7 @@ impl RemoteSource {
             self.agent_watches = false;
             self.agent_controls = false;
             self.agent_pings = false;
+            self.agent_public_ip = false;
             self.ping = None;
             self.link_rtt = None;
             // Agents start with their own default; send our settings.
@@ -451,6 +459,17 @@ impl RemoteSource {
         }
     }
 
+    /// Asks the connected agent for its public address (or to stop).
+    fn send_public_ip(&mut self) {
+        if let Some(connection) = self.connection.as_mut() {
+            let lookup = self.public_ip.as_ref();
+            let _ = connection.send(&ClientMessage::SetPublicIp {
+                url: lookup.map(|l| l.url.clone()),
+                interval_secs: lookup.map_or(0, |l| l.interval.as_secs()),
+            });
+        }
+    }
+
     fn absorb(&mut self, message: AgentMessage) -> Result<(), SourceError> {
         match message {
             AgentMessage::Hello {
@@ -471,6 +490,10 @@ impl RemoteSource {
                 self.agent_watches = features.iter().any(|f| f == FEATURE_WATCH_PROCESSES);
                 self.agent_controls = features.iter().any(|f| f == FEATURE_PROCESS_CONTROL);
                 self.agent_pings = features.iter().any(|f| f == FEATURE_PING);
+                self.agent_public_ip = features.iter().any(|f| f == FEATURE_PUBLIC_IP);
+                if self.agent_public_ip && self.public_ip.is_some() {
+                    self.send_public_ip();
+                }
                 if self.agent_watches
                     && !(self.watched_pids.is_empty() && self.watched_names.is_empty())
                 {
@@ -620,6 +643,17 @@ impl DataSource for RemoteSource {
         self.watched_names = names;
         if self.agent_watches {
             self.send_watched();
+        }
+    }
+
+    fn set_public_ip(&mut self, lookup: Option<PublicIpLookup>) {
+        if self.public_ip == lookup {
+            return;
+        }
+        self.public_ip = lookup;
+        // Older agents would answer with an error; they report no address.
+        if self.agent_public_ip {
+            self.send_public_ip();
         }
     }
 }

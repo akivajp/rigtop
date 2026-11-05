@@ -324,7 +324,7 @@ impl ReleaseChecker {
 /// `/releases/latest` redirects to.
 pub fn latest_release() -> Result<String, String> {
     let null = if cfg!(windows) { "NUL" } else { "/dev/null" };
-    let mut command = Command::new("curl");
+    let mut command = curl();
     command
         .args([
             "-fsSL",
@@ -335,15 +335,7 @@ pub fn latest_release() -> Result<String, String> {
             "-w",
             "%{url_effective}",
         ])
-        .arg(LATEST_URL)
-        .stdin(Stdio::null())
-        .stderr(Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        // CREATE_NO_WINDOW: a GUI must not flash a console for curl.exe.
-        command.creation_flags(0x0800_0000);
-    }
+        .arg(LATEST_URL);
     let output = command
         .output()
         .map_err(|err| format!("cannot run curl: {err}"))?;
@@ -352,6 +344,20 @@ pub fn latest_release() -> Result<String, String> {
     }
     version_from_release_url(&String::from_utf8_lossy(&output.stdout))
         .ok_or_else(|| "no release found".to_owned())
+}
+
+/// The system's `curl` (also on Windows 10 and later), without stdin or
+/// stderr and, on Windows, without a console window.
+pub(crate) fn curl() -> Command {
+    let mut command = Command::new("curl");
+    command.stdin(Stdio::null()).stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW: a GUI must not flash a console for curl.exe.
+        command.creation_flags(0x0800_0000);
+    }
+    command
 }
 
 /// ".../releases/tag/v0.12.0" -> "0.12.0".

@@ -1110,6 +1110,14 @@ fn network_title(ui: &mut Ui, state: &mut GuiState) {
     let names: Vec<String> = snapshot.networks.iter().map(|n| n.name.clone()).collect();
     let mut chosen = None;
     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+        let mut shown = state.show_addresses;
+        if ui
+            .checkbox(&mut shown, "IP")
+            .on_hover_text("show the interface's addresses (and the public one, if looked up)")
+            .changed()
+        {
+            state.view_actions.push(ViewAction::ToggleAddresses);
+        }
         ui.label(dim(speed));
         egui::ComboBox::from_label("interface")
             .selected_text(&current)
@@ -1135,7 +1143,17 @@ fn network(ui: &mut Ui, state: &mut GuiState) {
         .iter()
         .filter(|n| !is_virtual_interface(&n.name) && n.link_up != Some(false))
         .collect();
-    let list_height = listed.len() as f32 * (ROW_HEIGHT + 2.0) + 4.0;
+    let selected = state
+        .history
+        .net_interface
+        .as_deref()
+        .and_then(|name| snapshot.networks.iter().find(|n| n.name == name));
+    let addresses = state
+        .show_addresses
+        .then(|| view::address_text(selected, snapshot.public_ip.as_deref()))
+        .flatten();
+    let address_rows = usize::from(addresses.is_some());
+    let list_height = (listed.len() + address_rows) as f32 * (ROW_HEIGHT + 2.0) + 4.0;
     let graphs_height = (ui.available_height() - list_height).max(40.0);
     let width = ui.available_width();
     let history = &state.history;
@@ -1186,6 +1204,15 @@ fn network(ui: &mut Ui, state: &mut GuiState) {
         FontId::monospace(12.0),
         TEXT,
     );
+
+    // The shown interface's addresses, every one in the tooltip.
+    if let Some(text) = addresses {
+        let all = selected.map_or(String::new(), |n| n.addresses.join("\n"));
+        let label = ui.add(egui::Label::new(dim(text)).truncate());
+        if !all.is_empty() {
+            label.on_hover_text(all);
+        }
+    }
 
     // Interface list; clicking one shows it in the graphs.
     let mut chosen = None;

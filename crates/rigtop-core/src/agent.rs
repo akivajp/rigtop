@@ -50,6 +50,10 @@ pub const FEATURE_PROCESS_CONTROL: &str = "process_control";
 /// client can tell the round trip of the link.
 pub const FEATURE_PING: &str = "ping";
 
+/// The agent looks up its host's public address on
+/// [`ClientMessage::SetPublicIp`] (0.28 and later).
+pub const FEATURE_PUBLIC_IP: &str = "public_ip";
+
 /// Messages from the agent to the client.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -108,6 +112,13 @@ pub enum ClientMessage {
     Signal { pid: u32, signal: ProcessSignal },
     /// Answer with [`AgentMessage::Pong`] (agents with [`FEATURE_PING`]).
     Ping { id: u64 },
+    /// Look up the host's public address at `url` every `interval_secs`
+    /// and put it in snapshots (`url: None`: stop). Only for agents with
+    /// [`FEATURE_PUBLIC_IP`].
+    SetPublicIp {
+        url: Option<String>,
+        interval_secs: u64,
+    },
 }
 
 /// Writes one message as a JSON line and flushes it.
@@ -168,6 +179,7 @@ where
             FEATURE_WATCH_PROCESS_NAMES.to_owned(),
             FEATURE_PROCESS_CONTROL.to_owned(),
             FEATURE_PING.to_owned(),
+            FEATURE_PUBLIC_IP.to_owned(),
         ],
     };
     // A failed write means the client went away: stop quietly.
@@ -204,6 +216,13 @@ where
                 Some(AgentMessage::SignalResult { pid, signal, error })
             }
             Ok(Input::Command(ClientMessage::Ping { id })) => Some(AgentMessage::Pong { id }),
+            Ok(Input::Command(ClientMessage::SetPublicIp { url, interval_secs })) => {
+                source.set_public_ip(url.map(|url| crate::public_ip::PublicIpLookup {
+                    url,
+                    interval: Duration::from_secs(interval_secs),
+                }));
+                None
+            }
             Ok(Input::Invalid(message)) => Some(AgentMessage::Error { message }),
             Ok(Input::Closed) | Err(RecvTimeoutError::Disconnected) => return Ok(()),
             Err(RecvTimeoutError::Timeout) => {
@@ -243,6 +262,8 @@ mod tests {
     #[derive(Default)]
     struct FakeSource {
         watched_pids: Vec<u32>,
+        /// The last public address lookup asked for, seen after the run.
+        public_ip: Arc<Mutex<Option<crate::public_ip::PublicIpLookup>>>,
     }
 
     impl DataSource for FakeSource {
@@ -271,6 +292,10 @@ mod tests {
 
         fn watch_processes(&mut self, pids: Vec<u32>) {
             self.watched_pids = pids;
+        }
+
+        fn set_public_ip(&mut self, lookup: Option<crate::public_ip::PublicIpLookup>) {
+            *self.public_ip.lock().unwrap() = lookup;
         }
     }
 
@@ -329,18 +354,23 @@ mod tests {
         // MIN_POLL_INTERVAL); end of input stops the agent.
         let input = Cursor::new(
             "{\"type\":\"ping\",\"id\":7}\n\
+             {\"type\":\"set_public_ip\",\"url\":\"https://ip.example/\",\"interval_secs\":600}\n\
              {\"type\":\"set_process_limit\",\"limit\":3}\n\
              {\"type\":\"signal\",\"pid\":1,\"signal\":\"Terminate\"}\n\
              not json\n",
         );
         let output = SharedBuffer::default();
-        run_agent(
-            FakeSource::default(),
-            Duration::from_secs(1),
-            input,
-            output.clone(),
-        )
-        .unwrap();
+        let source = FakeSource::default();
+        let public_ip = source.public_ip.clone();
+        run_agent(source, Duration::from_secs(1), input, output.clone()).unwrap();
+        // The public address lookup reaches the source; it has no answer.
+        assert_eq!(
+            *public_ip.lock().unwrap(),
+            Some(crate::public_ip::PublicIpLookup {
+                url: "https://ip.example/".to_owned(),
+                interval: Duration::from_secs(600),
+            })
+        );
 
         let text = String::from_utf8(output.0.lock().unwrap().clone()).unwrap();
         let messages: Vec<AgentMessage> = text
@@ -355,6 +385,7 @@ mod tests {
                 ..
             } if features.iter().any(|f| f == FEATURE_WATCH_PROCESSES)
                 && features.iter().any(|f| f == FEATURE_PING)
+                && features.iter().any(|f| f == FEATURE_PUBLIC_IP)
         ));
         assert!(matches!(&messages[1], AgentMessage::Pong { id: 7 }));
         assert!(matches!(

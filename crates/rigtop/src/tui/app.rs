@@ -75,6 +75,8 @@ pub struct App {
     pub interval: Duration,
     /// How much time the graphs cover.
     pub graph_span: GraphSpan,
+    /// Show the network panel's addresses (`i`; starts as configured).
+    pub show_addresses: bool,
     pub should_quit: bool,
     /// Shown until the first snapshot arrives ("connecting to zefat…").
     pub waiting_message: String,
@@ -99,6 +101,7 @@ impl App {
     /// Creates the state with a configuration and the initial poll interval.
     pub fn new(config: Config, interval: Duration) -> Self {
         Self {
+            show_addresses: config.network.show_addresses,
             config,
             snapshot: None,
             history: MetricHistory::default(),
@@ -313,6 +316,17 @@ impl App {
                 self.set_status(if self.tree { "tree view" } else { "list view" }.to_owned());
             }
             KeyCode::Char('n') => self.cycle_interface(),
+            KeyCode::Char('i') => {
+                self.show_addresses = !self.show_addresses;
+                self.set_status(
+                    if self.show_addresses {
+                        "addresses shown"
+                    } else {
+                        "addresses hidden"
+                    }
+                    .to_owned(),
+                );
+            }
             KeyCode::Char('x') => self.toggle_exit_watch(),
             KeyCode::Char('g') => {
                 self.graph_span = self.graph_span.next();

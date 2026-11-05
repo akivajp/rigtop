@@ -9,6 +9,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::config::Config;
 use crate::gpu::NvmlCollector;
+use crate::public_ip::{PublicIpChecker, PublicIpLookup};
 use crate::smart::SmartReader;
 #[cfg(target_os = "linux")]
 use crate::snapshot::device_matches_disk;
@@ -102,6 +103,11 @@ pub trait DataSource {
     /// in the snapshot after it exited, so that the client sees it go.
     /// Replaces the previous list.
     fn watch_process_names(&mut self, _names: Vec<String>) {}
+
+    /// Looks up the host's public address as `lookup` says (`None`: not
+    /// at all, the default) and reports it in [`Snapshot::public_ip`].
+    /// Remote sources ask the agent, so each host reports its own.
+    fn set_public_ip(&mut self, _lookup: Option<PublicIpLookup>) {}
 }
 
 /// Boxed sources, so front-ends can choose local or remote at run time.
@@ -129,6 +135,10 @@ impl<T: DataSource + ?Sized> DataSource for Box<T> {
     fn watch_process_names(&mut self, names: Vec<String>) {
         (**self).watch_process_names(names);
     }
+
+    fn set_public_ip(&mut self, lookup: Option<PublicIpLookup>) {
+        (**self).set_public_ip(lookup);
+    }
 }
 
 /// Collects snapshots of the machine rigtop runs on.
@@ -144,6 +154,8 @@ pub struct LocalSource {
     watched_names: Vec<String>,
     name_matches: Vec<u32>,
     fill: crate::fill::FillTracker,
+    /// See [`DataSource::set_public_ip`].
+    public_ip: Option<PublicIpChecker>,
     #[cfg(target_os = "linux")]
     roots: SysRoots,
     #[cfg(target_os = "linux")]
@@ -199,6 +211,7 @@ impl LocalSource {
             watched_names: Vec::new(),
             name_matches: Vec::new(),
             fill: crate::fill::FillTracker::new(),
+            public_ip: None,
             #[cfg(target_os = "linux")]
             roots: SysRoots::default(),
             #[cfg(target_os = "linux")]
@@ -287,6 +300,10 @@ impl LocalSource {
         }
         let power = &mut snapshot.power;
         power.total_w = sum_present([power.cpu_or_soc_w().1, power.gpus_w]);
+        snapshot.public_ip = self
+            .public_ip
+            .as_mut()
+            .and_then(|checker| checker.poll().map(str::to_owned));
         snapshot
     }
 
@@ -420,6 +437,13 @@ impl DataSource for LocalSource {
 
     fn watch_process_names(&mut self, names: Vec<String>) {
         self.watched_names = names;
+    }
+
+    fn set_public_ip(&mut self, lookup: Option<PublicIpLookup>) {
+        // The same lookup again keeps the address found so far.
+        if self.public_ip.as_ref().map(PublicIpChecker::lookup) != lookup.as_ref() {
+            self.public_ip = lookup.map(PublicIpChecker::new);
+        }
     }
 }
 

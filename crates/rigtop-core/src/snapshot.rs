@@ -59,6 +59,9 @@ pub struct Snapshot {
     /// Remote hosts: the round trip of the link to the agent (milliseconds),
     /// measured by the client; agents leave it out.
     pub link_rtt_ms: Option<f32>,
+    /// The host's public IPv4 address as an outside service sees it, when
+    /// the client asked for it (see [`crate::DataSource::set_public_ip`]).
+    pub public_ip: Option<String>,
     /// Linux: how much of the time tasks waited for CPU, memory or I/O
     /// (pressure stall information). `None` without it (other platforms,
     /// kernels built or booted without PSI, agents before 0.21).
@@ -897,6 +900,9 @@ pub struct NetworkStats {
     pub link_up: Option<bool>,
     /// Wi-Fi link details, for wireless interfaces.
     pub wireless: Option<WirelessLink>,
+    /// The interface's addresses with their prefix length
+    /// (`"192.168.1.10/24"`), IPv4 first; IPv6 link-local ones are left out.
+    pub addresses: Vec<String>,
 }
 
 /// State of a Wi-Fi link.

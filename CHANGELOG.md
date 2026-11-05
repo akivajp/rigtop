@@ -7,6 +7,17 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Added
+- The network panel shows the interface's addresses (IPv4, then the
+  first IPv6 one with how many more; all of them in the GUI's tooltip),
+  for remote hosts too. `i` in the TUI and "IP" in the GUI hide them, e.g.
+  for a screenshot (`[network] show_addresses` sets the default). The
+  demo shows addresses reserved for documentation.
+- `[network] public_ip = true` (off by default) also shows each host's
+  public IPv4 address, looked up from that host every 30 minutes
+  (`public_ip_interval`) with `public_ip_url` (api.ipify.org by default)
+  through the system's `curl`. Remote hosts need rigtop 0.28 for it.
+
 ### Changed
 - Claude Code widget: rows are indented like a tree (a session's status
   under its project, its `ctx` and subagents under the session), busy
