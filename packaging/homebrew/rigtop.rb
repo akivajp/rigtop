@@ -4,25 +4,25 @@
 class Rigtop < Formula
   desc "System monitor for workstations, laptops and NAS (terminal UI and native GUI)"
   homepage "https://github.com/akivajp/rigtop"
-  version "0.26.2"
+  version "0.27.0"
   license any_of: ["MIT", "Apache-2.0"]
 
   on_macos do
     # Release builds exist for Apple Silicon only.
     depends_on arch: :arm64
 
-    url "https://github.com/akivajp/rigtop/releases/download/v0.26.2/rigtop-v0.26.2-aarch64-apple-darwin.tar.gz"
-    sha256 "0fdd204311beee4d5fdabdaea2bb957c341466b3b1a1f2197c35c2c51db1f264"
+    url "https://github.com/akivajp/rigtop/releases/download/v0.27.0/rigtop-v0.27.0-aarch64-apple-darwin.tar.gz"
+    sha256 "4e47949aba02840078828452bf309a48d404fa2e8cf9a34f8a4abdd9e3e8ddac"
   end
 
   on_linux do
     on_intel do
-      url "https://github.com/akivajp/rigtop/releases/download/v0.26.2/rigtop-v0.26.2-x86_64-unknown-linux-gnu.tar.gz"
-      sha256 "7a41dc22af95cb96ff2772789aeee16ea7649511e1518300c0255d57503d74ed"
+      url "https://github.com/akivajp/rigtop/releases/download/v0.27.0/rigtop-v0.27.0-x86_64-unknown-linux-gnu.tar.gz"
+      sha256 "8a34a233ca8688df7db850a05cc7ec7f21679f8830740cc163da7c18c75b6b53"
     end
     on_arm do
-      url "https://github.com/akivajp/rigtop/releases/download/v0.26.2/rigtop-v0.26.2-aarch64-unknown-linux-gnu.tar.gz"
-      sha256 "bd30cdf54f1c8379a5fd3cb33845f6c1b6b9ebc0a8f569d24ff56c9dad85774b"
+      url "https://github.com/akivajp/rigtop/releases/download/v0.27.0/rigtop-v0.27.0-aarch64-unknown-linux-gnu.tar.gz"
+      sha256 "1c2c9cffac9c47dcc3b92a56493c3433e370aec53b0f08b52a646cbeeba7dc95"
     end
   end
 
