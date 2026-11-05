@@ -7,6 +7,13 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Changed
+- Claude Code widget: rows are indented like a tree (a session's status
+  under its project, its `ctx` and subagents under the session), busy
+  sessions show how long they have been working, and working sessions
+  (busy, or waiting on background work) are listed the longest at it
+  first.
+
 ## [0.27.0] - 2026-11-05
 
 ### Changed

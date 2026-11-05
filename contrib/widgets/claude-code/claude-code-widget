@@ -70,6 +70,13 @@ TAIL_BYTES = 512 * 1024
 CONTEXT_WARN, CONTEXT_FULL = 0.7, 0.9
 
 
+# Labels are indented like a tree under the project's name: a session's
+# status by one column, its context and subagents by three. rigtop's label
+# column is 8 characters wide, which " waiting" and "   agent" just fill.
+STATUS_INDENT = " "
+CHILD_INDENT = "   "
+
+
 def row(value="", label="", **extra):
     return {"label": label, "value": value, **extra}
 
@@ -310,7 +317,7 @@ def context_row(session, level):
     used, model = found
     window = context_window(model, used)
     if not window:
-        return row(f"{tokens(used)} tokens", label="  ctx", level=level, label_level=level)
+        return row(f"{tokens(used)} tokens", label=CHILD_INDENT + "ctx", level=level, label_level=level)
     fraction = min(used / window, 1.0)
     if fraction >= CONTEXT_FULL:
         level = "bad"
@@ -318,7 +325,7 @@ def context_row(session, level):
         level = "warn"
     return row(
         f"{fraction * 100:.0f}% · {tokens(used)}/{tokens(window)}",
-        label="  ctx",
+        label=CHILD_INDENT + "ctx",
         label_level=session_level,
         gauge=round(fraction, 3),
         gauge_style="level",
@@ -392,9 +399,11 @@ def short_name(session):
 def session_line(session, agents, now):
     """(label, text, level, rank) for a session: what it is doing, and for
     an idle one how long and whether it waits for you or for background
-    work. `rank` orders sessions (working first, then those waiting for you,
-    a permission prompt or a reply alike, most recent first); None when the
-    session is to be left out."""
+    work, and for a busy one how long it has been at it. `rank` orders
+    sessions: working ones first (busy, or with background work), the
+    longest at it first; then those waiting for you (a permission prompt or
+    a reply alike), most recent first. None when the session is to be left
+    out."""
     status = session.get("status", "?")
     name = short_name(session)
     since = status_since(session)
@@ -407,7 +416,7 @@ def session_line(session, agents, now):
         stale_level = "dim" if waited > FRESH_SECS else "warn"
     if status == "busy":
         extra = f" · {len(agents)} agent{'s' if len(agents) != 1 else ''}" if agents else ""
-        return status, f"{name}{extra}", "ok", (0, 0)
+        return status, f"{name}{extra}{elapsed}", "ok", (0, -waited)
     if status == "waiting":
         what = session.get("waitingFor") or "you"
         # Yellow and kept however long: it cannot go on without you.
@@ -421,7 +430,7 @@ def session_line(session, agents, now):
             pending.append(f"{len(agents)} agent{'s' if len(agents) != 1 else ''}")
         if pending:
             # Its turn ended, but background work it started still runs.
-            return status, f"{name} · waiting on {', '.join(pending)}{elapsed}", "ok", (0, 1)
+            return status, f"{name} · waiting on {', '.join(pending)}{elapsed}", "ok", (0, -waited)
         if stale_level is None:
             return None
         return status, f"{name} · your turn{elapsed}", stale_level, (1, waited)
@@ -460,7 +469,7 @@ def session_rows(now):
             name = os.path.basename(cwd.rstrip("/\\")) or "?"
             rows.append(row(name, heading=True, level=project_level[cwd]))
             previous = cwd
-        rows.append(row(text, label=label, level=level, label_level=level))
+        rows.append(row(text, label=STATUS_INDENT + label, level=level, label_level=level))
         # A session left waiting for a while keeps to one line.
         context = context_row(session, level) if level != "dim" else None
         if context:
@@ -468,7 +477,9 @@ def session_rows(now):
         for age, kind, description in agents:
             text = f"{kind}: {description}" if description else kind
             agent_level = level if age < 30 else "dim"
-            rows.append(row(text, label="  agent", level=agent_level, label_level=agent_level))
+            rows.append(
+                row(text, label=CHILD_INDENT + "agent", level=agent_level, label_level=agent_level)
+            )
     if hidden:
         rows.append(row(f"+{hidden} idle over {duration(HIDE_SECS)}", level="dim"))
     return rows or [row("no running sessions", level="dim")]
