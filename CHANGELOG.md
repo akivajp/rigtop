@@ -7,6 +7,8 @@ include breaking changes).
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-11-05
+
 ### Added
 - The network panel shows the interface's addresses (IPv4, then the
   first IPv6 one with how many more; all of them in the GUI's tooltip),
@@ -596,7 +598,8 @@ First release.
 - Windows support (CPU, memory, processes, network with link speeds, drives,
   NVIDIA GPUs; temperatures, fans and CPU power are not available yet)
 
-[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.27.0...HEAD
+[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.28.0...HEAD
+[0.28.0]: https://github.com/akivajp/rigtop/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/akivajp/rigtop/compare/v0.26.2...v0.27.0
 [0.26.2]: https://github.com/akivajp/rigtop/compare/v0.26.1...v0.26.2
 [0.26.1]: https://github.com/akivajp/rigtop/compare/v0.26.0...v0.26.1
