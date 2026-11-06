@@ -706,14 +706,21 @@ fn cpu_info_lines(app: &App, snapshot: &Snapshot) -> Vec<Line<'static>> {
     let watts = |w: Option<f32>| w.map_or("--".to_owned(), |w| format!("{w:.0}W"));
     // Without RAPL, an AMD APU's SoC power stands in for the CPU.
     let (cpu_label, cpu_w) = power.cpu_or_soc_w();
-    let mut second = vec![
+    let mut second = Vec::new();
+    // Average / fastest core; the core grid shows each one when it has room.
+    if let Some(clock) = rigtop_core::view::cpu_clock_text(cpu) {
+        second.push(dim("Clock "));
+        second.push(Span::raw(clock));
+        second.push(Span::raw("  "));
+    }
+    second.extend([
         dim(format!("Power {cpu_label} ")),
         Span::raw(watts(cpu_w)),
         dim(" GPU "),
         Span::raw(watts(power.gpus_w)),
         dim(" Σ "),
         colored(watts(power.total_w), Color::White),
-    ];
+    ]);
     if let Some(battery) = &power.battery {
         second.push(dim("   Bat "));
         second.push(Span::raw(battery.summary()));

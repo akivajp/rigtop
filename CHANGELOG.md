@@ -7,6 +7,12 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Added
+- The CPU clock in the host view, as "Clock 1.9/5.7GHz": the average
+  over the cores, then the fastest one (idle cores pull the average down;
+  the fastest shows whether the CPU boosts). The core grid still shows
+  each core's clock when its cells have room.
+
 ## [0.28.0] - 2026-11-05
 
 ### Added

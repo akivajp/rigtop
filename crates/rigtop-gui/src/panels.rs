@@ -492,6 +492,12 @@ fn cpu_info(ui: &mut Ui, state: &GuiState, snapshot: &Snapshot) -> CpuRequests {
         }
     });
     ui.horizontal_wrapped(|ui| {
+        // Average / fastest core; the core grid shows each one when it has room.
+        if let Some(clock) = view::cpu_clock_text(cpu) {
+            ui.label(dim("Clock")).on_hover_text(view::CPU_CLOCK_HINT);
+            ui.label(clock).on_hover_text(view::CPU_CLOCK_HINT);
+            ui.label(" ");
+        }
         let power = &snapshot.power;
         let watts = |w: Option<f32>| w.map_or("--".to_owned(), |w| format!("{w:.0}W"));
         // Without RAPL, an AMD APU's SoC power stands in for the CPU.

@@ -14,7 +14,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::{AlertsConfig, IntegratedGpu};
 use crate::format;
-use crate::snapshot::{GpuStats, NetworkStats, OomKill, PcieLink, Pressure, ProcessInfo, Snapshot};
+use crate::snapshot::{
+    CpuStats, GpuStats, NetworkStats, OomKill, PcieLink, Pressure, ProcessInfo, Snapshot,
+};
 use crate::source::ProcessSignal;
 
 /// Number of samples kept for graphs: over an hour at the default interval
@@ -784,6 +786,28 @@ pub fn attention_rank(alerts: &[Alert], unreachable: bool, stale: bool) -> u8 {
         2
     }
 }
+
+/// The CPU clock as "1.9/5.7GHz": the average over the cores, then the
+/// fastest core (idle cores sit low and pull the average down, so the
+/// fastest one tells whether the CPU boosts). `None` without readings.
+pub fn cpu_clock_text(cpu: &CpuStats) -> Option<String> {
+    let cores: Vec<u64> = cpu
+        .per_core_mhz
+        .iter()
+        .copied()
+        .filter(|&m| m > 0)
+        .collect();
+    let max = *cores.iter().max()?;
+    let average = cores.iter().sum::<u64>() as f64 / cores.len() as f64;
+    Some(format!(
+        "{:.1}/{:.1}GHz",
+        average / 1000.0,
+        max as f64 / 1000.0
+    ))
+}
+
+/// What [`cpu_clock_text`] shows, for a tooltip.
+pub const CPU_CLOCK_HINT: &str = "average over the cores / fastest core";
 
 /// The addresses line of the network panel for interface `net`: its IPv4
 /// addresses, the public one, then the first IPv6 address with how many
@@ -2355,6 +2379,17 @@ mod tests {
             .map(|g| g.index)
             .collect();
         assert_eq!(shown, [1]);
+    }
+
+    #[test]
+    fn cpu_clock_shows_the_average_and_the_fastest_core() {
+        let cpu = CpuStats {
+            per_core_mhz: vec![600, 600, 5_700, 0],
+            ..Default::default()
+        };
+        // Cores reading 0 (unknown) are left out of the average.
+        assert_eq!(cpu_clock_text(&cpu).as_deref(), Some("2.3/5.7GHz"));
+        assert_eq!(cpu_clock_text(&CpuStats::default()), None);
     }
 
     #[test]
