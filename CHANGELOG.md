@@ -7,6 +7,8 @@ include breaking changes).
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-11-06
+
 ### Added
 - The CPU clock in the host view, as "Clock 1.9/5.7GHz": the average
   over the cores, then the fastest one (idle cores pull the average down;
@@ -604,7 +606,8 @@ First release.
 - Windows support (CPU, memory, processes, network with link speeds, drives,
   NVIDIA GPUs; temperatures, fans and CPU power are not available yet)
 
-[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.28.0...HEAD
+[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.29.0...HEAD
+[0.29.0]: https://github.com/akivajp/rigtop/compare/v0.28.0...v0.29.0
 [0.28.0]: https://github.com/akivajp/rigtop/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/akivajp/rigtop/compare/v0.26.2...v0.27.0
 [0.26.2]: https://github.com/akivajp/rigtop/compare/v0.26.1...v0.26.2
