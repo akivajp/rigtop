@@ -1184,9 +1184,15 @@ fn storage_lines(snapshot: &Snapshot, width: u16) -> Vec<Line<'static>> {
     // state does not fit on its row, even without the optional parts, gets
     // a line of its own below it when something is wrong; healthy ones
     // share one summary line, so that the box keeps its height.
+    // The request time shows for every drive or for none, so that the
+    // columns line up: none when it would push a temperature off its row.
+    let latency = snapshot.disks.iter().all(|disk| {
+        let groups = disk_groups(disk, name_width, true);
+        groups.iter().map(Group::width).sum::<usize>() <= width as usize
+    });
     let mut healthy = Vec::new();
     for disk in &snapshot.disks {
-        let mut groups = disk_groups(disk, name_width);
+        let mut groups = disk_groups(disk, name_width, latency);
         let Some(smart) = snapshot
             .smart
             .iter()
@@ -1320,8 +1326,9 @@ fn storage_lines(snapshot: &Snapshot, width: u16) -> Vec<Line<'static>> {
     lines
 }
 
-/// A disk's name, I/O, busy share and request time, and temperature.
-fn disk_groups(disk: &DiskIo, name_width: usize) -> Vec<Group> {
+/// A disk's name, I/O, busy share and (with `latency`) request time, and
+/// temperature.
+fn disk_groups(disk: &DiskIo, name_width: usize, latency: bool) -> Vec<Group> {
     let mut groups = vec![Group::new(vec![
         Span::raw(format::pad(&disk.name, name_width)),
         dim(" R "),
@@ -1336,16 +1343,20 @@ fn disk_groups(disk: &DiskIo, name_width: usize) -> Vec<Group> {
         )]));
         // Request time where busy time is known (Linux); blank while idle,
         // so the columns stay aligned.
-        let latency = disk.latency_ms.map(format::latency).unwrap_or_default();
-        let text = format!(" {latency:>5}");
-        groups.push(Group::optional(vec![match disk
-            .latency_ms
-            .and_then(rigtop_core::view::latency_severity)
-        {
-            Some(Severity::Critical) => colored(text, BAD),
-            Some(Severity::Warning) => colored(text, WARN),
-            None => dim(text),
-        }]));
+        if latency {
+            let text = format!(
+                " {:>5}",
+                disk.latency_ms.map(format::latency).unwrap_or_default()
+            );
+            groups.push(Group::new(vec![match disk
+                .latency_ms
+                .and_then(rigtop_core::view::latency_severity)
+            {
+                Some(Severity::Critical) => colored(text, BAD),
+                Some(Severity::Warning) => colored(text, WARN),
+                None => dim(text),
+            }]));
+        }
     }
     if let Some(t) = disk.temperature_c {
         groups.push(Group::new(vec![colored(
@@ -2559,6 +2570,16 @@ mod tests {
             "{text:#?}"
         );
         assert!(text.iter().any(|l| l.contains("SMART ok · 2 drives")));
+
+        // Room for the request times but not for a problem's details: every
+        // row keeps its request time (the columns line up, and a failing
+        // drive is often a slow one), the details go below.
+        let lines = storage_lines(&three_drives(Some(8)), 52);
+        let text = plain(&lines);
+        let rows: Vec<&String> = text.iter().filter(|l| l.starts_with("nvme")).collect();
+        assert!(rows.iter().all(|l| l.contains("0.3ms")), "{text:#?}");
+        let row = text.iter().position(|l| l.starts_with("nvme2n1")).unwrap();
+        assert!(text[row + 1].starts_with("  SMART warn"), "{text:#?}");
 
         // Wide: everything on the drive's row, as before.
         let text = plain(&storage_lines(&three_drives(None), 80));
