@@ -944,6 +944,12 @@ fn cpu_section(ui: &mut Ui, host: &HostEntry, snapshot: &Snapshot, graph_height:
             ui.label(dim(" bat"));
             ui.label(battery.summary()).on_hover_text(battery.details());
         }
+        for ups in &snapshot.ups {
+            ui.label(dim(format!(" {}", ups.label())))
+                .on_hover_text(ups.details());
+            ui.label(crate::panels::ups_text(ups))
+                .on_hover_text(ups.details());
+        }
         if let Some(load) = cpu.load_average {
             ui.label(dim(format!(" load {:.2}", load[0])));
         }

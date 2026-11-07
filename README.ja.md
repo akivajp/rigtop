@@ -224,7 +224,7 @@ rigtop は OS の `ssh`（Windows では標準の OpenSSH クライアント）�
 
 ## 画面なしでの警告の通知（`rigtop --watch`）
 
-`rigtop --watch` は、手元の機と設定したホストを画面なしで監視し、警告が出たり消えたりしたときに、指定したコマンドを実行します。RAID の劣化、ドライブの異常、ホストの停止を、rigtop を開いていないときにも知ることができます。警告の内容は環境変数でコマンドに渡します（`RIGTOP_HOST`、`RIGTOP_SEVERITY`、`RIGTOP_CHANGE` = `raised` / `cleared`、`RIGTOP_ALERT`、`[critical] nas: md0 (raid1) degraded` のような `RIGTOP_MESSAGE`）。[ntfy](https://ntfy.sh)・チャットの Webhook・メールなどに送れます。
+`rigtop --watch` は、手元の機と設定したホストを画面なしで監視し、警告が出たり消えたりしたときに、指定したコマンドを実行します。RAID の劣化、ドライブの異常、停電、ホストの停止を、rigtop を開いていないときにも知ることができます。警告の内容は環境変数でコマンドに渡します（`RIGTOP_HOST`、`RIGTOP_SEVERITY`、`RIGTOP_CHANGE` = `raised` / `cleared`、`RIGTOP_ALERT`、`[critical] nas: md0 (raid1) degraded` のような `RIGTOP_MESSAGE`）。[ntfy](https://ntfy.sh)・チャットの Webhook・メールなどに送れます。
 
 ```toml
 [watch]
@@ -331,6 +331,12 @@ sudo systemctl enable --now rigtop-collect.timer
 
 SMART のファイルにはドライブのシリアル番号が含まれます。
 
+## UPS（Network UPS Tools）
+
+UPS を [Network UPS Tools](https://networkupstools.org)（NUT）で管理している機械では、rigtop が NUT の `upsd` の既定のアドレス（`127.0.0.1:3493`）から UPS の状態を読みます（root も、ほかのソフトの導入も不要）。CPU パネルの CPU・GPU の消費電力の隣に、バッテリーの残量と、つないだ機器の消費電力を出します（`UPS 100% 73W`）。GUI ではマウスを乗せると、機種・バッテリーで動ける時間・負荷・入力電圧も出ます。停電は警告になります: バッテリーでの運転と、その間の残量低下は critical（`UPS: on battery (72%)`）、バッテリーの交換・過負荷・値が読めないことは warning です。`rigtop --watch` でも知らせられます。
+
+UPS を別の機械につないでいる場合（NUT のクライアント）は、[設定](#設定)の `[ups] address = "nas:3493"` でその機械を指定し、そちらの upsd がネットワークで待ち受けるようにします（`upsd.conf` の `LISTEN`。既定では自分の機械からの接続しか受け付けません）。`address = ""` で止められます。遠隔ホストには rigtop 0.30 以降が必要です。
+
 ## 設定
 
 `~/.config/rigtop/config.toml`（Windows は `%APPDATA%\rigtop\config.toml`）。GUI の「config…」で既定のアプリで開くか、フォルダーを表示できます（Windows で `.toml` を開くアプリが無ければメモ帳で開きます）。`rigtop --edit-config` は `$VISUAL` か `$EDITOR` で開き、閉じた後に書き間違いが無いか確かめます。どちらも、ファイルが無ければ全項目を既定値でコメントアウトしたひな形を作ってから開きます。どの項目も省略できます。rigtop の起動中に書き換えても、1秒ほどで反映されます。`[[hosts]]` に足したホストにはつなぎ、消したホストからは切断します（残ったホストの履歴はそのまま）。ウィジェットは作り直します。ファイルが読めないときは、その旨を表示して今の設定のまま動きます。
@@ -407,6 +413,10 @@ integrated = "compact"
 [lhm]
 # Windows: LibreHardwareMonitor の Web サーバー（"" で無効）
 url = "http://127.0.0.1:8085/data.json"
+
+[ups]
+# Network UPS Tools の upsd（"" で無効。ポートを省くと 3493）
+address = "127.0.0.1:3493"
 ```
 
 ## コード署名ポリシー（Code signing policy）
@@ -422,6 +432,7 @@ rigtop は利用状況などの情報を集めません。つなぐ先は次だ�
 
 - 遠隔監視に指定したホスト（OS の `ssh` を使います）
 - この機械の LibreHardwareMonitor（Windows、`[lhm] url`）
+- UPS の状態を知るための、`[ups] address` の Network UPS Tools の upsd（既定はこの機械）
 - 新しいリリースが出ていないかの確認のための github.com（起動時と1時間ごと）。最新のリリースがどれかを問い合わせるだけで、手元の情報は送りません。[設定](#設定)の `[updates] check = false` で止められます。更新を選んだときは、github.com からリリースをダウンロードします。
 - `[network] public_ip` を有効にしたときだけ（既定はオフ）: グローバル IP を知るための `public_ip_url` のサービス（既定は api.ipify.org）。監視している各ホストから30分ごとに問い合わせます。通常の Web の通信と同じく、そのサービスにはホストのアドレスが見えます。
 

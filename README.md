@@ -224,7 +224,7 @@ rigtop starts `rigtop --agent` on each remote host through your system's `ssh` (
 
 ## Alerts without a window (`rigtop --watch`)
 
-`rigtop --watch` watches this machine and the configured hosts without a screen and runs a command of yours when an alert appears or clears, so a degraded RAID, a failing drive or a host gone offline reaches you while no rigtop is open. The command gets the alert in its environment (`RIGTOP_HOST`, `RIGTOP_SEVERITY`, `RIGTOP_CHANGE` = `raised` / `cleared`, `RIGTOP_ALERT`, and `RIGTOP_MESSAGE` such as `[critical] nas: md0 (raid1) degraded`), so it can post to [ntfy](https://ntfy.sh), a chat webhook or mail:
+`rigtop --watch` watches this machine and the configured hosts without a screen and runs a command of yours when an alert appears or clears, so a degraded RAID, a failing drive, a power failure or a host gone offline reaches you while no rigtop is open. The command gets the alert in its environment (`RIGTOP_HOST`, `RIGTOP_SEVERITY`, `RIGTOP_CHANGE` = `raised` / `cleared`, `RIGTOP_ALERT`, and `RIGTOP_MESSAGE` such as `[critical] nas: md0 (raid1) degraded`), so it can post to [ntfy](https://ntfy.sh), a chat webhook or mail:
 
 ```toml
 [watch]
@@ -331,6 +331,12 @@ sudo systemctl enable --now rigtop-collect.timer
 
 The SMART files include drive serial numbers.
 
+## UPS (Network UPS Tools)
+
+On a machine that runs [Network UPS Tools](https://networkupstools.org) (NUT) for its UPS, rigtop reads the UPS from NUT's `upsd` at its default address, `127.0.0.1:3493`: no root and nothing else to install. The CPU panel shows the charge and the power drawn next to the CPU and GPU power (`UPS 100% 73W`); in the GUI, its tooltip adds the model, how long the battery would last, the load and the mains voltage. A power failure is an alert: running on battery, and a low battery then, are critical (`UPS: on battery (72%)`); a battery to replace, an overload and lost readings are warnings. `rigtop --watch` can pass them on.
+
+A machine whose UPS is plugged into another one (a NUT client) can read it from there: set `[ups] address = "nas:3493"` in its [configuration](#configuration), and let that upsd listen on the network (`LISTEN` in `upsd.conf`; by default it only accepts connections from its own machine). `address = ""` turns it off. Remote hosts need rigtop 0.30 or later for it.
+
 ## Configuration
 
 `~/.config/rigtop/config.toml` (`%APPDATA%\rigtop\config.toml` on Windows). "config…" in the GUI opens it in the default app (Notepad on Windows when nothing else opens `.toml` files) or shows its folder, and `rigtop --edit-config` opens it in `$VISUAL` or `$EDITOR` and checks it afterwards; both first create it with every setting commented out at its default if there is none. Every setting is optional. Edits apply while rigtop runs, within a second: hosts added to `[[hosts]]` connect and removed ones disconnect (the others keep their history), and widgets restart. If the file cannot be read, rigtop says so and keeps the settings it has.
@@ -409,6 +415,10 @@ integrated = "compact"
 [lhm]
 # Windows: LibreHardwareMonitor's web server ("" to disable).
 url = "http://127.0.0.1:8085/data.json"
+
+[ups]
+# Network UPS Tools' upsd ("" to disable; the port is 3493 if left out).
+address = "127.0.0.1:3493"
 ```
 
 ## Code signing policy
@@ -424,6 +434,7 @@ rigtop collects no telemetry. It connects only to:
 
 - the hosts you list for remote monitoring, through your own `ssh`;
 - LibreHardwareMonitor on this machine (Windows, `[lhm] url`);
+- Network UPS Tools' upsd at `[ups] address` (this machine by default), for the state of a UPS;
 - github.com, to see whether a new release is out, at startup and every hour. It only asks which release is the latest and sends nothing about your machine; `[updates] check = false` in the [configuration](#configuration) turns it off. An update you choose to install is downloaded from github.com.
 - only if you turn on `[network] public_ip` (off by default): the service in `public_ip_url` (api.ipify.org by default), from each monitored host, every 30 minutes, to learn the host's public address. Like any web request, it shows the service that address.
 

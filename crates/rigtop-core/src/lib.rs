@@ -5,7 +5,8 @@
 //! - [`source`]: the [`DataSource`] trait and the [`LocalSource`] implementation.
 //! - [`config`]: user configuration (sensor labels, SMART directory).
 //! - [`system`], [`gpu`], [`smart`], `linux`: the individual collectors;
-//!   [`fill`]: when filesystems will be full.
+//!   [`fill`]: when filesystems will be full; [`nut`]: UPSes, from Network
+//!   UPS Tools.
 //! - [`agent`], [`remote`]: remote monitoring over SSH (`rigtop --agent` and
 //!   the [`remote::RemoteSource`] that talks to it).
 //! - [`demo`]: made-up hosts for trying the interface (`--demo`).
@@ -25,6 +26,7 @@ pub mod hosts;
 mod lhm;
 #[cfg(target_os = "linux")]
 pub mod linux;
+pub mod nut;
 pub mod public_ip;
 pub mod remote;
 pub mod smart;

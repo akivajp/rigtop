@@ -739,6 +739,7 @@ impl RigtopApp {
         if old.smart != self.config.smart
             || old.btrfs != self.config.btrfs
             || old.lhm != self.config.lhm
+            || old.ups != self.config.ups
         {
             for index in 0..self.hosts.len() {
                 if self.hosts[index].spec.is_local() {
@@ -2055,6 +2056,23 @@ mod tests {
                 .rect();
             assert!(!tab.intersects(button), "{tab:?} {button:?}");
         }
+    }
+
+    #[test]
+    fn shows_the_ups_next_to_the_power() {
+        let mut snapshot = sample_snapshot();
+        snapshot.ups = vec![rigtop_core::snapshot::UpsStats {
+            name: "rack".to_owned(),
+            model: Some("APC Back-UPS ES 700".to_owned()),
+            status: vec!["OL".to_owned(), "CHRG".to_owned()],
+            charge_percent: Some(100.0),
+            power_w: Some(73.0),
+            ..Default::default()
+        }];
+        let mut harness = harness_with(snapshot);
+        harness.run();
+        assert!(harness.query_by_label_contains("UPS rack").is_some());
+        assert!(harness.query_by_label("100% 73W").is_some());
     }
 
     #[test]

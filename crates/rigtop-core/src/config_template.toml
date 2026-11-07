@@ -81,3 +81,8 @@
 #[lhm]
 # Windows: LibreHardwareMonitor's web server ("" to disable).
 #url = "http://127.0.0.1:8085/data.json"
+
+#[ups]
+# Network UPS Tools' upsd, for the state of UPSes ("" to disable; nothing
+# shows when nothing listens there). The port is 3493 if left out.
+#address = "127.0.0.1:3493"

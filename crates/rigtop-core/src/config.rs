@@ -117,6 +117,9 @@ pub const DEFAULT_SCRUB_DIR: &str = "/var/lib/rigtop/btrfs";
 /// Default address of LibreHardwareMonitor's web server (Windows sensors).
 pub const DEFAULT_LHM_URL: &str = "http://127.0.0.1:8085/data.json";
 
+/// Default address of Network UPS Tools' upsd.
+pub const DEFAULT_UPS_ADDRESS: &str = "127.0.0.1:3493";
+
 /// Errors while loading or saving the configuration.
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
@@ -173,6 +176,8 @@ pub struct Config {
     /// LibreHardwareMonitor's web server, the source of temperatures, fans
     /// and CPU power on Windows.
     pub lhm: LhmConfig,
+    /// Network UPS Tools' upsd, the source of UPS readings.
+    pub ups: UpsConfig,
     /// The multi-host overview.
     pub overview: OverviewConfig,
     /// The terminal UI.
@@ -686,6 +691,23 @@ impl Default for LhmConfig {
     }
 }
 
+/// Where to read UPSes from.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct UpsConfig {
+    /// Network UPS Tools' upsd (`host:port`, the port 3493 if left out);
+    /// empty to disable. Nothing is shown when nothing listens there.
+    pub address: String,
+}
+
+impl Default for UpsConfig {
+    fn default() -> Self {
+        Self {
+            address: DEFAULT_UPS_ADDRESS.to_owned(),
+        }
+    }
+}
+
 /// Where to find btrfs scrub results.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -1072,6 +1094,7 @@ mod tests {
         assert_eq!(config.alerts, AlertsConfig::default());
         assert_eq!(config.watch, WatchConfig::default());
         assert_eq!(config.overview, OverviewConfig::default());
+        assert_eq!(config.ups, UpsConfig::default());
         // As written, everything is commented out.
         let empty: Config = toml::from_str(CONFIG_TEMPLATE).unwrap();
         assert_eq!(empty, Config::default());

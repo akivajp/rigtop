@@ -488,6 +488,17 @@ pub(super) const PANEL_KEYS: [(char, OverviewSection); 5] = [
     ('p', OverviewSection::Processes),
 ];
 
+/// A UPS's summary (`100% 73W`, `on battery 72% 25m`) in the color of its
+/// state.
+pub(super) fn ups_span(ups: &rigtop_core::snapshot::UpsStats) -> Span<'static> {
+    let text = ups.summary();
+    match rigtop_core::view::ups_severity(ups) {
+        Some(Severity::Critical) => colored(text, BAD),
+        Some(Severity::Warning) => colored(text, WARN),
+        None => Span::raw(text),
+    }
+}
+
 /// A rounded box with a colored title, btop style.
 pub(super) fn panel(title: &str, color: Color) -> Block<'_> {
     Block::bordered()
@@ -867,6 +878,10 @@ fn cpu_info_lines(app: &App, snapshot: &Snapshot) -> Vec<Line<'static>> {
         if let Some(note) = battery.health_note() {
             second.push(colored(format!(" {note}"), WARN));
         }
+    }
+    for ups in &snapshot.ups {
+        second.push(dim(format!("   {} ", ups.label())));
+        second.push(ups_span(ups));
     }
     let fans: Vec<_> = snapshot
         .sensors
@@ -2382,6 +2397,23 @@ mod tests {
         let screen = render(&mut app, 160, 50);
         assert!(screen.contains("Power SoC 6W"), "{screen}");
         assert!(screen.contains("Bat 72% -12W 2h30m health 77%"), "{screen}");
+    }
+
+    #[test]
+    fn shows_the_ups_next_to_the_power() {
+        let mut app = App::new(Config::default(), Duration::from_secs(1));
+        let mut snapshot = sample_snapshot();
+        snapshot.ups = vec![rigtop_core::snapshot::UpsStats {
+            name: "ups".to_owned(),
+            status: vec!["OB".to_owned(), "DISCHRG".to_owned()],
+            charge_percent: Some(72.0),
+            runtime_secs: Some(1500),
+            power_w: Some(73.0),
+            ..Default::default()
+        }];
+        app.apply(Event::Snapshot(Box::new(snapshot)));
+        let screen = render(&mut app, 160, 50);
+        assert!(screen.contains("UPS on battery 72% 25m"), "{screen}");
     }
 
     #[test]

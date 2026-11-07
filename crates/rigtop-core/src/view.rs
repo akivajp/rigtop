@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::config::{AlertsConfig, IntegratedGpu};
 use crate::format;
 use crate::snapshot::{
-    CpuStats, GpuStats, NetworkStats, OomKill, PcieLink, Pressure, ProcessInfo, Snapshot,
+    CpuStats, GpuStats, NetworkStats, OomKill, PcieLink, Pressure, ProcessInfo, Snapshot, UpsStats,
 };
 use crate::source::ProcessSignal;
 
@@ -329,6 +329,58 @@ pub enum Severity {
 pub struct Alert {
     pub severity: Severity,
     pub text: String,
+}
+
+/// A UPS's alerts: a power failure (on battery, a low battery then,
+/// forced shutdown) is critical, as the machines on it go down when the
+/// battery runs out; a battery to replace, an overload, the bypass, the
+/// output off, a low battery on line power and readings lost are warnings.
+/// "On battery" lasts the whole power failure: a low battery is an alert
+/// of its own, so that it does not look as if the power came back.
+fn ups_alerts(ups: &UpsStats) -> Vec<(Severity, String)> {
+    let label = ups.label();
+    if let Some(error) = &ups.error {
+        return vec![(Severity::Warning, format!("{label}: no data ({error})"))];
+    }
+    let charge = ups
+        .charge_percent
+        .map(|c| format!(" ({c:.0}%)"))
+        .unwrap_or_default();
+    let mut alerts = Vec::new();
+    if ups.has("FSD") {
+        alerts.push((Severity::Critical, format!("{label}: forced shutdown")));
+    }
+    let on_battery = ups.has("OB");
+    if on_battery {
+        alerts.push((Severity::Critical, format!("{label}: on battery{charge}")));
+    }
+    if ups.has("LB") {
+        let severity = if on_battery {
+            Severity::Critical
+        } else {
+            Severity::Warning
+        };
+        alerts.push((severity, format!("{label}: battery low")));
+    }
+    for (flag, what) in [
+        ("RB", "replace the battery"),
+        ("OVER", "overloaded"),
+        ("BYPASS", "on bypass"),
+        ("OFF", "output off"),
+    ] {
+        if ups.has(flag) {
+            alerts.push((Severity::Warning, format!("{label}: {what}")));
+        }
+    }
+    alerts
+}
+
+/// How a UPS's state should be colored: the worst of its alerts.
+pub fn ups_severity(ups: &UpsStats) -> Option<Severity> {
+    ups_alerts(ups)
+        .into_iter()
+        .map(|(severity, _)| severity)
+        .max()
 }
 
 /// Identifies an alert across samples: its severity and text with numbers
@@ -1254,6 +1306,11 @@ pub fn alerts_with(snapshot: &Snapshot, limits: &AlertsConfig) -> Vec<Alert> {
     for unit in &snapshot.failed_units {
         if !limits.ignored_units.contains(unit) {
             add(Severity::Warning, format!("systemd: {unit} failed"));
+        }
+    }
+    for ups in &snapshot.ups {
+        for (severity, text) in ups_alerts(ups) {
+            add(severity, text);
         }
     }
     for smart in &snapshot.smart {
@@ -2575,6 +2632,72 @@ mod tests {
             watch.check(&snapshot, 60_000)[0].text,
             "train.py (pid 12) exited after 01:00"
         );
+    }
+
+    #[test]
+    fn ups_power_failures_are_critical() {
+        let ups = |status: &str, charge: Option<f32>| UpsStats {
+            name: "ups".to_owned(),
+            status: status.split_whitespace().map(str::to_owned).collect(),
+            charge_percent: charge,
+            ..Default::default()
+        };
+        let texts = |ups: UpsStats| -> Vec<(Severity, String)> {
+            let snapshot = Snapshot {
+                ups: vec![ups],
+                ..Default::default()
+            };
+            alerts(&snapshot)
+                .into_iter()
+                .map(|a| (a.severity, a.text))
+                .collect()
+        };
+        assert!(texts(ups("OL CHRG", Some(100.0))).is_empty());
+        assert_eq!(
+            texts(ups("OB DISCHRG", Some(72.0))),
+            [(Severity::Critical, "UPS: on battery (72%)".to_owned())]
+        );
+        assert_eq!(
+            texts(ups("OB LB", Some(8.0))),
+            [
+                (Severity::Critical, "UPS: on battery (8%)".to_owned()),
+                (Severity::Critical, "UPS: battery low".to_owned())
+            ]
+        );
+        // Low while charging after a power failure: not urgent.
+        assert_eq!(
+            texts(ups("OL CHRG LB", Some(9.0))),
+            [(Severity::Warning, "UPS: battery low".to_owned())]
+        );
+        assert_eq!(
+            texts(ups("OL RB", None)),
+            [(Severity::Warning, "UPS: replace the battery".to_owned())]
+        );
+        // The charge going down is the same alert.
+        let a = alerts(&Snapshot {
+            ups: vec![ups("OB", Some(72.0))],
+            ..Default::default()
+        });
+        let b = alerts(&Snapshot {
+            ups: vec![ups("OB", Some(9.0))],
+            ..Default::default()
+        });
+        assert_eq!(alert_key(&a[0]), alert_key(&b[0]));
+        // A second UPS goes by its name; lost readings are a warning.
+        let rack = UpsStats {
+            name: "rack".to_owned(),
+            error: Some("data stale".to_owned()),
+            ..Default::default()
+        };
+        assert_eq!(
+            texts(rack.clone()),
+            [(
+                Severity::Warning,
+                "UPS rack: no data (data stale)".to_owned()
+            )]
+        );
+        assert_eq!(ups_severity(&rack), Some(Severity::Warning));
+        assert_eq!(ups_severity(&ups("OL", Some(100.0))), None);
     }
 
     #[test]

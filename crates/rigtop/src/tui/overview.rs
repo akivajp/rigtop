@@ -796,6 +796,11 @@ fn cpu_lines(app: &App, snapshot: &Snapshot, width: usize) -> Vec<Line<'static>>
         info.push(dim("bat "));
         info.push(Span::raw(format!("{} ", battery.summary())));
     }
+    for ups in &snapshot.ups {
+        info.push(dim(format!("{} ", ups.label())));
+        info.push(super::ui::ups_span(ups));
+        info.push(Span::raw(" "));
+    }
     if let Some(load) = cpu.load_average {
         info.push(dim(format!("load {:.2}", load[0])));
     }

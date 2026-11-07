@@ -70,6 +70,9 @@ pub struct Snapshot {
     /// and CPU power, could not be read. `None` when it was read, when it is
     /// disabled in the configuration, and on other platforms.
     pub lhm_error: Option<String>,
+    /// UPSes known to Network UPS Tools' upsd at the configured address
+    /// (`[ups] address`). Empty without NUT, and from agents before 0.30.
+    pub ups: Vec<UpsStats>,
 }
 
 impl Snapshot {
@@ -395,6 +398,140 @@ pub struct BatteryStats {
     pub time_left_secs: Option<u64>,
     /// Full charge as a share of the design capacity (wear), in percent.
     pub health_percent: Option<f32>,
+}
+
+/// A UPS, as Network UPS Tools' `upsd` reports it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UpsStats {
+    /// upsd's name for it (`ups` in `upsc ups@localhost`).
+    pub name: String,
+    /// Maker and model (`APC Back-UPS ES 700`), else its description in
+    /// NUT's `ups.conf`.
+    pub model: Option<String>,
+    /// The flags of `ups.status`: `OL` on line power, `OB` on battery, `LB`
+    /// low battery, `CHRG` charging, `RB` replace the battery, `OVER`
+    /// overloaded, `BYPASS`, `OFF`, `FSD` forced shutdown...
+    pub status: Vec<String>,
+    /// Battery charge in percent.
+    pub charge_percent: Option<f32>,
+    /// How long the battery would last at the present load.
+    pub runtime_secs: Option<u64>,
+    /// Load in percent of the UPS's capacity.
+    pub load_percent: Option<f32>,
+    /// Power drawn by what is plugged in: `ups.realpower`, else the load
+    /// times `ups.realpower.nominal`.
+    pub power_w: Option<f32>,
+    /// Mains voltage.
+    pub input_voltage: Option<f32>,
+    /// Why there are no readings (`data stale`, `driver not connected`,
+    /// `upsd not reachable (...)`).
+    pub error: Option<String>,
+}
+
+impl UpsStats {
+    /// Whether `ups.status` has `flag` (`OB`).
+    pub fn has(&self, flag: &str) -> bool {
+        self.status.iter().any(|s| s == flag)
+    }
+
+    /// "UPS" for the usual one named `ups`, else "UPS <name>".
+    pub fn label(&self) -> String {
+        if self.name.eq_ignore_ascii_case("ups") || self.name.is_empty() {
+            "UPS".to_owned()
+        } else {
+            format!("UPS {}", self.name)
+        }
+    }
+
+    /// Short form for status lines: `100% 73W` on line power, `on battery
+    /// 72% 25m` during a power failure, `no data` without readings.
+    pub fn summary(&self) -> String {
+        if self.error.is_some() {
+            return "no data".to_owned();
+        }
+        let mut parts = Vec::new();
+        if self.has("OB") {
+            parts.push("on battery".to_owned());
+        }
+        if let Some(charge) = self.charge_percent {
+            parts.push(format!("{charge:.0}%"));
+        }
+        if self.has("OB") {
+            parts.extend(self.runtime_secs.map(crate::format::hours_minutes));
+        } else if let Some(power) = self.power_w {
+            parts.push(format!("{power:.0}W"));
+        } else if let Some(load) = self.load_percent {
+            parts.push(format!("load {load:.0}%"));
+        }
+        if parts.is_empty() {
+            parts.push(self.status.join(" "));
+        }
+        parts.join(" ")
+    }
+
+    /// Hover text: model, state, battery, load and mains voltage.
+    pub fn details(&self) -> String {
+        let mut lines = vec![match &self.model {
+            Some(model) => format!("{} ({model})", self.label()),
+            None => self.label(),
+        }];
+        if let Some(error) = &self.error {
+            lines.push(format!("no data: {error}"));
+            return lines.join("\n");
+        }
+        let state: Vec<&str> = self
+            .status
+            .iter()
+            .map(|flag| match flag.as_str() {
+                "OL" => "on line power",
+                "OB" => "on battery",
+                "LB" => "battery low",
+                "HB" => "battery high",
+                "RB" => "replace the battery",
+                "CHRG" => "charging",
+                "DISCHRG" => "discharging",
+                "BYPASS" => "on bypass",
+                "CAL" => "calibrating",
+                "OFF" => "output off",
+                "OVER" => "overloaded",
+                "TRIM" => "trimming high mains voltage",
+                "BOOST" => "boosting low mains voltage",
+                "FSD" => "forced shutdown",
+                other => other,
+            })
+            .collect();
+        if !state.is_empty() {
+            lines.push(state.join(", "));
+        }
+        let mut battery = Vec::new();
+        if let Some(charge) = self.charge_percent {
+            battery.push(format!("{charge:.0}%"));
+        }
+        if let Some(secs) = self.runtime_secs {
+            battery.push(format!(
+                "{} at this load",
+                crate::format::hours_minutes(secs)
+            ));
+        }
+        if !battery.is_empty() {
+            lines.push(format!("battery {}", battery.join(", ")));
+        }
+        let mut load = Vec::new();
+        if let Some(percent) = self.load_percent {
+            load.push(format!("{percent:.0}%"));
+        }
+        if let Some(power) = self.power_w {
+            load.push(format!("{power:.0} W"));
+        }
+        if !load.is_empty() {
+            lines.push(format!("load {}", load.join(", ")));
+        }
+        if let Some(volts) = self.input_voltage {
+            lines.push(format!("mains {volts:.0} V"));
+        }
+        lines.join("\n")
+    }
 }
 
 impl BatteryStats {

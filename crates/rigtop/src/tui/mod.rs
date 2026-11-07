@@ -521,7 +521,11 @@ fn apply_config(
     }
     let mut stopped: Vec<Worker> = previous.into_iter().map(|h| h.worker).collect();
     // This machine's collector reads these settings when it starts.
-    if old.smart != config.smart || old.btrfs != config.btrfs || old.lhm != config.lhm {
+    if old.smart != config.smart
+        || old.btrfs != config.btrfs
+        || old.lhm != config.lhm
+        || old.ups != config.ups
+    {
         for host in hosts.iter_mut().filter(|h| h.spec.is_local()) {
             let worker = spawn_worker(&host.spec, config, host.app.interval);
             stopped.push(std::mem::replace(&mut host.worker, worker));

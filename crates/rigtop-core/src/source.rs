@@ -187,6 +187,8 @@ pub struct LocalSource {
     /// Temperatures, fans and CPU power from LibreHardwareMonitor.
     #[cfg(windows)]
     lhm: crate::lhm::LhmReader,
+    /// UPSes from Network UPS Tools' upsd.
+    nut: crate::nut::NutReader,
 }
 
 impl LocalSource {
@@ -212,6 +214,7 @@ impl LocalSource {
             name_matches: Vec::new(),
             fill: crate::fill::FillTracker::new(),
             public_ip: None,
+            nut: crate::nut::NutReader::new(&config.ups.address),
             #[cfg(target_os = "linux")]
             roots: SysRoots::default(),
             #[cfg(target_os = "linux")]
@@ -294,6 +297,7 @@ impl LocalSource {
         self.collect_portable(&mut snapshot, elapsed);
 
         self.fill.annotate(&mut snapshot.filesystems, now);
+        snapshot.ups = self.nut.read(now);
         if !(self.watched_names.is_empty() && self.name_matches.is_empty()) {
             self.name_matches =
                 report_name_matches(&self.watched_names, &self.name_matches, &mut snapshot);

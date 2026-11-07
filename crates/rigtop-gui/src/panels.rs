@@ -256,12 +256,18 @@ fn cpu(ui: &mut Ui, state: &GuiState) -> CpuRequests {
     let fans = snapshot.sensors.iter().map(|c| c.fans.len()).sum::<usize>();
     let first = 20 + cpu.temperatures.len() * 11;
     let second = 32
+        + rigtop_core::view::cpu_clock_text(cpu).map_or(0, |clock| clock.len() + 8)
         + fans * 15
         + if snapshot.power.battery.is_some() {
             16
         } else {
             0
-        };
+        }
+        + snapshot
+            .ups
+            .iter()
+            .map(|ups| ups.label().len() + ups.summary().len() + 4)
+            .sum::<usize>();
     let info_height = (lines(first) + lines(second)) * (ROW_HEIGHT + 3.0) + 4.0;
     let graph_rect = egui::Rect::from_min_size(area.min, vec2(graph_width, area.height()));
     let grid_rect = egui::Rect::from_min_max(
@@ -516,6 +522,11 @@ fn cpu_info(ui: &mut Ui, state: &GuiState, snapshot: &Snapshot) -> CpuRequests {
                     .on_hover_text(battery.details());
             }
         }
+        for ups in &snapshot.ups {
+            ui.label(dim(format!("   {}", ups.label())))
+                .on_hover_text(ups.details());
+            ui.label(ups_text(ups)).on_hover_text(ups.details());
+        }
         let fans: Vec<_> = snapshot
             .sensors
             .iter()
@@ -594,6 +605,17 @@ fn memory(ui: &mut Ui, state: &GuiState) {
             ratio,
             &format!("{:>6} {:>4.0}%", format::bytes(bytes), ratio * 100.0),
         );
+    }
+}
+
+/// A UPS's summary (`100% 73W`, `on battery 72% 25m`) in the color of its
+/// state.
+pub fn ups_text(ups: &rigtop_core::snapshot::UpsStats) -> RichText {
+    let text = ups.summary();
+    match rigtop_core::view::ups_severity(ups) {
+        Some(rigtop_core::view::Severity::Critical) => colored(text, widgets::BAD),
+        Some(rigtop_core::view::Severity::Warning) => colored(text, WARN),
+        None => RichText::new(text),
     }
 }
 

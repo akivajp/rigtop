@@ -8,6 +8,17 @@ include breaking changes).
 ## [Unreleased]
 
 ### Added
+- UPSes, from Network UPS Tools' `upsd` (its plain-text protocol at
+  `127.0.0.1:3493` by default, `[ups] address`; no root, nothing more to
+  install): the charge and the power drawn next to the CPU and GPU power
+  (`UPS 100% 73W`, `UPS on battery 72% 25m` during a power failure), in
+  overview cards too, with the model, runtime, load and mains voltage in
+  the GUI's tooltip. Running on battery, and a low battery then, are
+  critical alerts that last the whole power failure; a battery to replace,
+  an overload, the bypass, the output off and lost readings are warnings.
+  A UPS read before stays listed with "no data" while upsd does not
+  answer. The demo's NAS has a UPS. Remote hosts need rigtop 0.30 for it.
+  Checked against NUT 2.8's upsd with its dummy-ups driver.
 - TUI: `?` (or `F1`) lists the keys that work on the screen shown, in two
   columns on a small terminal; any key closes the list. The tab bar and
   the process box's hints point to it.

@@ -14,7 +14,8 @@ use crate::snapshot::{
     BatteryStats, BtrfsAllocation, BtrfsDeviceStats, BtrfsFilesystem, BtrfsScrub, CpuStats, DiskIo,
     EccErrors, Fan, FilesystemUsage, GpuProcess, GpuStats, HostInfo, MdArray, MdMember, MdSync,
     MemoryStats, NetworkStats, PcieLink, PowerStats, Pressure, PressureLevels, ProcessInfo,
-    RaidStats, SensorChip, SmartDevice, Snapshot, Temperature, WirelessLink, ZfsDevice, ZfsPool,
+    RaidStats, SensorChip, SmartDevice, Snapshot, Temperature, UpsStats, WirelessLink, ZfsDevice,
+    ZfsPool,
 };
 use crate::source::{DataSource, ProcessSignal, SourceError};
 
@@ -1189,6 +1190,18 @@ fn nas(t: f64) -> Snapshot {
                 41 * 86_400,
             ),
         ],
+        // On line power, the battery full; the drives' load moves its draw.
+        ups: vec![UpsStats {
+            name: "ups".to_owned(),
+            model: Some("APC Back-UPS Pro 900".to_owned()),
+            status: vec!["OL".to_owned()],
+            charge_percent: Some(100.0),
+            runtime_secs: Some(42 * 60),
+            load_percent: Some(19.0 + 2.0 * wobble(61, t, 7.0) as f32),
+            power_w: Some(102.0 + 11.0 * wobble(61, t, 7.0) as f32),
+            input_voltage: Some(231.0),
+            error: None,
+        }],
         ..Default::default()
     }
 }
