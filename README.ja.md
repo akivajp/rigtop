@@ -13,15 +13,17 @@
 
 [English README](README.md)
 
-![rigtop の TUI: CPU の各コア、メモリ、GPU 2枚、SMART と btrfs RAID を含むストレージの状態、ネットワーク、プロセスごとのコンテナと GPU の使用率を出すプロセス一覧](docs/images/rigtop-tui.png)
+![rigtop の TUI: CPU の各コアとクロック、メモリ、GPU 2枚、SMART と btrfs RAID を含むストレージの状態、インターフェースのアドレス付きのネットワーク、プロセスごとのコンテナや仮想マシンと GPU の使用率を出すプロセス一覧](docs/images/rigtop-tui.png)
 
 ## 目標
 
 - btop と同じ一覧性: CPU（全体・コアごと・温度・クロック）、全 GPU、メモリ、ストレージ、ネットワーク、プロセス一覧（kill / 強制 kill）を1画面に。
 - 既存のモニターが手薄な**ストレージの健康状態**: mdadm の状態と再同期の進み具合、ZFS のプール（raidz・mirror などの構成、ドライブごとの状態と読み・書き・チェックサムのエラー回数、直近の scrub、データのエラー）、btrfs の RAID 構成とデバイスごとのエラー回数、NVMe の温度、SMART。ZFS の詳細は `zpool status` から読み、多くの環境で root は不要です。
 - プロセスごとの GPU 使用率と VRAM（NVIDIA、NVML 経由）、ディスク I/O、プロセスが動いているコンテナや仮想マシン（Docker・Podman・Kubernetes・LXC・systemd-nspawn・libvirt・Proxmox VE、Linux）。
-- CPU + GPU の消費電力の合計、ファン回転数（各系統に任意の名前を付けられる）。
+- CPU + GPU の消費電力の合計、ファン回転数（各系統に任意の名前を付けられる）、[Network UPS Tools](#upsnetwork-ups-tools) 経由の UPS。
 - **SSH だけで複数ホストを監視**: `rigtop --agent` が標準入出力で計測値を流すので、常駐プロセスもポート開放も不要。
+
+![NAS での rigtop の TUI: 代替処理済みセクタで SMART の警告が出たドライブ、ディスクごとの使用率と応答時間、md の RAID5 の再同期、ZFS のミラーと直近の scrub、消費電力の隣の UPS](docs/images/rigtop-tui-nas.png)
 
 ## ロードマップ
 
@@ -140,7 +142,7 @@ cargo run --release -p rigtop -- --help  # オプション（--interval-ms、--c
 
 ### GUI
 
-![rigtop-gui: 同じパネル構成のネイティブウィンドウ。滑らかなグラフとバーで、パネルはリサイズ・並べ替えできる。プロセスはツリー表示](docs/images/rigtop-gui.png)
+![rigtop-gui: 同じパネル構成のネイティブウィンドウ。滑らかなグラフとバーで、パネルはリサイズ・並べ替えできる。プロセスはツリー表示で、コンテナ列に libvirt の仮想マシン、ネットワークにインターフェースのアドレス](docs/images/rigtop-gui.png)
 
 ```sh
 cargo run --release -p rigtop-gui            # オプションは TUI と同じ（--interval-ms、--config）
@@ -212,7 +214,7 @@ GUI では **hosts…**（タブの並び、または手元の機だけを表示
 
 ホストが2台以上あると、全ホストを並べた**オーバービュー**から始まります。ホストごと（手元の機を含む）の詳細表示はタブで切り替えます。各ホストのカードには、まず要注意の項目（ストレージのエラー、SMART の異常、RAID の劣化、残り容量の少ないファイルシステム、高温の CPU・GPU・ドライブ）を出し、続けて CPU・GPU・メモリ・プロセス上位・ネットワーク・ストレージを、この順にカードに入る分だけ出します。さらに余白があれば、詳細（CPU 名・GPU 名・ディスクの I/O）、次に CPU と通信量のグラフを出します。横に並んだカードは、各欄の開始位置を揃えます。順番は `[overview] sections`（全体）、ホストごとの `sections`、GUI のカードの「sections」メニューで変えられます。手元の機のカードを出すかどうかは `[overview] include_local`（GUI はチェックボックス、TUI は `l` キー）で切り替えます。カードは設定の順に並びます。`[overview] alerts_first = true`（GUI は「alerts first」）にすると、要注意のホストを先頭に並べます（つながらないか critical の警告があるもの、次に warning のあるもの。それ以外は元の順番のまま）。TUI では `Tab` と `0`〜`9` で、オーバービューと各ホストを切り替えます。
 
-![rigtop-gui で3台を並べたオーバービュー: GPU 2枚で学習中のワークステーション、バッテリー駆動のノート PC、代替処理済みセクタのあるドライブで赤く表示され、RAID の再同期・容量の逼迫・ZFS のプールも出ている NAS。右には時計と Claude Code のウィジェット](docs/images/rigtop-gui-overview.png)
+![rigtop-gui で3台を並べたオーバービュー: GPU 2枚で学習中のワークステーション、バッテリー駆動のノート PC、代替処理済みセクタのあるドライブで赤く表示され、RAID の再同期・容量の逼迫・ZFS のプールも出ている、UPS につないだ NAS。右には時計と Claude Code のウィジェット](docs/images/rigtop-gui-overview.png)
 
 rigtop は OS の `ssh`（Windows では標準の OpenSSH クライアント）で、各ホストの `rigtop --agent` を起動します。`~/.ssh/config`・鍵・`ProxyJump` はいつもどおり使えます。常駐プロセスもポート開放も不要で、エージェントは接続が切れると終了し、rigtop は自動で再接続します。つながらない間は、そのホストのカード・タブ・見出しに、どれくらいの間・いつから途切れているかを出します（`offline for 5m (since 14:03)`）。詳細表示していないホストからは、プロセスの上位だけを受け取ります。
 

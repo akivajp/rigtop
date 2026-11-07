@@ -292,6 +292,17 @@ fn workstation(t: f64) -> Snapshot {
             42,
             9 * 86_400,
         ),
+        // A Windows virtual machine under libvirt, idling.
+        process(
+            4_810,
+            "qemu-system-x86_64",
+            "/usr/bin/qemu-system-x86_64 -name guest=win11-dev,debug-threads=on -machine pc-q35-9.2",
+            "libvirt-qemu",
+            3.0 + 3.0 * wobble(62, t, 4.0),
+            8 * GIB,
+            12,
+            2 * 86_400,
+        ),
         process(
             3_120,
             "gnome-shell",
@@ -548,11 +559,12 @@ fn workstation(t: f64) -> Snapshot {
         (3_150, 3_120),
         (3_180, 3_120),
     ];
-    // A small web app in Docker containers.
+    // A small web app in Docker containers, and a libvirt virtual machine.
     let containers = [
         (1_402, "app-db-1"),
         (1_266, "app-redis-1"),
         (1_270, "app-web-1"),
+        (4_810, "win11-dev"),
     ];
     for process in &mut processes {
         if process.name == "rustc" {

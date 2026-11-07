@@ -28,7 +28,8 @@ include breaking changes).
   checked with a libvirt domain) and other machines registered with
   systemd-machined, and Proxmox VE's guests by their id (`vm 100`,
   `ct 101`; from the cgroups Proxmox VE uses, not yet tried on a Proxmox
-  host). The per-container summary adds them up like containers.
+  host). The per-container summary adds them up like containers. The
+  demo's workstation runs a virtual machine.
 
 ### Fixed
 - GUI overview in a narrow window (below about 1250 px with the widget
