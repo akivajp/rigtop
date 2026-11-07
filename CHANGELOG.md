@@ -13,6 +13,11 @@ include breaking changes).
   the process box's hints point to it.
 - TUI overview: `u: update agents (N)` in the tab bar when remote hosts run
   an older rigtop, like the GUI's button (`u` already updated them all).
+- The container column names virtual machines too: libvirt's (QEMU/KVM,
+  checked with a libvirt domain) and other machines registered with
+  systemd-machined, and Proxmox VE's guests by their id (`vm 100`,
+  `ct 101`; from the cgroups Proxmox VE uses, not yet tried on a Proxmox
+  host). The per-container summary adds them up like containers.
 
 ### Fixed
 - GUI overview in a narrow window (below about 1250 px with the widget

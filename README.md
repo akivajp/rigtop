@@ -19,7 +19,7 @@ A system monitor for workstations, laptops and NAS — an alternative to btop th
 
 - The btop overview on one screen: CPU (total, per core, temperatures, clock), every GPU, memory, storage, network, and a process list with kill / force kill.
 - **Storage health**, which existing monitors mostly skip: mdadm array state and resync progress, ZFS pools (layout such as raidz or mirror, each device's state and read, write and checksum errors, the last scrub, data errors), btrfs RAID profiles and per-device error counters, NVMe temperatures, and SMART health. ZFS details come from `zpool status`, which needs no root on most systems.
-- Per-process GPU usage and VRAM (NVIDIA, via NVML), per-process disk I/O, and the container each process runs in (Docker, Podman, Kubernetes, LXC, systemd-nspawn; Linux).
+- Per-process GPU usage and VRAM (NVIDIA, via NVML), per-process disk I/O, and the container or virtual machine each process runs in (Docker, Podman, Kubernetes, LXC, systemd-nspawn, libvirt, Proxmox VE; Linux).
 - Combined CPU + GPU power draw and fan speeds (with your own labels for fan channels).
 - **Multiple hosts over plain SSH**: `rigtop --agent` streams snapshots over stdin/stdout, so there is no daemon to run and no port to open.
 
