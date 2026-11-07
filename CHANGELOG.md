@@ -51,6 +51,10 @@ include breaking changes).
   (`fan 30%` was cut to `fan 3`) and a wide one the whole name. The
   interface list of the network box shortens a long Wi-Fi link instead of
   cutting the rates.
+- Windows: "config…" → "open the file" opens the file in Notepad when no
+  app is associated with `.toml` files, as the README says. Windows
+  showed its "choose an app" dialog instead, as ShellExecute reports
+  success then; the association is now looked up first.
 
 ## [0.29.0] - 2026-11-06
 
