@@ -576,6 +576,17 @@ fn memory(ui: &mut Ui, state: &GuiState) {
             memory.swap_used_bytes as f32 / swap,
         ));
     }
+    // A short panel leaves out rows instead of cutting the last one in
+    // half: Free first, then Cached (Avail tells more), then Swap.
+    let spacing = ui.spacing().item_spacing.y;
+    let row = ui.text_style_height(&egui::TextStyle::Body).max(ROW_HEIGHT) + spacing;
+    let fit = (((ui.available_height() + spacing) / row).floor() as usize).max(1);
+    for label in ["Free", "Cached", "Swap", "Avail"] {
+        if rows.len() <= fit {
+            break;
+        }
+        rows.retain(|(name, _, _)| *name != label);
+    }
     for (label, bytes, ratio) in rows {
         labeled_meter(
             ui,
@@ -1378,7 +1389,9 @@ fn processes(ui: &mut Ui, state: &mut GuiState) {
         .as_ref()
         .map(rigtop_core::view::container_usage)
         .unwrap_or_default();
-    ui.horizontal(|ui| {
+    // Wrapped: on a narrow panel the checkboxes go to a second line rather
+    // than past its edge.
+    ui.horizontal_wrapped(|ui| {
         ui.label(dim("filter"));
         ui.add(
             egui::TextEdit::singleline(&mut state.filter)
@@ -1392,11 +1405,24 @@ fn processes(ui: &mut Ui, state: &mut GuiState) {
             ui.checkbox(&mut state.show_containers, "containers")
                 .on_hover_text("what each container uses; click one to list its processes");
         }
-        let note = match state.status() {
-            Some(status) => colored(status, WARN),
-            None => dim("right-click a process for actions"),
-        };
-        ui.add(egui::Label::new(note).truncate());
+        // In the room left on the line (shortened); a status message
+        // without any goes to the next line, the hint is then left out.
+        let room = ui.available_size_before_wrap().x;
+        match state.status() {
+            Some(status) if room < 60.0 => {
+                ui.add(egui::Label::new(colored(status, WARN)).truncate());
+            }
+            None if room < 60.0 => {}
+            status => {
+                let note = match status {
+                    Some(status) => colored(status, WARN),
+                    None => dim("right-click a process for actions"),
+                };
+                ui.allocate_ui(vec2(room, ROW_HEIGHT), |ui| {
+                    ui.add(egui::Label::new(note).truncate())
+                });
+            }
+        }
     });
 
     if state.show_containers && !containers.is_empty() {

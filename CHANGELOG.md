@@ -7,6 +7,16 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Fixed
+- GUI overview in a narrow window (below about 1250 px with the widget
+  column, 870 px without): cards no longer reach past the window or under
+  the widget column, and the buttons of the tab bar move to a line below
+  the tabs instead of being drawn over them. A long value (`12% 1.5G/2.0G
+  53°C`) no longer pushes a card wider than the others.
+- GUI: a short memory panel leaves out rows (Free, then Cached) instead of
+  cutting the last one in half, and a narrow process panel moves its
+  checkboxes to a second line instead of past its edge.
+
 ## [0.29.0] - 2026-11-06
 
 ### Added

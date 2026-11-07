@@ -1121,6 +1121,10 @@ impl RigtopApp {
                         }))
                         .show(ui, |ui| widget_panel::show(ui, &self.widgets));
                 }
+                // Measured before anything is drawn: a row that overflows
+                // widens the Ui (egui grows its max_rect to include it), and
+                // cards sized from that would reach past the window.
+                let content_width = ui.available_width();
                 if self.hosts.len() > 1 {
                     self.tab_bar(ui, &mut actions);
                 }
@@ -1128,6 +1132,7 @@ impl RigtopApp {
                     View::Overview => {
                         if let Some(open) = overview::show(
                             ui,
+                            content_width,
                             &mut self.hosts,
                             &mut self.overview,
                             self.overview_processes,
@@ -1282,44 +1287,102 @@ impl RigtopApp {
 
     /// "Overview | local | zefat | ..." with a status dot per host, plus the
     /// zoom controls on the right.
+    ///
+    /// When the tabs and the buttons do not fit side by side, the tabs wrap
+    /// and the buttons get a row of their own below them, rather than being
+    /// drawn over the tabs. The decision uses the widths of the last frame
+    /// (a frame whose decision changes is discarded and drawn again).
     fn tab_bar(&mut self, ui: &mut Ui, actions: &mut Vec<ViewAction>) {
         let release = self.release_note();
-        ui.horizontal(|ui| {
-            if ui
-                .add(egui::Button::selectable(
-                    self.view == View::Overview,
-                    RichText::new("Overview").strong(),
-                ))
-                .clicked()
-            {
-                self.view = View::Overview;
-            }
-            ui.add_space(6.0);
-            for (index, host) in self.hosts.iter().enumerate() {
-                let (color, status) = overview::host_status(host);
-                let selected = self.view == View::Host(index);
-                let label = overview::dot_label(color, &host.spec.name, selected);
-                let response = ui
-                    .add(egui::Button::selectable(selected, label))
-                    .on_hover_text(status);
-                if response.clicked() {
-                    self.view = View::Host(index);
-                }
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                overview::zoom_controls(ui, self.zoom, actions);
-                ui.add_space(8.0);
-                overview::config_button(ui, self.config_path.as_deref(), actions);
-                overview::hosts_button(ui, actions);
-                if !self.widgets.is_empty() {
-                    overview::widgets_button(ui, self.show_widgets, actions);
-                }
-                alert_log::button(ui, self.alert_log.unread(), actions);
-                update_dialog::release_button(ui, release.as_ref(), actions);
-                update_dialog::agents_button(ui, self.outdated_agents().len(), actions);
-            });
-        });
+        let width_id = ui.scope_id().with("tab_bar_widths");
+        let (tabs_width, buttons_width) = ui
+            .data(|d| d.get_temp::<(f32, f32)>(width_id))
+            .unwrap_or_default();
+        let gap = 12.0;
+        let one_row = tabs_width + gap + buttons_width <= ui.available_width();
+        let (tabs_now, buttons_now) = if one_row {
+            ui.horizontal(|ui| {
+                let tabs = self.tabs(ui);
+                let buttons = ui
+                    .with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        self.tab_buttons(ui, release.as_ref(), actions);
+                    })
+                    .response
+                    .rect
+                    .width();
+                (tabs, buttons)
+            })
+            .inner
+        } else {
+            let tabs = ui.horizontal_wrapped(|ui| self.tabs(ui)).inner;
+            // A row of its own, one line high.
+            let buttons = ui
+                .horizontal(|ui| {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        self.tab_buttons(ui, release.as_ref(), actions);
+                    })
+                    .response
+                    .rect
+                    .width()
+                })
+                .inner;
+            (tabs, buttons)
+        };
+        // A host added, a new button: draw this frame again if the widths
+        // now call for the other layout.
+        let fits_now = tabs_now + gap + buttons_now <= ui.available_width();
+        if fits_now != one_row {
+            ui.ctx().request_discard("tab bar layout");
+        }
+        ui.data_mut(|d| d.insert_temp(width_id, (tabs_now, buttons_now)));
         ui.add_space(2.0);
+    }
+
+    /// The "Overview" tab and one tab per host; returns their width side by
+    /// side (also when they wrap).
+    fn tabs(&mut self, ui: &mut Ui) -> f32 {
+        let spacing = ui.spacing().item_spacing.x;
+        let response = ui.add(egui::Button::selectable(
+            self.view == View::Overview,
+            RichText::new("Overview").strong(),
+        ));
+        if response.clicked() {
+            self.view = View::Overview;
+        }
+        let mut width = response.rect.width() + 6.0;
+        ui.add_space(6.0);
+        for (index, host) in self.hosts.iter().enumerate() {
+            let (color, status) = overview::host_status(host);
+            let selected = self.view == View::Host(index);
+            let label = overview::dot_label(color, &host.spec.name, selected);
+            let response = ui
+                .add(egui::Button::selectable(selected, label))
+                .on_hover_text(status);
+            if response.clicked() {
+                self.view = View::Host(index);
+            }
+            width += spacing + response.rect.width();
+        }
+        width
+    }
+
+    /// The buttons right of the tabs, laid out from the right.
+    fn tab_buttons(
+        &self,
+        ui: &mut Ui,
+        release: Option<&ReleaseNote>,
+        actions: &mut Vec<ViewAction>,
+    ) {
+        overview::zoom_controls(ui, self.zoom, actions);
+        ui.add_space(8.0);
+        overview::config_button(ui, self.config_path.as_deref(), actions);
+        overview::hosts_button(ui, actions);
+        if !self.widgets.is_empty() {
+            overview::widgets_button(ui, self.show_widgets, actions);
+        }
+        alert_log::button(ui, self.alert_log.unread(), actions);
+        update_dialog::release_button(ui, release, actions);
+        update_dialog::agents_button(ui, self.outdated_agents().len(), actions);
     }
 }
 
@@ -1955,6 +2018,43 @@ mod tests {
                 .query_by_label_contains("Update rigtop on zefat (0.0.1)")
                 .is_some()
         );
+    }
+
+    #[test]
+    fn narrow_overview_stays_in_the_window() {
+        let mut app = RigtopApp::for_test(Config::default(), &["local", "zefat", "nas"]);
+        for (index, host) in app.hosts.iter_mut().enumerate() {
+            let mut snapshot = sample_snapshot();
+            if index == 1 {
+                // An "update agents (1)…" button in the tab bar.
+                snapshot.host.rigtop_version = "0.0.1".to_owned();
+            }
+            host.state.apply(Event::Snapshot(Box::new(snapshot)));
+        }
+        let width = 700.0;
+        let mut harness = Harness::builder()
+            .with_size([width, 700.0])
+            .build_ui_state(|ui, app: &mut RigtopApp| app.show(ui), app);
+        harness.run();
+        harness.run();
+        // Each card has a "sections" button at its right edge.
+        let rights: Vec<f32> = harness
+            .query_all_by_label("sections")
+            .map(|node| node.rect().right())
+            .collect();
+        assert_eq!(rights.len(), 3);
+        assert!(rights.iter().all(|&r| r <= width), "{rights:?}");
+        // The buttons of the tab bar move below the tabs instead of being
+        // drawn over them.
+        let button = harness.get_by_label("update agents (1)…").rect();
+        for tab in ["Overview", "● local", "● zefat", "● nas"] {
+            let tab = harness
+                .query_all_by_label_contains(tab)
+                .next()
+                .expect("tab")
+                .rect();
+            assert!(!tab.intersects(button), "{tab:?} {button:?}");
+        }
     }
 
     #[test]

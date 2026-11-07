@@ -200,10 +200,12 @@ fn card_columns(cards: usize, width: f32, height: f32, gap: f32) -> usize {
     columns
 }
 
-/// Draws the overview. Returns the index of a host whose card title was
+/// Draws the overview in `width` (measured before the tab bar, see
+/// `RigtopApp::show`). Returns the index of a host whose card title was
 /// clicked (to open its detail tab).
 pub fn show(
     ui: &mut Ui,
+    width: f32,
     hosts: &mut [HostEntry],
     settings: &mut OverviewSettings,
     processes: usize,
@@ -212,7 +214,8 @@ pub fn show(
         .first()
         .is_some_and(|h| h.state.config.overview.alerts_first);
     let mut alerts_first = settings.alerts_first.unwrap_or(configured);
-    ui.horizontal(|ui| {
+    // Wrapped, so that the hint does not reach past a narrow window.
+    ui.horizontal_wrapped(|ui| {
         ui.checkbox(&mut settings.include_local, "include this machine");
         if ui
             .checkbox(&mut alerts_first, "alerts first")
@@ -244,7 +247,6 @@ pub fn show(
         return None;
     }
 
-    let width = ui.available_width();
     let gap = 6.0;
     let columns = card_columns(visible.len(), width, ui.available_height(), gap);
     let rows = visible.len().div_ceil(columns);
@@ -891,7 +893,12 @@ fn alert_lines(ui: &mut Ui, snapshot: &Snapshot, state: &crate::app::GuiState) {
 fn meter_row(ui: &mut Ui, label: &str, ratio: f32, value: RichText) {
     ui.horizontal(|ui| {
         ui.add_sized([44.0, ROW - 2.0], egui::Label::new(dim(label)));
-        let value_width = 150.0;
+        // Room for the whole value ("12% 1.5G/2.0G 53°C" needs more than
+        // the usual 150px); the meter takes what is left.
+        let font = egui::TextStyle::Body.resolve(ui.style());
+        let glyph = ui.fonts_mut(|f| f.glyph_width(&font, '0'));
+        let spacing = ui.spacing().item_spacing.x;
+        let value_width = (value.text().chars().count() as f32 * glyph + spacing).max(150.0);
         let width = (ui.available_width() - value_width).max(30.0);
         let (rect, _) = ui.allocate_exact_size(vec2(width, ROW - 2.0), Sense::hover());
         widgets::paint_meter(ui, rect, ratio);
