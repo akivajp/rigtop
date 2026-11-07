@@ -192,6 +192,7 @@ pub fn run(
         update: None,
         releases: Releases::new(&config.updates, exe),
         panels_menu: false,
+        help: false,
     };
     // Kept between runs; the made-up alerts of --demo are not.
     let demo = hosts
@@ -251,6 +252,8 @@ struct Screen {
     releases: Releases,
     /// Whether the panel menu (`v`) is open.
     panels_menu: bool,
+    /// Whether the help (`?`) is open.
+    help: bool,
 }
 
 impl Screen {
@@ -411,6 +414,14 @@ fn event_loop(
                 }
                 if let Some(window) = &screen.update {
                     window.draw(frame, body);
+                }
+                if screen.help {
+                    let context = ui::HelpContext {
+                        overview: screen.view == View::Overview,
+                        multi,
+                        widgets: !widgets.is_empty(),
+                    };
+                    ui::draw_help(frame, body, context);
                 }
             })?;
             dirty = false;
@@ -805,6 +816,10 @@ fn handle_key(
         screen.quit = true;
         return;
     }
+    if screen.help {
+        screen.help = false;
+        return;
+    }
     if screen.panels_menu {
         match key.code {
             KeyCode::Char('w') if has_widgets => toggle_widgets(screen, hosts, reload),
@@ -838,6 +853,10 @@ fn handle_key(
         View::Host(i) => hosts[i].app.editing_filter || hosts[i].app.confirm.is_some(),
         View::Overview => false,
     };
+    if !busy && matches!(key.code, KeyCode::Char('?') | KeyCode::F(1)) {
+        screen.help = true;
+        return;
+    }
     if !busy && key.code == KeyCode::Char('v') {
         screen.panels_menu = true;
         return;
@@ -905,6 +924,7 @@ mod tests {
                 None,
             ),
             panels_menu: false,
+            help: false,
         }
     }
 
@@ -929,6 +949,29 @@ mod tests {
         assert_eq!(screen.view, View::Host(0));
         screen.handle_key(key(KeyCode::Char('0')), 2);
         assert_eq!(screen.view, View::Overview);
+    }
+
+    #[test]
+    fn help_opens_with_question_mark_and_any_key_closes_it() {
+        let mut screen = screen();
+        let mut reload = Reload {
+            watcher: None,
+            config: Config::default(),
+            host_specs: Box::new(|_| Vec::new()),
+            interval: Duration::from_secs(1),
+        };
+        let mut press = |screen: &mut Screen, code| {
+            handle_key(key(code), &mut [], screen, &mut reload, true, false);
+        };
+        press(&mut screen, KeyCode::Char('?'));
+        assert!(screen.help);
+        // The key that closes the help does nothing else.
+        press(&mut screen, KeyCode::Char('q'));
+        assert!(!screen.help && !screen.quit);
+        press(&mut screen, KeyCode::F(1));
+        assert!(screen.help);
+        press(&mut screen, KeyCode::Esc);
+        assert!(!screen.help);
     }
 
     #[test]

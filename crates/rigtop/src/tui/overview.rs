@@ -158,7 +158,18 @@ pub fn draw_tabs(
         spans.push(badge);
         spans.push(Span::raw("  "));
     }
-    spans.push(dim("Tab/0-9: switch  a: alerts"));
+    // In the overview, `u` updates every remote host with an older rigtop.
+    let outdated = hosts
+        .iter()
+        .filter(|h| matches!(h.spec.kind, rigtop_core::hosts::HostKind::Remote(_)))
+        .filter_map(|h| h.app.snapshot.as_ref())
+        .filter(|s| rigtop_core::update::updatable(&s.host.rigtop_version, &s.host.os))
+        .count();
+    if view == View::Overview && outdated > 0 {
+        spans.push(colored(format!("u: update agents ({outdated})"), WARN));
+        spans.push(Span::raw("  "));
+    }
+    spans.push(dim("Tab/0-9: switch  a: alerts  ?: help"));
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
     regions
 }

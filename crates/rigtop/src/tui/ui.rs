@@ -341,6 +341,144 @@ pub(super) fn draw_panels_menu(
     frame.render_widget(Paragraph::new(lines).block(panel("panels", WARN)), rect);
 }
 
+/// Where a key listed in the help works.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum KeyScope {
+    /// The view of one host.
+    Host,
+    /// The overview of all hosts.
+    Overview,
+    /// Both.
+    Anywhere,
+}
+
+/// A key of the help: the key, what it does, and where it works.
+type HelpKey = (&'static str, &'static str, KeyScope);
+
+/// What the help (`?`) lists: sections of keys, what they do and where.
+/// Keys stay within 10 columns and descriptions within 26, so that two
+/// columns of them fit an 80-column terminal.
+const HELP: [(&str, &[HelpKey]); 3] = [
+    (
+        "processes",
+        &[
+            ("↑↓ PgUp/Dn", "select a process", KeyScope::Host),
+            ("Home End", "first / last process", KeyScope::Host),
+            ("← →  r", "sort column / reverse", KeyScope::Host),
+            ("/ f", "filter (Enter keeps, Esc)", KeyScope::Host),
+            ("Enter", "process details", KeyScope::Host),
+            ("e", "tree view", KeyScope::Host),
+            ("t", "kernel threads", KeyScope::Host),
+            ("C", "per-container usage", KeyScope::Host),
+            ("x", "notify when it exits", KeyScope::Host),
+            ("k K", "terminate / kill (asks)", KeyScope::Host),
+            ("p", "pause (asks) / resume", KeyScope::Host),
+            ("] [", "priority down / up (nice)", KeyScope::Host),
+        ],
+    ),
+    (
+        "view",
+        &[
+            ("n", "next network interface", KeyScope::Host),
+            ("i", "show / hide addresses", KeyScope::Host),
+            ("g", "graph time span", KeyScope::Host),
+            ("+ -", "slower / faster updates", KeyScope::Host),
+            ("v", "show / hide boxes", KeyScope::Anywhere),
+            ("w", "widget column", KeyScope::Anywhere),
+            ("l", "this machine's card", KeyScope::Overview),
+        ],
+    ),
+    (
+        "hosts",
+        &[
+            ("Tab 0-9", "overview / hosts", KeyScope::Anywhere),
+            ("a", "alerts, history (z snooze)", KeyScope::Anywhere),
+            ("u", "update this host's agent", KeyScope::Host),
+            ("u", "update all older agents", KeyScope::Overview),
+            ("U", "update rigtop here", KeyScope::Anywhere),
+            ("q", "quit", KeyScope::Anywhere),
+            ("? F1", "this help", KeyScope::Anywhere),
+        ],
+    ),
+];
+
+/// What the screen under the help can do, to list only the keys that work.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct HelpContext {
+    /// The overview is shown (else one host's view).
+    pub overview: bool,
+    /// There are several hosts to switch between.
+    pub multi: bool,
+    /// There are widgets for a widget column.
+    pub widgets: bool,
+}
+
+/// The help's lines, one list per section.
+fn help_sections(context: HelpContext) -> Vec<Vec<Line<'static>>> {
+    HELP.iter()
+        .filter_map(|(title, keys)| {
+            let lines: Vec<Line<'static>> = keys
+                .iter()
+                .filter(|(key, _, scope)| {
+                    let here = match scope {
+                        KeyScope::Host => !context.overview,
+                        KeyScope::Overview => context.overview,
+                        KeyScope::Anywhere => true,
+                    };
+                    here && (context.widgets || *key != "w") && (context.multi || *key != "Tab 0-9")
+                })
+                .map(|(key, what, _)| {
+                    Line::from(vec![
+                        colored(format!(" {} ", format::pad(key, 10)), Color::White),
+                        Span::raw(*what),
+                    ])
+                })
+                .collect();
+            (!lines.is_empty()).then(|| {
+                let mut section = vec![Line::from(colored(format!(" {title}"), WARN))];
+                section.extend(lines);
+                section
+            })
+        })
+        .collect()
+}
+
+/// The help (`?`): the keys that work on the screen below, in one column,
+/// or in two (processes, then the rest) when one would not fit.
+pub(super) fn draw_help(frame: &mut Frame, area: Rect, context: HelpContext) {
+    let sections = help_sections(context);
+    let one: Vec<Line> = sections.join(&Line::from(""));
+    // The borders; the closing hint sits on the bottom one.
+    let chrome = 2;
+    let columns: Vec<Vec<Line>> = if one.len() as u16 + chrome <= area.height || sections.len() < 2
+    {
+        vec![one]
+    } else {
+        let mut rest = sections.into_iter();
+        let first = rest.next().unwrap_or_default();
+        vec![first, rest.collect::<Vec<_>>().join(&Line::from(""))]
+    };
+    let column_width = columns.iter().flatten().map(Line::width).max().unwrap_or(0) as u16 + 1;
+    let rows = columns.iter().map(Vec::len).max().unwrap_or(0) as u16;
+    let width = (column_width * columns.len() as u16 + 2).min(area.width);
+    let height = (rows + chrome).min(area.height);
+    let rect = Rect {
+        x: area.x + (area.width - width) / 2,
+        y: area.y + (area.height - height) / 2,
+        width,
+        height,
+    };
+    frame.render_widget(Clear, rect);
+    let block = panel("help", WARN).title_bottom(Line::from(dim(" any key closes ")));
+    let inner = block.inner(rect);
+    frame.render_widget(block, rect);
+    let areas =
+        Layout::horizontal(vec![Constraint::Length(column_width); columns.len()]).split(inner);
+    for (lines, column) in columns.into_iter().zip(areas.iter()) {
+        frame.render_widget(Paragraph::new(lines), *column);
+    }
+}
+
 /// Keys of the panel menu and the boxes they toggle (the CPU box stays).
 pub(super) const PANEL_KEYS: [(char, OverviewSection); 5] = [
     ('m', OverviewSection::Memory),
@@ -1750,7 +1888,7 @@ fn draw_processes(
     let footer = match app.status() {
         Some(status) => Line::from(colored(format!(" {status} "), WARN)),
         None => Line::from(dim(
-            " ↑↓ select  Enter details  x notify on exit  p pause  [] priority  C containers  ←→ sort  r reverse  / filter  e tree  t kthreads  v panels  U update  k term  K kill  +- interval  g graph span  a alerts  q quit ",
+            " ? help  ↑↓ select  Enter details  x notify on exit  p pause  [] priority  C containers  ←→ sort  r reverse  / filter  e tree  t kthreads  v panels  U update  k term  K kill  +- interval  g graph span  a alerts  q quit ",
         )),
     };
     let block = panel("proc", PROC_TITLE)
@@ -2281,6 +2419,55 @@ mod tests {
         let screen = render(&mut app, 160, 50);
         assert_eq!(app.table_state.offset(), 0);
         assert!(screen.contains("proc19 "), "{screen}");
+    }
+
+    #[test]
+    fn help_lists_the_keys_of_the_screen_below() {
+        let text = |context| -> String {
+            help_sections(context)
+                .concat()
+                .iter()
+                .map(|line| format!("{line}\n"))
+                .collect()
+        };
+        let host = text(HelpContext {
+            overview: false,
+            multi: false,
+            widgets: false,
+        });
+        assert!(host.contains("process details"), "{host}");
+        assert!(host.contains("update this host's agent"), "{host}");
+        // Nothing to switch to, and no widget column.
+        assert!(!host.contains("Tab 0-9") && !host.contains("widget column"));
+        let overview = text(HelpContext {
+            overview: true,
+            multi: true,
+            widgets: true,
+        });
+        assert!(!overview.contains("process details"), "{overview}");
+        for expected in ["update all older agents", "Tab 0-9", "widget column"] {
+            assert!(overview.contains(expected), "{expected}: {overview}");
+        }
+
+        // An 80x24 terminal shows the whole help of a host view.
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        let context = HelpContext {
+            overview: false,
+            multi: true,
+            widgets: true,
+        };
+        terminal.draw(|f| draw_help(f, f.area(), context)).unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let screen: String = (0..24)
+            .map(|y| (0..80).map(|x| buffer[(x, y)].symbol()).collect::<String>() + "\n")
+            .collect();
+        for expected in [
+            "priority down / up (nice)",
+            "alerts, history (z snooze)",
+            "this help",
+        ] {
+            assert!(screen.contains(expected), "{expected}:\n{screen}");
+        }
     }
 
     /// Three NVMe drives like zefat's, one of them with reallocated sectors.

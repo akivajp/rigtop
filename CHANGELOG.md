@@ -7,6 +7,13 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Added
+- TUI: `?` (or `F1`) lists the keys that work on the screen shown, in two
+  columns on a small terminal; any key closes the list. The tab bar and
+  the process box's hints point to it.
+- TUI overview: `u: update agents (N)` in the tab bar when remote hosts run
+  an older rigtop, like the GUI's button (`u` already updated them all).
+
 ### Fixed
 - GUI overview in a narrow window (below about 1250 px with the widget
   column, 870 px without): cards no longer reach past the window or under

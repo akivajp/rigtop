@@ -134,6 +134,7 @@ cargo run --release -p rigtop -- --help  # options (--interval-ms, --config, --d
 | `u` | update rigtop on this remote host to your version, when it runs an older one (asks first) |
 | `a` | alerts: every host's alerts now, and their history as they appeared and cleared, kept between runs. `↑` `↓` pick an alert of now and `z` snoozes it for 1 hour, 1 day, until it clears, or no longer (each press goes one further); `PgUp` `PgDn` scroll the history; `a` or `Esc` closes. New ones are counted in the tab bar, or in the CPU box title with one host |
 | `g` | time the graphs cover: fit to the width (one sample per dot), or the last 1, 5, 15 minutes, 1, 6 or 24 hours (beyond an hour from per-minute averages) |
+| `?` / `F1` | list the keys that work on the screen shown (any key closes it) |
 | `q` | quit |
 | mouse | click a process to select it, click a column header to sort (again to reverse), wheel to scroll |
 
