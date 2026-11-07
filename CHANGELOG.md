@@ -7,6 +7,8 @@ include breaking changes).
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-11-08
+
 ### Added
 - UPSes, from Network UPS Tools' `upsd` (its plain-text protocol at
   `127.0.0.1:3493` by default, `[ups] address`; no root, nothing more to
@@ -657,7 +659,8 @@ First release.
 - Windows support (CPU, memory, processes, network with link speeds, drives,
   NVIDIA GPUs; temperatures, fans and CPU power are not available yet)
 
-[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.29.0...HEAD
+[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.30.0...HEAD
+[0.30.0]: https://github.com/akivajp/rigtop/compare/v0.29.0...v0.30.0
 [0.29.0]: https://github.com/akivajp/rigtop/compare/v0.28.0...v0.29.0
 [0.28.0]: https://github.com/akivajp/rigtop/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/akivajp/rigtop/compare/v0.26.2...v0.27.0
