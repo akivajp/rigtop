@@ -21,7 +21,7 @@ use ratatui::widgets::{Block, BorderType, Cell, Clear, Paragraph, Row, Table, Ta
 use rigtop_core::Snapshot;
 use rigtop_core::config::{IntegratedGpu, OverviewSection};
 use rigtop_core::snapshot::{
-    BtrfsFilesystem, CpuStats, GpuStats, MemoryStats, NetworkStats, SmartDevice, ZfsPool,
+    BtrfsFilesystem, CpuStats, DiskIo, GpuStats, MemoryStats, NetworkStats, SmartDevice, ZfsPool,
     device_matches_disk,
 };
 
@@ -70,6 +70,8 @@ const CPU_INFO_LINES: u16 = 2;
 const GPU_TEXT_ROWS: u16 = 2;
 /// Maximum history graph rows per GPU when there is spare height.
 const GPU_GRAPH_MAX_ROWS: u16 = 4;
+/// Columns a GPU's name keeps when its readings need the room.
+const GPU_NAME_MIN_WIDTH: usize = 12;
 /// Network box height: preferred minimum, and when space is short.
 const NET_MIN_HEIGHT: u16 = 8;
 const NET_COMPACT_HEIGHT: u16 = 5;
@@ -831,7 +833,7 @@ fn draw_gpus(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
             if y >= bottom {
                 break;
             }
-            frame.render_widget(Paragraph::new(compact_gpu_line(gpu)), rows);
+            frame.render_widget(Paragraph::new(compact_gpu_line(gpu, inner.width)), rows);
             y += 1;
             continue;
         }
@@ -840,30 +842,40 @@ fn draw_gpus(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
         }
         let util = gpu.utilization_percent.unwrap_or(0.0) as f64;
         let name = gpu.name.trim_start_matches("NVIDIA ").to_owned();
-        let mut line1 = vec![
-            colored(format!("{} ", gpu.index), GPU_TITLE),
-            Span::raw(format::truncate(&name, 22)),
-            Span::raw(" "),
-        ];
+        let index = colored(format!("{} ", gpu.index), GPU_TITLE);
+        let mut details = Vec::new();
         if let Some(t) = gpu.temperature_c {
-            line1.push(colored(format!("{t:.0}°C "), temperature_color(t)));
+            details.push(colored(format!("{t:.0}°C "), temperature_color(t)));
         }
         if let Some(w) = gpu.power_w {
             let limit = gpu
                 .power_limit_w
                 .map_or(String::new(), |l| format!("/{l:.0}"));
-            line1.push(dim(format!("{w:.0}{limit}W ")));
+            details.push(dim(format!("{w:.0}{limit}W ")));
         }
         if let Some(fan) = gpu.fan_percent {
-            line1.push(dim(format!("fan {fan:.0}% ")));
+            details.push(dim(format!("fan {fan:.0}% ")));
         }
         for (note, severity) in rigtop_core::view::gpu_notes(gpu) {
-            line1.push(match severity {
+            details.push(match severity {
                 Some(Severity::Critical) => colored(format!("{note} "), BAD),
                 Some(Severity::Warning) => colored(format!("{note} "), WARN),
                 None => dim(format!("{note} ")),
             });
         }
+        // The name takes the room the readings leave (at least a few
+        // columns), so that they all show in a narrow box and a wide one
+        // shows the whole name.
+        let taken = index.width() + 1 + details.iter().map(Span::width).sum::<usize>();
+        let name_width = (inner.width as usize)
+            .saturating_sub(taken)
+            .max(GPU_NAME_MIN_WIDTH);
+        let mut line1 = vec![
+            index,
+            Span::raw(format::truncate(&name, name_width)),
+            Span::raw(" "),
+        ];
+        line1.extend(details);
 
         let mut line2 = vec![dim("util ")];
         line2.push(colored(
@@ -910,28 +922,43 @@ fn draw_gpus(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
 }
 
 /// One line for an integrated GPU next to a discrete one:
-/// "2 AMD Granite Ridge [Ra… 42°C util 0% vram 368M/2.0G".
-fn compact_gpu_line(gpu: &GpuStats) -> Line<'static> {
+/// "2 AMD Granite Ridge [Ra… 42°C util 0% vram 368M/2.0G", in `width`
+/// columns: the name takes the room left, and VRAM is left out before the
+/// name gets shorter than a few columns.
+fn compact_gpu_line(gpu: &GpuStats, width: u16) -> Line<'static> {
     let util = gpu.utilization_percent.unwrap_or(0.0) as f64;
-    let mut spans = vec![
-        colored(format!("{} ", gpu.index), GPU_TITLE),
-        dim(format!("{} ", format::truncate(&gpu.name, 22))),
-    ];
+    let index = colored(format!("{} ", gpu.index), GPU_TITLE);
+    let mut details = Vec::new();
     if let Some(t) = gpu.temperature_c {
-        spans.push(colored(format!("{t:.0}°C "), temperature_color(t)));
+        details.push(colored(format!("{t:.0}°C "), temperature_color(t)));
     }
-    spans.push(dim("util "));
-    spans.push(colored(
+    details.push(dim("util "));
+    details.push(colored(
         format!("{} ", format::percent(gpu.utilization_percent)),
         percent_color(util),
     ));
-    if let (Some(used), Some(total)) = (gpu.memory_used_bytes, gpu.memory_total_bytes) {
-        spans.push(dim("vram "));
-        spans.push(Span::raw(format!(
-            "{}/{}",
-            format::bytes(used),
-            format::bytes(total)
-        )));
+    let vram = match (gpu.memory_used_bytes, gpu.memory_total_bytes) {
+        (Some(used), Some(total)) => vec![
+            dim("vram "),
+            Span::raw(format!("{}/{}", format::bytes(used), format::bytes(total))),
+        ],
+        _ => Vec::new(),
+    };
+    let room = (width as usize)
+        .saturating_sub(index.width() + 1 + details.iter().map(Span::width).sum::<usize>());
+    let vram_width: usize = vram.iter().map(Span::width).sum();
+    let name_min = GPU_NAME_MIN_WIDTH.min(Span::raw(gpu.name.as_str()).width());
+    let show_vram = vram_width + name_min <= room;
+    let name_width = room
+        .saturating_sub(if show_vram { vram_width } else { 0 })
+        .max(name_min);
+    let mut spans = vec![
+        index,
+        dim(format!("{} ", format::truncate(&gpu.name, name_width))),
+    ];
+    spans.extend(details);
+    if show_vram {
+        spans.extend(vram);
     }
     Line::from(spans)
 }
@@ -979,61 +1006,72 @@ fn storage_lines(snapshot: &Snapshot, width: u16) -> Vec<Line<'static>> {
         lines.push(Line::from(spans));
     }
 
-    // Block devices with I/O, temperature and SMART.
+    // Device names line up at the longest one.
+    let unlisted: Vec<&SmartDevice> = snapshot
+        .smart
+        .iter()
+        .filter(|s| {
+            !snapshot
+                .disks
+                .iter()
+                .any(|d| device_matches_disk(&s.device, &d.name))
+        })
+        .collect();
+    let name_width = snapshot
+        .disks
+        .iter()
+        .map(|d| d.name.as_str())
+        .chain(unlisted.iter().map(|s| s.device.as_str()))
+        .map(|name| Span::raw(name).width())
+        .max()
+        .unwrap_or(0)
+        .clamp(3, 12);
+
+    // Block devices with I/O, temperature and SMART. A drive whose SMART
+    // state does not fit on its row, even without the optional parts, gets
+    // a line of its own below it when something is wrong; healthy ones
+    // share one summary line, so that the box keeps its height.
+    let mut healthy = Vec::new();
     for disk in &snapshot.disks {
-        let mut spans = vec![
-            Span::raw(format::pad(&disk.name, 8)),
-            dim(" R "),
-            Span::raw(format!("{:>7}", format::rate(disk.read_bytes_per_sec))),
-            dim(" W "),
-            Span::raw(format!("{:>7}", format::rate(disk.write_bytes_per_sec))),
-        ];
-        if let Some(busy) = disk.busy_percent {
-            spans.push(colored(
-                format!(" {busy:>3.0}%"),
-                percent_color(busy as f64),
-            ));
-            // Request time where busy time is known (Linux); blank while
-            // idle, so the columns stay aligned.
-            let latency = disk.latency_ms.map(format::latency).unwrap_or_default();
-            let text = format!(" {latency:>5}");
-            spans.push(
-                match disk
-                    .latency_ms
-                    .and_then(rigtop_core::view::latency_severity)
-                {
-                    Some(Severity::Critical) => colored(text, BAD),
-                    Some(Severity::Warning) => colored(text, WARN),
-                    None => dim(text),
-                },
-            );
-        }
-        if let Some(t) = disk.temperature_c {
-            spans.push(colored(format!(" {t:.0}°C"), temperature_color(t)));
-        }
-        if let Some(smart) = snapshot
+        let mut groups = disk_groups(disk, name_width);
+        let Some(smart) = snapshot
             .smart
             .iter()
             .find(|s| device_matches_disk(&s.device, &disk.name))
-        {
-            spans.extend(smart_spans(smart, now_secs));
+        else {
+            lines.extend(fit_groups(groups, width));
+            continue;
+        };
+        let state = smart_groups(smart, now_secs);
+        if required_width(&groups) + required_width(&state) <= width as usize {
+            groups.extend(state);
+            lines.extend(fit_groups(groups, width));
+        } else if smart.needs_attention() || smart.error.is_some() {
+            lines.extend(fit_groups(groups, width));
+            lines.extend(fit_groups(continued(state), width));
+        } else {
+            lines.extend(fit_groups(groups, width));
+            healthy.push(smart);
         }
-        lines.push(Line::from(spans));
+    }
+    if !healthy.is_empty() {
+        lines.extend(fit_groups(smart_summary(&healthy, now_secs), width));
     }
     // SMART results not tied to a listed block device (e.g. RAID controller pass-through).
-    for smart in snapshot.smart.iter().filter(|s| {
-        !snapshot
-            .disks
-            .iter()
-            .any(|d| device_matches_disk(&s.device, &d.name))
-    }) {
-        let mut spans = vec![Span::raw(format::pad(&smart.device, 8))];
+    for smart in unlisted {
+        let mut groups = vec![Group::new(vec![Span::raw(format::pad(
+            &smart.device,
+            name_width,
+        ))])];
         // No disk row shows this drive's temperature, so show it here.
         if let Some(t) = smart.temperature_c {
-            spans.push(colored(format!(" {t:.0}°C"), temperature_color(t)));
+            groups.push(Group::new(vec![colored(
+                format!(" {t:.0}°C"),
+                temperature_color(t),
+            )]));
         }
-        spans.extend(smart_spans(smart, now_secs));
-        lines.push(Line::from(spans));
+        groups.extend(smart_groups(smart, now_secs));
+        lines.extend(fit_groups(groups, width));
     }
 
     // btrfs: profiles, usage and error counters.
@@ -1043,10 +1081,10 @@ fn storage_lines(snapshot: &Snapshot, width: u16) -> Vec<Line<'static>> {
             .first()
             .cloned()
             .unwrap_or_else(|| fs.fsid.chars().take(8).collect());
-        let mut spans = vec![
+        let mut groups = vec![Group::new(vec![
             colored("btrfs ", STORAGE_TITLE),
-            Span::raw(format!("{mount} ")),
-        ];
+            Span::raw(mount),
+        ])];
         for alloc in &fs.allocations {
             if alloc.kind == "system" {
                 continue;
@@ -1056,81 +1094,253 @@ fn storage_lines(snapshot: &Snapshot, width: u16) -> Vec<Line<'static>> {
             } else {
                 "data"
             };
-            spans.push(dim(format!("{kind} ")));
-            spans.push(Span::raw(format!("{} ", alloc.profile)));
+            let mut spans = vec![dim(format!(" {kind} ")), Span::raw(alloc.profile.clone())];
             if alloc.kind == "data" {
                 spans.push(dim(format!(
-                    "{}/{} ",
+                    " {}/{}",
                     format::bytes(alloc.used_bytes),
                     format::bytes(alloc.total_bytes)
                 )));
             }
+            groups.push(Group::new(spans));
         }
-        spans.push(dim(format!("{} devs", fs.devices.len())));
-        lines.push(Line::from(spans));
-        lines.push(btrfs_health_line(fs, now_secs));
+        groups.push(Group::optional(vec![dim(format!(
+            " {} devs",
+            fs.devices.len()
+        ))]));
+        lines.extend(fit_groups(groups, width));
+        lines.extend(fit_groups(btrfs_health_groups(fs, now_secs), width));
     }
 
     // mdadm arrays.
     for md in &snapshot.raid.md {
-        let mut spans = vec![
-            colored(format!("{} ", md.name), STORAGE_TITLE),
-            Span::raw(format!("{} ", md.level)),
+        let mut head = vec![
+            colored(md.name.clone(), STORAGE_TITLE),
+            Span::raw(format!(" {}", md.level)),
         ];
         if let (Some(expected), Some(working)) = (md.expected_devices, md.working_devices) {
-            spans.push(dim(format!("[{working}/{expected}] ")));
+            head.push(dim(format!(" [{working}/{expected}]")));
         }
-        if !md.active {
-            spans.push(colored("inactive", WARN));
+        head.push(if !md.active {
+            colored(" inactive", WARN)
         } else if md.is_degraded() {
-            spans.push(colored("DEGRADED", BAD));
+            colored(" DEGRADED", BAD)
         } else {
-            spans.push(colored("ok", OK));
-        }
+            colored(" ok", OK)
+        });
+        let mut groups = vec![Group::new(head)];
         if let Some(sync) = &md.sync {
-            spans.push(colored(
+            groups.push(Group::new(vec![colored(
                 format!(" {} {:.1}%", sync.action, sync.percent),
                 WARN,
-            ));
+            )]));
             if let Some(minutes) = sync.finish_minutes {
-                spans.push(dim(format!(" eta {minutes:.0}m")));
+                groups.push(Group::optional(vec![dim(format!(" eta {minutes:.0}m"))]));
             }
         }
-        lines.push(Line::from(spans));
+        lines.extend(fit_groups(groups, width));
     }
 
     // ZFS pools.
     for pool in &snapshot.raid.zfs {
-        let mut spans = vec![
+        let mut head = vec![
             colored(format!("{} ", pool.name), STORAGE_TITLE),
             Span::raw("zfs "),
         ];
         if let Some(layout) = pool.layout() {
-            spans.push(Span::raw(format!("{layout} ")));
+            head.push(Span::raw(format!("{layout} ")));
         }
-        spans.push(zfs_state(pool));
+        head.push(zfs_state(pool));
+        let mut groups = vec![Group::new(head)];
         if let (Some(size), Some(allocated)) = (pool.size_bytes, pool.allocated_bytes) {
-            spans.push(dim(format!(
+            groups.push(Group::new(vec![dim(format!(
                 " {}/{}",
                 format::bytes(allocated),
                 format::bytes(size)
-            )));
+            ))]));
         }
-        lines.push(Line::from(spans));
-        if let Some(line) = zfs_health_line(pool) {
-            lines.push(line);
+        lines.extend(fit_groups(groups, width));
+        if let Some(health) = zfs_health_groups(pool) {
+            lines.extend(fit_groups(health, width));
         }
     }
     lines
 }
 
+/// A disk's name, I/O, busy share and request time, and temperature.
+fn disk_groups(disk: &DiskIo, name_width: usize) -> Vec<Group> {
+    let mut groups = vec![Group::new(vec![
+        Span::raw(format::pad(&disk.name, name_width)),
+        dim(" R "),
+        Span::raw(format!("{:>7}", format::rate(disk.read_bytes_per_sec))),
+        dim(" W "),
+        Span::raw(format!("{:>7}", format::rate(disk.write_bytes_per_sec))),
+    ])];
+    if let Some(busy) = disk.busy_percent {
+        groups.push(Group::new(vec![colored(
+            format!(" {busy:>3.0}%"),
+            percent_color(busy as f64),
+        )]));
+        // Request time where busy time is known (Linux); blank while idle,
+        // so the columns stay aligned.
+        let latency = disk.latency_ms.map(format::latency).unwrap_or_default();
+        let text = format!(" {latency:>5}");
+        groups.push(Group::optional(vec![match disk
+            .latency_ms
+            .and_then(rigtop_core::view::latency_severity)
+        {
+            Some(Severity::Critical) => colored(text, BAD),
+            Some(Severity::Warning) => colored(text, WARN),
+            None => dim(text),
+        }]));
+    }
+    if let Some(t) = disk.temperature_c {
+        groups.push(Group::new(vec![colored(
+            format!(" {t:.0}°C"),
+            temperature_color(t),
+        )]));
+    }
+    groups
+}
+
+/// "  SMART ok · 3 drives · wear 3-4% · 9m ago": healthy drives in one
+/// line, for a box too narrow to give each its SMART state.
+fn smart_summary(healthy: &[&SmartDevice], now_secs: u64) -> Vec<Group> {
+    let mut groups = vec![Group::new(vec![
+        Span::raw(CONTINUATION),
+        dim("SMART "),
+        colored("ok", OK),
+    ])];
+    if healthy.len() > 1 {
+        groups.push(Group::optional(vec![dim(format!(
+            " · {} drives",
+            healthy.len()
+        ))]));
+    }
+    let wear: Vec<u32> = healthy.iter().filter_map(|s| s.percentage_used).collect();
+    if let (Some(low), Some(high)) = (wear.iter().min(), wear.iter().max()) {
+        let text = if low == high {
+            format!(" · wear {high}%")
+        } else {
+            format!(" · wear {low}-{high}%")
+        };
+        groups.push(Group::optional(vec![dim(text)]));
+    }
+    // The oldest result; kept, in yellow, once stale.
+    if let Some(age) = healthy
+        .iter()
+        .filter_map(|s| s.collected_at_ms)
+        .map(|ms| now_secs.saturating_sub(ms / 1000))
+        .max()
+    {
+        let stale = age > SMART_STALE_SECS;
+        let spans = vec![colored(
+            format!(" · {}", format::age(age)),
+            if stale { WARN } else { DIM },
+        )];
+        groups.push(if stale {
+            Group::new(spans)
+        } else {
+            Group::optional(spans)
+        });
+    }
+    groups
+}
+
+/// Indent of the lines a storage line continues on.
+const CONTINUATION: &str = "  ";
+
+/// `groups` on a line that continues the one above: indented, without
+/// their own leading spaces.
+fn continued(mut groups: Vec<Group>) -> Vec<Group> {
+    if let Some(first) = groups.first_mut().and_then(|g| g.spans.first_mut()) {
+        first.content = first.content.trim_start().to_owned().into();
+    }
+    if let Some(group) = groups.first_mut() {
+        group.spans.insert(0, Span::raw(CONTINUATION));
+    }
+    groups
+}
+
+/// Spans kept together on one line of the storage box.
+struct Group {
+    spans: Vec<Span<'static>>,
+    /// May be left out when the line is short of room.
+    optional: bool,
+}
+
+impl Group {
+    fn new(spans: Vec<Span<'static>>) -> Self {
+        Self {
+            spans,
+            optional: false,
+        }
+    }
+
+    fn optional(spans: Vec<Span<'static>>) -> Self {
+        Self {
+            spans,
+            optional: true,
+        }
+    }
+
+    fn width(&self) -> usize {
+        self.spans.iter().map(Span::width).sum()
+    }
+}
+
+/// Columns the groups need without the optional ones.
+fn required_width(groups: &[Group]) -> usize {
+    groups
+        .iter()
+        .filter(|g| !g.optional)
+        .map(Group::width)
+        .sum()
+}
+
+/// Lays out groups on lines `width` columns wide. Optional groups are left
+/// out first, the last one first, until the rest fits on one line; what
+/// still does not fit continues on the next line, indented and without its
+/// leading spaces. A group wider than a line is clipped.
+fn fit_groups(mut groups: Vec<Group>, width: u16) -> Vec<Line<'static>> {
+    let width = width as usize;
+    let mut total: usize = groups.iter().map(Group::width).sum();
+    while total > width {
+        let Some(index) = groups.iter().rposition(|g| g.optional) else {
+            break;
+        };
+        total -= groups.remove(index).width();
+    }
+    let mut lines = Vec::new();
+    let mut line: Vec<Span<'static>> = Vec::new();
+    let mut used = 0;
+    for mut group in groups.into_iter().filter(|g| !g.spans.is_empty()) {
+        let group_width = group.width();
+        if used > 0 && used + group_width > width {
+            lines.push(Line::from(std::mem::take(&mut line)));
+            let first = &mut group.spans[0];
+            first.content = first.content.trim_start().to_owned().into();
+            line.push(Span::raw(CONTINUATION));
+            used = CONTINUATION.len() + group.width();
+        } else {
+            used += group_width;
+        }
+        line.extend(group.spans);
+    }
+    if !line.is_empty() {
+        lines.push(Line::from(line));
+    }
+    lines
+}
+
 /// A ZFS pool's devices with errors or in a bad state, its data errors and
-/// its last scrub; `None` without `zpool status` details.
-fn zfs_health_line(pool: &ZfsPool) -> Option<Line<'static>> {
+/// its last scrub, as groups for [`fit_groups`]; `None` without
+/// `zpool status` details.
+fn zfs_health_groups(pool: &ZfsPool) -> Option<Vec<Group>> {
     if pool.devices.is_empty() && pool.scan.is_none() {
         return None;
     }
-    let mut spans = vec![Span::raw("  ")];
+    let mut first = vec![Span::raw("  ")];
     let troubled: Vec<String> = pool
         .troubled_devices()
         .map(|d| {
@@ -1143,25 +1353,28 @@ fn zfs_health_line(pool: &ZfsPool) -> Option<Line<'static>> {
         .collect();
     let data_errors = pool.data_errors.unwrap_or(0);
     if data_errors > 0 {
-        spans.push(colored(format!("{data_errors} data errors "), BAD));
+        first.push(colored(format!("{data_errors} data errors "), BAD));
     }
     if troubled.is_empty() {
         if data_errors == 0 {
-            spans.push(colored("errors 0", OK));
+            first.push(colored("errors 0", OK));
         }
     } else {
-        spans.push(colored(troubled.join(", "), BAD));
+        first.push(colored(troubled.join(", "), BAD));
     }
+    let mut groups = vec![Group::new(first)];
     if let Some(scan) = &pool.scan {
         let (text, severity) = rigtop_core::view::zfs_scan_summary(scan);
-        spans.push(dim(" · "));
-        spans.push(match severity {
-            Some(Severity::Critical) => colored(text, BAD),
-            Some(Severity::Warning) => colored(text, WARN),
-            None => dim(text),
-        });
+        groups.push(Group::new(vec![
+            dim(" · "),
+            match severity {
+                Some(Severity::Critical) => colored(text, BAD),
+                Some(Severity::Warning) => colored(text, WARN),
+                None => dim(text),
+            },
+        ]));
     }
-    Some(Line::from(spans))
+    Some(groups)
 }
 
 /// A ZFS pool's health: "ok", "errors" when ONLINE with errors, or its
@@ -1179,12 +1392,13 @@ pub(super) fn zfs_state(pool: &ZfsPool) -> Span<'static> {
 }
 
 /// Second btrfs line: live error counters, then the last scrub, e.g.
-/// "  errors 0 (live) · scrub 3d ago ok, 1h12m".
-fn btrfs_health_line(fs: &BtrfsFilesystem, now_secs: u64) -> Line<'static> {
-    let mut spans = vec![Span::raw("  ")];
+/// "  errors 0 (live) · scrub 3d ago ok, 1h12m", as groups for
+/// [`fit_groups`].
+fn btrfs_health_groups(fs: &BtrfsFilesystem, now_secs: u64) -> Vec<Group> {
+    let mut first = vec![Span::raw("  ")];
     let missing = fs.device_stats.iter().filter(|d| d.missing).count();
     if missing > 0 {
-        spans.push(colored(format!("{missing} device(s) MISSING "), BAD));
+        first.push(colored(format!("{missing} device(s) MISSING "), BAD));
     }
     let errors: u64 = fs.device_stats.iter().map(|d| d.total_errors()).sum();
     if errors > 0 {
@@ -1194,17 +1408,18 @@ fn btrfs_health_line(fs: &BtrfsFilesystem, now_secs: u64) -> Line<'static> {
             .filter(|d| d.total_errors() > 0)
             .map(|d| format!("{}: {}", d.label(), d.total_errors()))
             .collect();
-        spans.push(colored(
+        first.push(colored(
             format!("errors {errors} ({})", detail.join(", ")),
             BAD,
         ));
     } else {
-        spans.push(colored("errors 0", OK));
+        first.push(colored("errors 0", OK));
     }
     // The counters are read every poll but only grow when data is read.
-    spans.push(dim(" (live) · "));
+    first.push(dim(" (live)"));
+    let mut scrub_group = vec![dim(" · ")];
     match &fs.scrub {
-        None => spans.push(colored("scrub: no record", WARN)),
+        None => scrub_group.push(colored("scrub: no record", WARN)),
         Some(scrub) => {
             let age_secs = now_secs.saturating_sub(scrub.started_at_ms / 1000);
             let age_color = if age_secs > SCRUB_STALE_SECS {
@@ -1212,7 +1427,7 @@ fn btrfs_health_line(fs: &BtrfsFilesystem, now_secs: u64) -> Line<'static> {
             } else {
                 DIM
             };
-            spans.push(colored(
+            scrub_group.push(colored(
                 format!("scrub {} ", format::age(age_secs)),
                 age_color,
             ));
@@ -1225,22 +1440,22 @@ fn btrfs_health_line(fs: &BtrfsFilesystem, now_secs: u64) -> Line<'static> {
                 "canceled" => ("canceled".to_owned(), WARN),
                 _ => ("unfinished".to_owned(), WARN),
             };
-            spans.push(colored(text, color));
-            spans.push(dim(format!(", {}", format::duration(scrub.duration_secs))));
+            scrub_group.push(colored(text, color));
+            scrub_group.push(dim(format!(", {}", format::duration(scrub.duration_secs))));
         }
     }
-    Line::from(spans)
+    vec![Group::new(first), Group::new(scrub_group)]
 }
 
-/// "SMART ok wear 3% (8m ago)" / "SMART FAIL" / "SMART error: ...", for one drive.
-fn smart_spans(smart: &SmartDevice, now_secs: u64) -> Vec<Span<'static>> {
-    let mut spans = vec![dim(" SMART ")];
+/// "SMART ok wear 3% (8m ago)" / "SMART FAIL" / "SMART error: ...", for
+/// one drive, as groups for [`fit_groups`] (wear and a recent result's age
+/// may be left out).
+fn smart_groups(smart: &SmartDevice, now_secs: u64) -> Vec<Group> {
     if let Some(error) = &smart.error {
-        spans.push(colored(
-            format!("error: {}", format::truncate(error, 30)),
-            BAD,
-        ));
-        return spans;
+        return vec![Group::new(vec![
+            dim(" SMART "),
+            colored(format!("error: {}", format::truncate(error, 30)), BAD),
+        ])];
     }
     let status = if smart.needs_attention() {
         colored(
@@ -1254,30 +1469,34 @@ fn smart_spans(smart: &SmartDevice, now_secs: u64) -> Vec<Span<'static>> {
     } else {
         colored("ok", OK)
     };
-    spans.push(status);
+    let mut groups = vec![Group::new(vec![dim(" SMART "), status])];
     if let Some(used) = smart.percentage_used {
-        spans.push(dim(format!(" wear {used}%")));
+        groups.push(Group::optional(vec![dim(format!(" wear {used}%"))]));
     }
-    if let Some(n) = smart.reallocated_sectors.filter(|n| *n > 0) {
-        spans.push(colored(format!(" realloc {n}"), BAD));
-    }
-    if let Some(n) = smart.pending_sectors.filter(|n| *n > 0) {
-        spans.push(colored(format!(" pending {n}"), BAD));
-    }
-    if let Some(n) = smart.media_errors.filter(|n| *n > 0) {
-        spans.push(colored(format!(" media err {n}"), BAD));
+    for (name, value) in [
+        ("realloc", smart.reallocated_sectors),
+        ("pending", smart.pending_sectors),
+        ("media err", smart.media_errors),
+    ] {
+        if let Some(n) = value.filter(|n| *n > 0) {
+            groups.push(Group::new(vec![colored(format!(" {name} {n}"), BAD)]));
+        }
     }
     // Results come from a timer and may lag (sleeping disks keep the old one).
     if let Some(ms) = smart.collected_at_ms {
         let age_secs = now_secs.saturating_sub(ms / 1000);
-        let color = if age_secs > SMART_STALE_SECS {
-            WARN
+        let stale = age_secs > SMART_STALE_SECS;
+        let spans = vec![colored(
+            format!(" ({})", format::age(age_secs)),
+            if stale { WARN } else { DIM },
+        )];
+        groups.push(if stale {
+            Group::new(spans)
         } else {
-            DIM
-        };
-        spans.push(colored(format!(" ({})", format::age(age_secs)), color));
+            Group::optional(spans)
+        });
     }
-    spans
+    groups
 }
 
 // ---------------------------------------------------------------- network
@@ -1332,23 +1551,53 @@ fn draw_network(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
         })
         .into_iter()
         .collect();
-    lines.extend(listed.iter().take(list_rows as usize).map(|n| {
-        let marker = if Some(&n.name) == app.history.net_interface.as_ref() {
-            "▸"
-        } else {
-            " "
-        };
-        Line::from(vec![
-            colored(marker, NET_TITLE),
-            Span::raw(format::pad(&n.name, 12)),
-            dim(format::pad(&link_label(n).unwrap_or_default(), 22)),
-            Span::raw(format!(
-                "▼{:>8} ▲{:>8}",
-                format::rate(n.rx_bytes_per_sec),
-                format::rate(n.tx_bytes_per_sec)
-            )),
-        ])
-    }));
+    // Columns as wide as their longest entry; in a narrow box the link
+    // ("Wi-Fi 865/216M -69dBm") is shortened so that the rates still show.
+    let links: Vec<String> = listed
+        .iter()
+        .map(|n| link_label(n).unwrap_or_default())
+        .collect();
+    let name_width = listed
+        .iter()
+        .map(|n| Span::raw(n.name.as_str()).width())
+        .max()
+        .unwrap_or(0)
+        .clamp(4, 12)
+        + 1;
+    let rates_width = 19;
+    let link_width = links
+        .iter()
+        .map(|l| Span::raw(l.as_str()).width())
+        .max()
+        .filter(|&w| w > 0)
+        .map_or(0, |w| w + 1)
+        .min((inner.width as usize).saturating_sub(1 + name_width + rates_width));
+    lines.extend(
+        listed
+            .iter()
+            .zip(&links)
+            .take(list_rows as usize)
+            .map(|(n, link)| {
+                let marker = if Some(&n.name) == app.history.net_interface.as_ref() {
+                    "▸"
+                } else {
+                    " "
+                };
+                Line::from(vec![
+                    colored(marker, NET_TITLE),
+                    Span::raw(format::pad(&n.name, name_width)),
+                    dim(format::pad(
+                        &format::truncate(link, link_width.saturating_sub(1)),
+                        link_width,
+                    )),
+                    Span::raw(format!(
+                        "▼{:>8} ▲{:>8}",
+                        format::rate(n.rx_bytes_per_sec),
+                        format::rate(n.tx_bytes_per_sec)
+                    )),
+                ])
+            }),
+    );
     frame.render_widget(Paragraph::new(lines), list_area);
 }
 
@@ -2032,6 +2281,92 @@ mod tests {
         let screen = render(&mut app, 160, 50);
         assert_eq!(app.table_state.offset(), 0);
         assert!(screen.contains("proc19 "), "{screen}");
+    }
+
+    /// Three NVMe drives like zefat's, one of them with reallocated sectors.
+    fn three_drives(realloc: Option<u64>) -> Snapshot {
+        let mut snapshot = sample_snapshot();
+        snapshot.raid = Default::default();
+        snapshot.disks = (0..3)
+            .map(|i| DiskIo {
+                name: format!("nvme{i}n1"),
+                read_bytes_per_sec: 16e3,
+                write_bytes_per_sec: 128e6,
+                busy_percent: Some(72.0),
+                latency_ms: Some(0.3),
+                temperature_c: Some(57.0 + i as f32),
+            })
+            .collect();
+        snapshot.smart = (0..3)
+            .map(|i| SmartDevice {
+                device: format!("nvme{i}"),
+                passed: Some(true),
+                percentage_used: Some(3 + i),
+                reallocated_sectors: realloc.filter(|_| i == 2),
+                ..Default::default()
+            })
+            .collect();
+        snapshot
+    }
+
+    fn plain(lines: &[Line]) -> Vec<String> {
+        lines.iter().map(|line| line.to_string()).collect()
+    }
+
+    #[test]
+    fn storage_keeps_temperatures_and_smart_in_a_narrow_box() {
+        // The left column of a 120-column terminal next to the widgets.
+        let lines = storage_lines(&three_drives(None), 42);
+        let text = plain(&lines);
+        assert!(lines.iter().all(|l| l.width() <= 42), "{text:#?}");
+        for t in ["57°C", "58°C", "59°C"] {
+            assert!(text.iter().any(|l| l.contains(t)), "{t}: {text:#?}");
+        }
+        // Healthy drives share one line instead of one each.
+        assert_eq!(text.iter().filter(|l| l.contains("SMART")).count(), 1);
+        assert!(
+            text.iter()
+                .any(|l| l.starts_with("  SMART ok · 3 drives · wear 3-5%")),
+            "{text:#?}"
+        );
+
+        // A drive with a problem gets its own line under its row.
+        let lines = storage_lines(&three_drives(Some(8)), 42);
+        let text = plain(&lines);
+        assert!(lines.iter().all(|l| l.width() <= 42), "{text:#?}");
+        let row = text.iter().position(|l| l.starts_with("nvme2n1")).unwrap();
+        assert!(
+            text[row + 1].starts_with("  SMART warn") && text[row + 1].contains("realloc 8"),
+            "{text:#?}"
+        );
+        assert!(text.iter().any(|l| l.contains("SMART ok · 2 drives")));
+
+        // Wide: everything on the drive's row, as before.
+        let text = plain(&storage_lines(&three_drives(None), 80));
+        assert!(
+            text.iter()
+                .any(|l| l.starts_with("nvme0n1") && l.contains("0.3ms 57°C SMART ok wear 3%")),
+            "{text:#?}"
+        );
+    }
+
+    #[test]
+    fn gpu_readings_fit_a_narrow_box() {
+        let mut app = App::new(Config::default(), Duration::from_secs(1));
+        let mut snapshot = sample_snapshot();
+        snapshot.gpus[0].name = "NVIDIA RTX 4000 Ada Generation".to_owned();
+        snapshot.gpus[0].temperature_c = Some(38.0);
+        snapshot.gpus[0].power_w = Some(7.0);
+        snapshot.gpus[0].power_limit_w = Some(130.0);
+        snapshot.gpus[0].fan_percent = Some(30.0);
+        app.apply(Event::Snapshot(Box::new(snapshot)));
+        // A 44-column left box: the name gives way to the readings.
+        let screen = render(&mut app, 80, 40);
+        assert!(screen.contains("0 RTX 4000 Ada"), "{screen}");
+        assert!(screen.contains("… 38°C 7/130W fan 30% "), "{screen}");
+        // A wide one shows the whole name.
+        let screen = render(&mut app, 200, 60);
+        assert!(screen.contains("RTX 4000 Ada Generation 38°C"), "{screen}");
     }
 
     #[test]

@@ -16,6 +16,18 @@ include breaking changes).
 - GUI: a short memory panel leaves out rows (Free, then Cached) instead of
   cutting the last one in half, and a narrow process panel moves its
   checkboxes to a second line instead of past its edge.
+- TUI storage box in a narrow column (e.g. a 120-column terminal with the
+  widget column): drive rows were cut at its edge, hiding the SMART state
+  and turning `59°C` into `59`. Rows now leave out the least useful parts
+  first (request time, wear, the age of a recent result, the number of
+  btrfs devices); healthy drives that still do not fit share one line
+  (`SMART ok · 3 drives · wear 3-4%`), and a drive with a problem gets a
+  line of its own under its row. Device names line up at the longest one.
+- TUI: GPU names were cut at 22 characters however wide the box; they now
+  take the room the readings leave, so a narrow box shows every reading
+  (`fan 30%` was cut to `fan 3`) and a wide one the whole name. The
+  interface list of the network box shortens a long Wi-Fi link instead of
+  cutting the rates.
 
 ## [0.29.0] - 2026-11-06
 
