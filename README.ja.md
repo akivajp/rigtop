@@ -23,7 +23,7 @@
 - CPU + GPU の消費電力の合計、ファン回転数（各系統に任意の名前を付けられる）、[Network UPS Tools](#upsnetwork-ups-tools) 経由の UPS。
 - **SSH だけで複数ホストを監視**: `rigtop --agent` が標準入出力で計測値を流すので、常駐プロセスもポート開放も不要。
 
-![NAS での rigtop の TUI: 代替処理済みセクタで SMART の警告が出たドライブ、ディスクごとの使用率と応答時間、md の RAID5 の再同期、ZFS のミラーと直近の scrub、消費電力の隣の UPS](docs/images/rigtop-tui-nas.png)
+![NAS での rigtop の TUI: 代替処理済みセクタで SMART の警告が出たドライブ、ディスクごとの使用率と応答時間、md の RAID5 の再同期、ZFS のミラーと直近の scrub、メモリ欄の ZFS の読み込みキャッシュ（ARC）、消費電力の隣の UPS](docs/images/rigtop-tui-nas.png)
 
 ## ロードマップ
 

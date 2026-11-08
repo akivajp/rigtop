@@ -23,7 +23,7 @@ A system monitor for workstations, laptops and NAS — an alternative to btop th
 - Combined CPU + GPU power draw, fan speeds (with your own labels for fan channels), and UPSes through [Network UPS Tools](#ups-network-ups-tools).
 - **Multiple hosts over plain SSH**: `rigtop --agent` streams snapshots over stdin/stdout, so there is no daemon to run and no port to open.
 
-![rigtop TUI on a NAS: a drive flagged by SMART for reallocated sectors, each disk's busy share and request time, an md RAID5 resync, a ZFS mirror with its last scrub, and the UPS next to the power draw](docs/images/rigtop-tui-nas.png)
+![rigtop TUI on a NAS: a drive flagged by SMART for reallocated sectors, each disk's busy share and request time, an md RAID5 resync, a ZFS mirror with its last scrub, ZFS's read cache (ARC) in the memory panel, and the UPS next to the power draw](docs/images/rigtop-tui-nas.png)
 
 ## Roadmap
 
