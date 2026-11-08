@@ -20,6 +20,12 @@ include breaking changes).
   laptop. Remote hosts need rigtop 0.31 for it.
 
 ### Changed
+- The process list keeps its sort column and order, the tree view and the
+  kernel threads and containers choices between runs, for every host: the
+  TUI writes them to `[tui]` of the configuration file as the keys change
+  them (`sort`, `sort_descending`, `tree`, `kernel_threads`,
+  `containers`; an edit to the file applies at once), the GUI with its
+  window state.
 - NVIDIA GPUs: a process's Gpu% is also its busiest engine, the video
   encoder and decoder counting next to the SMs, so an NVENC transcode
   shows 50% (its encoder) instead of 13% (its SMs).

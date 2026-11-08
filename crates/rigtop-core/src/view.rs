@@ -191,7 +191,8 @@ impl GraphSpan {
 }
 
 /// Columns the process table can be sorted by.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum SortKey {
     Pid,
     Name,
@@ -200,6 +201,7 @@ pub enum SortKey {
     /// Container name; processes outside containers last.
     Container,
     Memory,
+    #[default]
     Cpu,
     /// Disk reads plus writes.
     Disk,

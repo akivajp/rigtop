@@ -8,6 +8,7 @@ use ratatui::crossterm::event::{
 };
 use ratatui::layout::{Position, Rect};
 use ratatui::widgets::TableState;
+use rigtop_core::config::ProcessView;
 use rigtop_core::view::{
     self, ExitWatch, GraphSpan, MetricHistory, ProcessQuery, ProcessRow, Severity, SortKey,
 };
@@ -100,16 +101,18 @@ pub struct App {
 impl App {
     /// Creates the state with a configuration and the initial poll interval.
     pub fn new(config: Config, interval: Duration) -> Self {
+        // The process table as it was left (`[tui]`).
+        let view = config.tui.process_view();
         Self {
             show_addresses: config.network.show_addresses,
             config,
             snapshot: None,
             history: MetricHistory::default(),
-            sort_key: SortKey::Cpu,
-            sort_descending: true,
-            show_kernel_threads: false,
-            tree: false,
-            show_containers: false,
+            sort_key: view.sort,
+            sort_descending: view.descending,
+            show_kernel_threads: view.kernel_threads,
+            tree: view.tree,
+            show_containers: view.containers,
             filter: String::new(),
             editing_filter: false,
             selected_pid: None,
@@ -366,6 +369,26 @@ impl App {
             .unwrap_or(0) as isize;
         let len = SortKey::ALL.len() as isize;
         self.set_sort(SortKey::ALL[(index + delta).rem_euclid(len) as usize]);
+    }
+
+    /// How the process table is sorted and what it shows.
+    pub fn process_view(&self) -> ProcessView {
+        ProcessView {
+            sort: self.sort_key,
+            descending: self.sort_descending,
+            tree: self.tree,
+            kernel_threads: self.show_kernel_threads,
+            containers: self.show_containers,
+        }
+    }
+
+    /// Takes over another host's process table settings.
+    pub fn set_process_view(&mut self, view: ProcessView) {
+        self.sort_key = view.sort;
+        self.sort_descending = view.descending;
+        self.tree = view.tree;
+        self.show_kernel_threads = view.kernel_threads;
+        self.show_containers = view.containers;
     }
 
     /// Sorts by `key` in its natural direction, or reverses the order when

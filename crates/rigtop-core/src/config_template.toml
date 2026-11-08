@@ -67,6 +67,13 @@
 #[tui]
 #hidden_panels = []                 # e.g. ["gpu", "network"]
 #show_widgets = true
+# The process table, as the keys leave it: the sort column ("pid", "name",
+# "threads", "user", "container", "memory", "cpu", "disk", "gpu", "vram"),
+# the tree, kernel threads and the per-container summary.
+#sort = "cpu"
+#tree = false
+#kernel_threads = false
+#containers = false
 
 #[[widgets]]
 #name = "Clock"

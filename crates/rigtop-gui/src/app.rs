@@ -8,7 +8,7 @@ use egui::{
     Color32, CornerRadius, FontId, Id, Margin, RichText, Sense, Stroke, TextStyle, Ui, Visuals,
 };
 use egui_tiles::{Container, SimplificationOptions, Tile, TileId, Tiles, Tree, UiResponse};
-use rigtop_core::config::{ConfigWatcher, HostConfig, OverviewSection, SensorConfig};
+use rigtop_core::config::{ConfigWatcher, HostConfig, OverviewSection, ProcessView, SensorConfig};
 use rigtop_core::demo::DemoSource;
 use rigtop_core::hosts::{HostKind, HostSpec, host_specs};
 use rigtop_core::public_ip::PublicIpLookup;
@@ -51,6 +51,8 @@ const WIDGETS_KEY: &str = "widgets_visible";
 const ADDRESSES_KEY: &str = "show_addresses";
 /// eframe storage key for the time the graphs cover (seconds, 0 to fit).
 const GRAPH_SPAN_KEY: &str = "graph_span";
+/// eframe storage key for how the process table is sorted and what it shows.
+const PROCESS_VIEW_KEY: &str = "process_view";
 
 /// One panel of the layout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -223,6 +225,26 @@ pub struct GuiState {
 }
 
 impl GuiState {
+    /// How the process table is sorted and what it shows.
+    pub fn process_view(&self) -> ProcessView {
+        ProcessView {
+            sort: self.sort_key,
+            descending: self.sort_descending,
+            tree: self.tree,
+            kernel_threads: self.show_kernel_threads,
+            containers: self.show_containers,
+        }
+    }
+
+    /// Takes over the process table settings shared by all hosts.
+    pub fn set_process_view(&mut self, view: ProcessView) {
+        self.sort_key = view.sort;
+        self.sort_descending = view.descending;
+        self.tree = view.tree;
+        self.show_kernel_threads = view.kernel_threads;
+        self.show_containers = view.containers;
+    }
+
     /// The alerts of `snapshot` under this host's thresholds, without the
     /// snoozed ones: what status dots and cards show.
     pub fn alerts(&self, snapshot: &Snapshot) -> Vec<rigtop_core::view::Alert> {
@@ -502,6 +524,8 @@ pub struct RigtopApp {
     /// Whether the widget column is shown (it can be hidden for room).
     show_widgets: bool,
     graph_span: GraphSpan,
+    /// The process table's sort, tree and filters, the same for every host.
+    process_view: ProcessView,
     /// The "IP" choice in the network panel, over `[network] show_addresses`
     /// (`None`: as configured).
     show_addresses: Option<bool>,
@@ -570,6 +594,9 @@ impl RigtopApp {
             .and_then(|s| eframe::get_value::<bool>(s, WIDGETS_KEY))
             .unwrap_or(true);
         app.show_addresses = storage.and_then(|s| eframe::get_value::<bool>(s, ADDRESSES_KEY));
+        app.process_view = storage
+            .and_then(|s| eframe::get_value::<ProcessView>(s, PROCESS_VIEW_KEY))
+            .unwrap_or_default();
         let repaint = cc.egui_ctx.clone();
         app.widgets = rigtop_core::widget::start_widgets(&app.config.widgets, move || {
             repaint.request_repaint()
@@ -613,6 +640,7 @@ impl RigtopApp {
             widgets: Vec::new(),
             show_widgets: true,
             graph_span: GraphSpan::default(),
+            process_view: ProcessView::default(),
             show_addresses: None,
             tree,
             styled: false,
@@ -1104,6 +1132,7 @@ impl RigtopApp {
             host.state.graph_span = self.graph_span;
             host.state.interval = self.interval;
             host.state.show_addresses = show_addresses;
+            host.state.set_process_view(self.process_view);
         }
         let mut actions = Vec::new();
         egui::Frame::new()
@@ -1160,6 +1189,9 @@ impl RigtopApp {
                             };
                             self.tree.ui(&mut behavior, ui);
                         }
+                        // A change in this host's process table goes to
+                        // every host (next frame) and is kept between runs.
+                        self.process_view = host.state.process_view();
                         actions.append(&mut host.state.view_actions);
                     }
                 }
@@ -1457,6 +1489,7 @@ impl eframe::App for RigtopApp {
         eframe::set_value(storage, OVERVIEW_KEY, &self.overview);
         eframe::set_value(storage, WIDGETS_KEY, &self.show_widgets);
         eframe::set_value(storage, GRAPH_SPAN_KEY, &self.graph_span.as_secs());
+        eframe::set_value(storage, PROCESS_VIEW_KEY, &self.process_view);
         if let Some(shown) = self.show_addresses {
             eframe::set_value(storage, ADDRESSES_KEY, &shown);
         }
@@ -2056,6 +2089,32 @@ mod tests {
                 .rect();
             assert!(!tab.intersects(button), "{tab:?} {button:?}");
         }
+    }
+
+    #[test]
+    fn the_process_table_settings_follow_from_host_to_host() {
+        let mut app = RigtopApp::for_test(Config::default(), &["local", "zefat"]);
+        for host in &mut app.hosts {
+            host.state
+                .apply(Event::Snapshot(Box::new(sample_snapshot())));
+        }
+        app.view = View::Host(0);
+        let mut harness = Harness::builder()
+            .with_size([1400.0, 900.0])
+            .build_ui_state(|ui, app: &mut RigtopApp| app.show(ui), app);
+        harness.run();
+        harness
+            .get_by(|node| {
+                node.role() == egui::accesskit::Role::CheckBox
+                    && node.label().as_deref() == Some("tree")
+            })
+            .click();
+        harness.run();
+        harness.run();
+        let app = harness.state();
+        // Kept for the next run, and the other host's table follows.
+        assert!(app.process_view.tree);
+        assert!(app.hosts[1].state.tree);
     }
 
     #[test]

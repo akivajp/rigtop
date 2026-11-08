@@ -105,6 +105,7 @@ use std::time::{Duration, Instant, SystemTime};
 use serde::{Deserialize, Serialize};
 
 use crate::snapshot::{Fan, Temperature};
+use crate::view::SortKey;
 
 /// What a new configuration file starts with: every setting, commented out
 /// at its default, with short explanations.
@@ -273,6 +274,33 @@ impl OverviewSection {
     }
 }
 
+/// How the process table is sorted and what it shows. Both front-ends
+/// keep it between runs: the TUI in `[tui]`, the GUI with its window state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ProcessView {
+    pub sort: SortKey,
+    /// Largest first (or Z to A).
+    pub descending: bool,
+    /// Processes under their parents.
+    pub tree: bool,
+    pub kernel_threads: bool,
+    /// The per-container summary above the table.
+    pub containers: bool,
+}
+
+impl Default for ProcessView {
+    fn default() -> Self {
+        Self {
+            sort: SortKey::Cpu,
+            descending: true,
+            tree: false,
+            kernel_threads: false,
+            containers: false,
+        }
+    }
+}
+
 /// Settings of the terminal UI.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -282,6 +310,17 @@ pub struct TuiConfig {
     pub hidden_panels: Vec<OverviewSection>,
     /// Whether the widget column is shown (`w`, or `v` then `w`).
     pub show_widgets: bool,
+    /// The process table's sort column (`←` `→`, a click on a header).
+    pub sort: SortKey,
+    /// Its order (`r`); when left out, the column's natural one (largest
+    /// first, names A to Z).
+    pub sort_descending: Option<bool>,
+    /// The process tree (`e`).
+    pub tree: bool,
+    /// Kernel threads in the process table (`t`).
+    pub kernel_threads: bool,
+    /// The per-container summary (`C`).
+    pub containers: bool,
 }
 
 impl Default for TuiConfig {
@@ -289,7 +328,38 @@ impl Default for TuiConfig {
         Self {
             hidden_panels: Vec::new(),
             show_widgets: true,
+            sort: SortKey::Cpu,
+            sort_descending: None,
+            tree: false,
+            kernel_threads: false,
+            containers: false,
         }
+    }
+}
+
+impl TuiConfig {
+    /// The process table's settings.
+    pub fn process_view(&self) -> ProcessView {
+        ProcessView {
+            sort: self.sort,
+            descending: self
+                .sort_descending
+                .unwrap_or_else(|| self.sort.descending_by_default()),
+            tree: self.tree,
+            kernel_threads: self.kernel_threads,
+            containers: self.containers,
+        }
+    }
+
+    /// Keeps `view`; the order only when it is not the column's natural
+    /// one, so the file stays short.
+    pub fn set_process_view(&mut self, view: ProcessView) {
+        self.sort = view.sort;
+        self.sort_descending =
+            (view.descending != view.sort.descending_by_default()).then_some(view.descending);
+        self.tree = view.tree;
+        self.kernel_threads = view.kernel_threads;
+        self.containers = view.containers;
     }
 }
 
@@ -900,6 +970,35 @@ impl Config {
             } else {
                 table.insert("show_widgets", toml_edit::value(false));
             }
+            // The process table: only what differs from the default.
+            let defaults = TuiConfig::default();
+            if tui.sort == defaults.sort {
+                table.remove("sort");
+            } else if let Some(name) = serde_json::to_value(tui.sort)
+                .ok()
+                .and_then(|v| v.as_str().map(str::to_owned))
+            {
+                table.insert("sort", toml_edit::value(name));
+            }
+            match tui.sort_descending {
+                None => {
+                    table.remove("sort_descending");
+                }
+                Some(descending) => {
+                    table.insert("sort_descending", toml_edit::value(descending));
+                }
+            }
+            for (key, on) in [
+                ("tree", tui.tree),
+                ("kernel_threads", tui.kernel_threads),
+                ("containers", tui.containers),
+            ] {
+                if on {
+                    table.insert(key, toml_edit::value(true));
+                } else {
+                    table.remove(key);
+                }
+            }
             Ok(())
         })
     }
@@ -1114,6 +1213,7 @@ mod tests {
         let tui = TuiConfig {
             hidden_panels: vec![OverviewSection::Gpu, OverviewSection::Network],
             show_widgets: false,
+            ..Default::default()
         };
         Config::save_tui(&path, &tui).unwrap();
         let text = fs::read_to_string(&path).unwrap();
@@ -1129,6 +1229,51 @@ mod tests {
         let config = Config::load(&path).unwrap();
         assert_eq!(config.tui, TuiConfig::default());
         assert!(!fs::read_to_string(&path).unwrap().contains("show_widgets"));
+    }
+
+    #[test]
+    fn the_process_table_is_kept_in_tui() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("config.toml");
+        fs::write(&path, "# mine\n[tui]\nshow_widgets = false\n").unwrap();
+        let mut tui = Config::load(&path).unwrap().tui;
+        assert_eq!(tui.process_view(), ProcessView::default());
+
+        // Sorted by name in its natural order (A to Z), as a tree.
+        tui.set_process_view(ProcessView {
+            sort: SortKey::Name,
+            descending: false,
+            tree: true,
+            ..Default::default()
+        });
+        Config::save_tui(&path, &tui).unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(text.contains("sort = \"name\""), "{text}");
+        assert!(text.contains("tree = true"), "{text}");
+        assert!(!text.contains("sort_descending"), "natural order: {text}");
+        assert!(!text.contains("kernel_threads"), "default: {text}");
+        let loaded = Config::load(&path).unwrap().tui;
+        assert_eq!(loaded.process_view().sort, SortKey::Name);
+        assert!(!loaded.process_view().descending && loaded.tree);
+        assert!(!loaded.show_widgets, "the rest stays");
+
+        // Memory, smallest first: the order is written down.
+        tui.set_process_view(ProcessView {
+            sort: SortKey::Memory,
+            descending: false,
+            ..Default::default()
+        });
+        Config::save_tui(&path, &tui).unwrap();
+        let loaded = Config::load(&path).unwrap().tui;
+        assert_eq!(loaded.sort_descending, Some(false));
+        assert!(!loaded.process_view().descending);
+        assert!(!fs::read_to_string(&path).unwrap().contains("tree"));
+
+        // Back to the default: nothing left of it.
+        tui.set_process_view(ProcessView::default());
+        Config::save_tui(&path, &tui).unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("sort"), "{text}");
     }
 
     #[test]

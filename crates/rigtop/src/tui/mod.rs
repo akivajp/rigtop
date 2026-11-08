@@ -443,6 +443,7 @@ fn event_loop(
                         screen.view = *view;
                     } else if let View::Host(i) = screen.view {
                         hosts[i].app.handle_mouse(mouse);
+                        keep_process_view(i, hosts, reload);
                     }
                     dirty = true;
                 }
@@ -552,6 +553,13 @@ fn apply_config(
     if old.network.show_addresses != config.network.show_addresses {
         for host in hosts.iter_mut() {
             host.app.show_addresses = config.network.show_addresses;
+        }
+    }
+    // The process table as the file now says, if that was edited.
+    if old.tui.process_view() != config.tui.process_view() {
+        let view = config.tui.process_view();
+        for host in hosts.iter_mut() {
+            host.app.set_process_view(view);
         }
     }
     if old.tui.show_widgets != config.tui.show_widgets {
@@ -903,7 +911,23 @@ fn handle_key(
             host.app.graph_span = span;
             host.app.show_addresses = addresses;
         }
+        keep_process_view(i, hosts, reload);
     }
+}
+
+/// After a key or a click on the host at `index`: a change to how its
+/// process table is sorted or what it shows goes to every host and to the
+/// configuration file (`[tui]`), so that the next start keeps it.
+fn keep_process_view(index: usize, hosts: &mut [HostTui], reload: &mut Reload) {
+    let view = hosts[index].app.process_view();
+    if view == reload.config.tui.process_view() {
+        return;
+    }
+    reload.config.tui.set_process_view(view);
+    for host in hosts.iter_mut() {
+        host.app.set_process_view(view);
+    }
+    save_tui(hosts, reload);
 }
 
 #[cfg(test)]
