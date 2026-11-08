@@ -120,6 +120,17 @@ struct Reload {
     config: Config,
     host_specs: HostSpecs,
     interval: Duration,
+    /// Made-up hosts (`--demo`): no release checks.
+    demo: bool,
+}
+
+/// `[updates]`, with release checks off for the demo: there is nothing to
+/// update in a showcase, and a notice would end up in screenshots.
+fn release_checks(config: &Config, demo: bool) -> UpdatesConfig {
+    UpdatesConfig {
+        check: config.updates.check && !demo,
+        ..config.updates.clone()
+    }
 }
 
 /// New releases and this machine's copy of rigtop (`U`).
@@ -170,6 +181,7 @@ pub fn run(
     interval: Duration,
     host_specs: HostSpecs,
     exe: Option<PathBuf>,
+    demo: bool,
 ) -> Result<()> {
     let mut hosts: Vec<HostTui> = host_specs(&config)
         .into_iter()
@@ -190,7 +202,7 @@ pub fn run(
         show_widgets: config.tui.show_widgets,
         alert_log: AlertLogView::default(),
         update: None,
-        releases: Releases::new(&config.updates, exe),
+        releases: Releases::new(&release_checks(&config, demo), exe),
         panels_menu: false,
         help: false,
     };
@@ -209,6 +221,7 @@ pub fn run(
         config,
         host_specs,
         interval,
+        demo,
     };
 
     // ratatui::init installs a panic hook that restores the terminal; mouse
@@ -547,7 +560,7 @@ fn apply_config(
     if old.updates != config.updates {
         let exe = screen.releases.exe.take();
         let installed = screen.releases.installed.take();
-        screen.releases = Releases::new(&config.updates, exe);
+        screen.releases = Releases::new(&release_checks(config, reload.demo), exe);
         screen.releases.installed = installed;
     }
     if old.network.show_addresses != config.network.show_addresses {
@@ -980,6 +993,13 @@ mod tests {
     }
 
     #[test]
+    fn the_demo_does_not_look_for_releases() {
+        let config = Config::default();
+        assert!(release_checks(&config, false).check);
+        assert!(!release_checks(&config, true).check);
+    }
+
+    #[test]
     fn help_opens_with_question_mark_and_any_key_closes_it() {
         let mut screen = screen();
         let mut reload = Reload {
@@ -987,6 +1007,7 @@ mod tests {
             config: Config::default(),
             host_specs: Box::new(|_| Vec::new()),
             interval: Duration::from_secs(1),
+            demo: false,
         };
         let mut press = |screen: &mut Screen, code| {
             handle_key(key(code), &mut [], screen, &mut reload, true, false);

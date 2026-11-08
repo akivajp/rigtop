@@ -156,7 +156,7 @@ fn main() -> Result<()> {
     if cli.watch {
         return watch::run(config, config_path, specs, interval_override);
     }
-    tui::run(config, config_path, interval, specs, exe)
+    tui::run(config, config_path, interval, specs, exe, cli.demo)
 }
 
 /// `--edit-config`: opens the configuration file in an editor and says

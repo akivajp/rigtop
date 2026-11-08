@@ -581,10 +581,9 @@ impl RigtopApp {
         if !demo && let Some(path) = rigtop_core::snooze::snooze_path() {
             app.snoozes = Snoozes::persistent(path);
         }
-        app.release_checker = app
-            .config
-            .updates
-            .check
+        // No release checks for the demo: nothing to update in a
+        // showcase, and a notice would end up in screenshots.
+        app.release_checker = (app.config.updates.check && !demo)
             .then(|| ReleaseChecker::new(app.config.updates.check_interval()));
         app.repaint = Some(cc.egui_ctx.clone());
         app.graph_span = storage
@@ -791,10 +790,7 @@ impl RigtopApp {
             });
         }
         if old.updates != self.config.updates {
-            self.release_checker = self
-                .config
-                .updates
-                .check
+            self.release_checker = (self.config.updates.check && !self.demo)
                 .then(|| ReleaseChecker::new(self.config.updates.check_interval()));
         }
         if old.notifications.level != self.config.notifications.level {
@@ -2659,7 +2655,9 @@ mod tests {
     /// `RIGTOP_GUI_HOSTS` (comma-separated names for an overview) and
     /// `RIGTOP_GUI_CLICK` (comma-separated labels clicked in order, e.g.
     /// `hosts…,add host` to show the hosts window) and `RIGTOP_GUI_DEMO`
-    /// (made-up data of `--demo`).
+    /// (made-up data of `--demo`). With the demo, `RIGTOP_GUI_FRAMES=N`
+    /// renders N more frames, one demo sample apart, next to the PNG
+    /// (`shot.png` → `shot-000.png`, ...), for an animation.
     #[test]
     #[ignore]
     fn screenshot_local_machine() {
@@ -2689,6 +2687,8 @@ mod tests {
             Config::load_default().unwrap_or_default()
         };
         let mut app = RigtopApp::for_test(config, &names);
+        // Kept for the frames of an animation.
+        let mut demo_sources = Vec::new();
         if demo {
             use rigtop_core::demo::{DemoHost, DemoSource};
             for host in &mut app.hosts {
@@ -2701,6 +2701,7 @@ mod tests {
                     let snapshot = source.poll().unwrap();
                     host.state.apply(Event::Snapshot(Box::new(snapshot)));
                 }
+                demo_sources.push(source);
             }
         } else {
             let mut source = LocalSource::new();
@@ -2767,5 +2768,22 @@ mod tests {
             .expect("render")
             .save(&path)
             .expect("save PNG");
+        let frames: usize = std::env::var("RIGTOP_GUI_FRAMES")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+        let stem = path.strip_suffix(".png").unwrap_or(&path).to_owned();
+        for frame in 0..frames {
+            for (host, source) in harness.state_mut().hosts.iter_mut().zip(&mut demo_sources) {
+                let snapshot = source.poll().unwrap();
+                host.state.apply(Event::Snapshot(Box::new(snapshot)));
+            }
+            harness.run();
+            harness
+                .render()
+                .expect("render")
+                .save(format!("{stem}-{frame:03}.png"))
+                .expect("save PNG");
+        }
     }
 }

@@ -7,6 +7,11 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Changed
+- `--demo` no longer looks for new releases: there is nothing to update in
+  the showcase, and its notice ended up in screenshots taken with an older
+  build.
+
 ## [0.31.0] - 2026-11-08
 
 ### Added
