@@ -945,6 +945,10 @@ fn memory_rows(memory: &MemoryStats) -> Vec<(&'static str, u64, f64)> {
     if let Some(cached) = memory.cached_bytes {
         rows.push(("Cached", cached, cached as f64 / total));
     }
+    // ZFS's read cache, which the kernel counts as used.
+    if let Some(arc) = memory.zfs_arc_bytes.filter(|b| *b > 0) {
+        rows.push(("ARC", arc, arc as f64 / total));
+    }
     rows.push(("Free", memory.free_bytes, memory.free_bytes as f64 / total));
     if memory.swap_total_bytes > 0 {
         let swap_total = memory.swap_total_bytes as f64;

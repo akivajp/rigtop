@@ -18,7 +18,7 @@
 ## 目標
 
 - btop と同じ一覧性: CPU（全体・コアごと・温度・クロック）、全 GPU、メモリ、ストレージ、ネットワーク、プロセス一覧（kill / 強制 kill）を1画面に。
-- 既存のモニターが手薄な**ストレージの健康状態**: mdadm の状態と再同期の進み具合、ZFS のプール（raidz・mirror などの構成、ドライブごとの状態と読み・書き・チェックサムのエラー回数、直近の scrub、データのエラー）、btrfs の RAID 構成とデバイスごとのエラー回数、NVMe の温度、SMART。ZFS の詳細は `zpool status` から読み、多くの環境で root は不要です。
+- 既存のモニターが手薄な**ストレージの健康状態**: mdadm の状態と再同期の進み具合、ZFS のプール（raidz・mirror などの構成、ドライブごとの状態と読み・書き・チェックサムのエラー回数、直近の scrub、データのエラー）、btrfs の RAID 構成とデバイスごとのエラー回数、NVMe の温度、SMART。ZFS の詳細は `zpool status` から読み、多くの環境で root は不要です。ZFS の読み込みキャッシュ（ARC）はメモリ欄に別の行として出し、手放せる分は使用中ではなく空きに数えるので、ZFS の機械がメモリ不足に見えることはありません。
 - プロセスごとの GPU 使用率と VRAM（NVIDIA、NVML 経由）、ディスク I/O、プロセスが動いているコンテナや仮想マシン（Docker・Podman・Kubernetes・LXC・systemd-nspawn・libvirt・Proxmox VE、Linux）。
 - CPU + GPU の消費電力の合計、ファン回転数（各系統に任意の名前を付けられる）、[Network UPS Tools](#upsnetwork-ups-tools) 経由の UPS。
 - **SSH だけで複数ホストを監視**: `rigtop --agent` が標準入出力で計測値を流すので、常駐プロセスもポート開放も不要。
@@ -364,7 +364,7 @@ filesystem_full_warning_hours = 24  # 直近30分の増え方でこの時間内�
 cpu_warning_celsius = 96    # CPU の最も高い温度
 gpu_warning_celsius = 85
 drive_warning_celsius = 70  # SMART か NVMe のセンサー
-memory_warning_percent = 90 # 使用中のメモリ（キャッシュを除く）
+memory_warning_percent = 90 # 使用中のメモリ（キャッシュと、ZFS の ARC のうち手放せる分を除く）
 gpu_memory_warning_percent = 0  # VRAM。PyTorch や JAX などは先に大半を確保するので既定は無効
 memory_pressure_warning_percent = 10  # 直近1分でメモリ待ちのタスクがいた時間の割合（Linux）
 io_pressure_warning_percent = 30      # 直近1分で全タスクが I/O 待ちだった時間の割合（Linux）

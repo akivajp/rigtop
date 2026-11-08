@@ -578,6 +578,10 @@ fn memory(ui: &mut Ui, state: &GuiState) {
     if let Some(cached) = memory.cached_bytes {
         rows.push(("Cached", cached, cached as f32 / total));
     }
+    // ZFS's read cache, which the kernel counts as used.
+    if let Some(arc) = memory.zfs_arc_bytes.filter(|b| *b > 0) {
+        rows.push(("ARC", arc, arc as f32 / total));
+    }
     rows.push(("Free", memory.free_bytes, memory.free_bytes as f32 / total));
     if memory.swap_total_bytes > 0 {
         let swap = memory.swap_total_bytes as f32;
@@ -588,11 +592,11 @@ fn memory(ui: &mut Ui, state: &GuiState) {
         ));
     }
     // A short panel leaves out rows instead of cutting the last one in
-    // half: Free first, then Cached (Avail tells more), then Swap.
+    // half: Free first, then Cached (Avail tells more), ARC, then Swap.
     let spacing = ui.spacing().item_spacing.y;
     let row = ui.text_style_height(&egui::TextStyle::Body).max(ROW_HEIGHT) + spacing;
     let fit = (((ui.available_height() + spacing) / row).floor() as usize).max(1);
-    for label in ["Free", "Cached", "Swap", "Avail"] {
+    for label in ["Free", "Cached", "ARC", "Swap", "Avail"] {
         if rows.len() <= fit {
             break;
         }

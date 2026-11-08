@@ -18,7 +18,7 @@ A system monitor for workstations, laptops and NAS — an alternative to btop th
 ## Goals
 
 - The btop overview on one screen: CPU (total, per core, temperatures, clock), every GPU, memory, storage, network, and a process list with kill / force kill.
-- **Storage health**, which existing monitors mostly skip: mdadm array state and resync progress, ZFS pools (layout such as raidz or mirror, each device's state and read, write and checksum errors, the last scrub, data errors), btrfs RAID profiles and per-device error counters, NVMe temperatures, and SMART health. ZFS details come from `zpool status`, which needs no root on most systems.
+- **Storage health**, which existing monitors mostly skip: mdadm array state and resync progress, ZFS pools (layout such as raidz or mirror, each device's state and read, write and checksum errors, the last scrub, data errors), btrfs RAID profiles and per-device error counters, NVMe temperatures, and SMART health. ZFS details come from `zpool status`, which needs no root on most systems. The ARC, ZFS's read cache, gets its own row in the memory panel and counts as available, not used, as far as it would give the memory back, so a ZFS host does not look out of memory.
 - Per-process GPU usage and VRAM (NVIDIA, via NVML), per-process disk I/O, and the container or virtual machine each process runs in (Docker, Podman, Kubernetes, LXC, systemd-nspawn, libvirt, Proxmox VE; Linux).
 - Combined CPU + GPU power draw, fan speeds (with your own labels for fan channels), and UPSes through [Network UPS Tools](#ups-network-ups-tools).
 - **Multiple hosts over plain SSH**: `rigtop --agent` streams snapshots over stdin/stdout, so there is no daemon to run and no port to open.
@@ -364,7 +364,7 @@ filesystem_full_warning_hours = 24  # full this soon at the last half hour's rat
 cpu_warning_celsius = 96    # hottest CPU reading
 gpu_warning_celsius = 85
 drive_warning_celsius = 70  # SMART or NVMe sensor
-memory_warning_percent = 90 # memory in use (without cache)
+memory_warning_percent = 90 # memory in use (without cache, nor the ZFS ARC it can free)
 gpu_memory_warning_percent = 0  # VRAM; off: PyTorch, JAX etc. reserve most of it
 memory_pressure_warning_percent = 10  # time tasks waited for memory, last minute (Linux)
 io_pressure_warning_percent = 30      # time all tasks waited for I/O, last minute (Linux)

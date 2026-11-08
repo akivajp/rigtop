@@ -153,6 +153,7 @@ impl SystemCollector {
             swap_total_bytes: s.total_swap(),
             swap_used_bytes: s.used_swap(),
             oom_kills: Vec::new(),
+            zfs_arc_bytes: None,
         }
     }
 

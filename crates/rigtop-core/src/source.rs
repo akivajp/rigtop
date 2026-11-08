@@ -354,6 +354,9 @@ impl LocalSource {
         (snapshot.cpu.temperatures, snapshot.cpu.per_core_celsius) =
             linux::hwmon::split_core_temperatures(&chips, &self.core_locations);
         snapshot.memory.cached_bytes = linux::meminfo::read_cached_bytes(&self.roots);
+        if let Some(arc) = linux::zfs::read_arc(&self.roots) {
+            linux::zfs::account_arc(&mut snapshot.memory, arc);
+        }
         snapshot.memory.oom_kills =
             self.oom
                 .sample(&self.roots, &snapshot.processes, snapshot.timestamp_ms);

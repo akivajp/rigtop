@@ -169,6 +169,10 @@ pub struct MemoryStats {
     /// Processes the kernel's OOM killer stopped in the last hour, seen
     /// since rigtop started (Linux), oldest first.
     pub oom_kills: Vec<OomKill>,
+    /// Linux with ZFS: the size of its read cache, the ARC. The part it
+    /// would give back is counted in `available_bytes`, not `used_bytes`
+    /// (agents before 0.31 count it as used).
+    pub zfs_arc_bytes: Option<u64>,
 }
 
 /// Pressure stall information: the share of time tasks were stalled

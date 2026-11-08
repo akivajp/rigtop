@@ -7,6 +7,17 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Fixed
+- ZFS hosts looked out of memory: Linux counts ZFS's read cache, the ARC,
+  as memory in use, and since OpenZFS 2.3 the ARC may grow to nearly all
+  of it, so the memory bars filled up and `memory 90% used` warnings went
+  off on idle NAS boxes. The part of the ARC it would give back (above
+  `zfs_arc_min`) now counts as available, not used, as htop and btop do,
+  and the ARC gets its own row in the host view's memory panel (read from
+  `/proc/spl/kstat/zfs/arcstats`, no root needed). Checked in a virtual
+  machine with OpenZFS 2.2: with a 936 MiB ARC, memory in use went from
+  65% to 20%. Remote hosts need rigtop 0.31 for it.
+
 ## [0.30.0] - 2026-11-08
 
 ### Added

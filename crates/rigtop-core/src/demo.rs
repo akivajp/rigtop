@@ -1051,12 +1051,15 @@ fn nas(t: f64) -> Snapshot {
             load_average: Some([1.9, 2.1, 2.0]),
             temperatures: vec![temp("coretemp:coretemp.0", 1, "Package id 0", 52.0)],
         },
+        // ZFS's ARC holds 6 GiB of reads, counted as available (as rigtop
+        // does on a real ZFS host).
         memory: MemoryStats {
             total_bytes: 16 * GIB,
             used_bytes: 3 * GIB,
             available_bytes: 12 * GIB,
             free_bytes: GIB,
-            cached_bytes: Some(11 * GIB),
+            cached_bytes: Some(5 * GIB),
+            zfs_arc_bytes: Some(6 * GIB),
             ..Default::default()
         },
         disks: (0..4)
