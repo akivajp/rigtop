@@ -13,7 +13,7 @@ A system monitor for workstations, laptops and NAS — an alternative to btop th
 
 [日本語版 README](README.ja.md)
 
-![rigtop TUI: CPU cores with their clock, memory, two GPUs, storage health with SMART and btrfs RAID, network with the interface's addresses, and a process list with each process's container or virtual machine and GPU use](docs/images/rigtop-tui.png)
+![rigtop TUI touring three demo hosts: the overview of a workstation, a laptop and a NAS side by side, then the workstation with its CPU cores and clock, two GPUs, storage health with SMART and btrfs RAID, network addresses and processes with their container or virtual machine and GPU use, then the NAS with a failing drive, a RAID resync, ZFS and a UPS](docs/images/rigtop-tui-tour.gif)
 
 ## Goals
 

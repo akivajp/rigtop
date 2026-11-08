@@ -13,7 +13,7 @@
 
 [English README](README.md)
 
-![rigtop の TUI: CPU の各コアとクロック、メモリ、GPU 2枚、SMART と btrfs RAID を含むストレージの状態、インターフェースのアドレス付きのネットワーク、プロセスごとのコンテナや仮想マシンと GPU の使用率を出すプロセス一覧](docs/images/rigtop-tui.png)
+![rigtop の TUI でデモの3台を巡回: ワークステーション・ノート PC・NAS を並べたオーバービュー、続いて CPU の各コアとクロック、GPU 2枚、SMART と btrfs RAID を含むストレージの状態、ネットワークのアドレス、コンテナや仮想マシンと GPU の使用率付きのプロセス一覧を出すワークステーション、最後に故障しかけのドライブ・RAID の再同期・ZFS・UPS を出す NAS](docs/images/rigtop-tui-tour.gif)
 
 ## 目標
 
