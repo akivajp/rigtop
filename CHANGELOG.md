@@ -7,6 +7,8 @@ include breaking changes).
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-11-08
+
 ### Added
 - Per-process use of AMD and Intel GPUs (Linux): Gpu% and VRAM in the
   process table, the details and the per-container summary, from the
@@ -693,7 +695,8 @@ First release.
 - Windows support (CPU, memory, processes, network with link speeds, drives,
   NVIDIA GPUs; temperatures, fans and CPU power are not available yet)
 
-[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.30.0...HEAD
+[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.31.0...HEAD
+[0.31.0]: https://github.com/akivajp/rigtop/compare/v0.30.0...v0.31.0
 [0.30.0]: https://github.com/akivajp/rigtop/compare/v0.29.0...v0.30.0
 [0.29.0]: https://github.com/akivajp/rigtop/compare/v0.28.0...v0.29.0
 [0.28.0]: https://github.com/akivajp/rigtop/compare/v0.27.0...v0.28.0
