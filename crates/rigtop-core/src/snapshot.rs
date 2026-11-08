@@ -294,7 +294,10 @@ pub struct GpuProcess {
     pub pid: u32,
     /// VRAM used by the process, if the driver reports it.
     pub memory_bytes: Option<u64>,
-    /// Streaming multiprocessor (core) utilization by the process.
+    /// How busy the process keeps its busiest engine of the GPU: 3D or
+    /// compute (NVIDIA's streaming multiprocessors), video encode or
+    /// decode. NVIDIA GPUs from agents before 0.31 count only the SMs, and
+    /// AMD and Intel GPUs have no processes there.
     pub sm_percent: Option<f32>,
 }
 

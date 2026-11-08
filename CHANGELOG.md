@@ -7,6 +7,23 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Added
+- Per-process use of AMD and Intel GPUs (Linux): Gpu% and VRAM in the
+  process table, the details and the per-container summary, from the
+  drivers' fdinfo (amdgpu, i915 and xe; no root, for processes of the user
+  rigtop runs as). A process's Gpu% is its busiest engine (3D, compute,
+  video encode or decode), like the GPU column of Windows' Task Manager,
+  so a hardware transcoding job shows up. Open files are listed every 5
+  seconds to find the GPU descriptors, which added about 0.04% of a CPU
+  core on a desktop with 830 processes. Checked with a VAAPI encode on a
+  Radeon iGPU (100%, as the driver's counters show) and on a Radeon 780M
+  laptop. Remote hosts need rigtop 0.31 for it.
+
+### Changed
+- NVIDIA GPUs: a process's Gpu% is also its busiest engine, the video
+  encoder and decoder counting next to the SMs, so an NVENC transcode
+  shows 50% (its encoder) instead of 13% (its SMs).
+
 ### Fixed
 - ZFS hosts looked out of memory: Linux counts ZFS's read cache, the ARC,
   as memory in use, and since OpenZFS 2.3 the ARC may grow to nearly all

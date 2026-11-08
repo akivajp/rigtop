@@ -13,6 +13,7 @@ pub mod btrfs;
 pub mod containers;
 pub mod diskstats;
 pub mod drm;
+pub mod drm_clients;
 pub mod hwmon;
 pub mod mdstat;
 pub mod meminfo;

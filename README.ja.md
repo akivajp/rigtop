@@ -19,7 +19,7 @@
 
 - btop と同じ一覧性: CPU（全体・コアごと・温度・クロック）、全 GPU、メモリ、ストレージ、ネットワーク、プロセス一覧（kill / 強制 kill）を1画面に。
 - 既存のモニターが手薄な**ストレージの健康状態**: mdadm の状態と再同期の進み具合、ZFS のプール（raidz・mirror などの構成、ドライブごとの状態と読み・書き・チェックサムのエラー回数、直近の scrub、データのエラー）、btrfs の RAID 構成とデバイスごとのエラー回数、NVMe の温度、SMART。ZFS の詳細は `zpool status` から読み、多くの環境で root は不要です。ZFS の読み込みキャッシュ（ARC）はメモリ欄に別の行として出し、手放せる分は使用中ではなく空きに数えるので、ZFS の機械がメモリ不足に見えることはありません。
-- プロセスごとの GPU 使用率と VRAM（NVIDIA、NVML 経由）、ディスク I/O、プロセスが動いているコンテナや仮想マシン（Docker・Podman・Kubernetes・LXC・systemd-nspawn・libvirt・Proxmox VE、Linux）。
+- プロセスごとの GPU 使用率と VRAM（NVIDIA は NVML 経由、Linux の AMD・Intel はドライバから自分のプロセスの分。最も忙しいエンジンの値なので、動画の変換ではエンコーダーの使用率が出る）、ディスク I/O、プロセスが動いているコンテナや仮想マシン（Docker・Podman・Kubernetes・LXC・systemd-nspawn・libvirt・Proxmox VE、Linux）。
 - CPU + GPU の消費電力の合計、ファン回転数（各系統に任意の名前を付けられる）、[Network UPS Tools](#upsnetwork-ups-tools) 経由の UPS。
 - **SSH だけで複数ホストを監視**: `rigtop --agent` が標準入出力で計測値を流すので、常駐プロセスもポート開放も不要。
 
@@ -265,7 +265,7 @@ journalctl --user -u rigtop-watch -f      # 検知した内容と送った内容
 | 項目 | 必要なもの | Debian / Ubuntu | Arch / CachyOS |
 |---|---|---|---|
 | NVIDIA の GPU | ドライバの NVML ライブラリ | NVIDIA のドライバに含まれる | `nvidia-utils` |
-| AMD / Intel の GPU | 不要（sysfs から読む）。Intel の使用率は特権が無いと取れない | | |
+| AMD / Intel の GPU | 不要（sysfs から読む。プロセスごとの使用量はドライバの fdinfo から、自分のユーザーのプロセスの分）。Intel の全体の使用率は特権が無いと取れない | | |
 | Wi-Fi の信号強度と速度 | `iw` | `sudo apt install iw` | `sudo pacman -S iw` |
 | SMART | `smartmontools` とタイマー（[下記](#smart-と-btrfs-の-scrub-結果任意)） | `sudo apt install smartmontools` | `sudo pacman -S smartmontools` |
 | CPU の消費電力 | RAPL の読み取り権限（下記） | | |

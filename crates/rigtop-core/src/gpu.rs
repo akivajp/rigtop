@@ -236,12 +236,15 @@ fn collect_processes(
         newest_ts = Some(newest_ts.map_or(sample.timestamp, |t| t.max(sample.timestamp)));
         let slot = latest.entry(sample.pid).or_insert((0, 0));
         if sample.timestamp >= slot.0 {
-            *slot = (sample.timestamp, sample.sm_util);
+            // The busiest engine: 3D/compute (SM), or the video encoder or
+            // decoder of a transcoding job, as for AMD and Intel GPUs.
+            let busiest = sample.sm_util.max(sample.enc_util).max(sample.dec_util);
+            *slot = (sample.timestamp, busiest);
         }
     }
-    for (pid, (_, sm_util)) in latest {
+    for (pid, (_, busiest)) in latest {
         if let Some(process) = by_pid.get_mut(&pid) {
-            process.sm_percent = Some(sm_util as f32);
+            process.sm_percent = Some(busiest as f32);
         }
     }
 

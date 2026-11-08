@@ -35,6 +35,8 @@ const PCI_IDS: &[&str] = &[
 pub struct DrmGpuReader {
     /// Names by (vendor, device), looked up once.
     names: HashMap<(u16, u16), String>,
+    /// The PCI address of each GPU of the last read, in the same order.
+    pci: Vec<String>,
 }
 
 impl DrmGpuReader {
@@ -42,10 +44,17 @@ impl DrmGpuReader {
         Self::default()
     }
 
+    /// The PCI address (`0000:0f:00.0`) of each GPU [`DrmGpuReader::read`]
+    /// returned last, in the same order.
+    pub fn pci_addresses(&self) -> &[String] {
+        &self.pci
+    }
+
     /// AMD and Intel GPUs, numbered from `first_index` (after NVIDIA's).
     pub fn read(&mut self, roots: &SysRoots, first_index: u32) -> Vec<GpuStats> {
         let class_dir = roots.sys.join("class/drm");
         let mut gpus = Vec::new();
+        self.pci.clear();
         for entry in sorted_entries(&class_dir) {
             // card0, card1, ...; not connectors such as card1-DP-1.
             let is_card = entry
@@ -69,7 +78,15 @@ impl DrmGpuReader {
                 (VENDOR_INTEL, "i915" | "xe") => Some(self.read_intel(&card, &device, index)),
                 _ => None,
             };
-            gpus.extend(gpu);
+            if let Some(gpu) = gpu {
+                // The PCI address names the GPU in its clients' fdinfo.
+                let pci = fs::canonicalize(&device)
+                    .ok()
+                    .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+                    .unwrap_or_default();
+                self.pci.push(pci);
+                gpus.push(gpu);
+            }
         }
         gpus
     }

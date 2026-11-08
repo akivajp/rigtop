@@ -184,6 +184,9 @@ pub struct LocalSource {
     /// AMD and Intel GPUs (NVIDIA ones come from NVML).
     #[cfg(target_os = "linux")]
     drm_gpus: linux::drm::DrmGpuReader,
+    /// What processes use of the AMD and Intel GPUs.
+    #[cfg(target_os = "linux")]
+    drm_clients: linux::drm_clients::DrmClientTracker,
     /// Temperatures, fans and CPU power from LibreHardwareMonitor.
     #[cfg(windows)]
     lhm: crate::lhm::LhmReader,
@@ -237,6 +240,8 @@ impl LocalSource {
             core_locations: Vec::new(),
             #[cfg(target_os = "linux")]
             drm_gpus: linux::drm::DrmGpuReader::new(),
+            #[cfg(target_os = "linux")]
+            drm_clients: linux::drm_clients::DrmClientTracker::new(),
             // The copy made by the root collector first, then btrfs-progs'
             // own file in case rigtop runs as root.
             #[cfg(windows)]
@@ -372,8 +377,17 @@ impl LocalSource {
         snapshot.power.battery = self.battery.read(&self.roots);
 
         // AMD and Intel GPUs after NVIDIA's; discrete ones add to GPU power.
-        let first = snapshot.gpus.len() as u32;
-        snapshot.gpus.extend(self.drm_gpus.read(&self.roots, first));
+        let first = snapshot.gpus.len();
+        snapshot
+            .gpus
+            .extend(self.drm_gpus.read(&self.roots, first as u32));
+        self.drm_clients.annotate(
+            &self.roots,
+            &snapshot.processes,
+            &mut snapshot.gpus[first..],
+            self.drm_gpus.pci_addresses(),
+            now,
+        );
         snapshot.power.gpus_w = sum_present(snapshot.gpus.iter().map(|g| g.power_w));
 
         let mut disks = self.diskstats.sample(&self.roots, now);

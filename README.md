@@ -19,7 +19,7 @@ A system monitor for workstations, laptops and NAS — an alternative to btop th
 
 - The btop overview on one screen: CPU (total, per core, temperatures, clock), every GPU, memory, storage, network, and a process list with kill / force kill.
 - **Storage health**, which existing monitors mostly skip: mdadm array state and resync progress, ZFS pools (layout such as raidz or mirror, each device's state and read, write and checksum errors, the last scrub, data errors), btrfs RAID profiles and per-device error counters, NVMe temperatures, and SMART health. ZFS details come from `zpool status`, which needs no root on most systems. The ARC, ZFS's read cache, gets its own row in the memory panel and counts as available, not used, as far as it would give the memory back, so a ZFS host does not look out of memory.
-- Per-process GPU usage and VRAM (NVIDIA, via NVML), per-process disk I/O, and the container or virtual machine each process runs in (Docker, Podman, Kubernetes, LXC, systemd-nspawn, libvirt, Proxmox VE; Linux).
+- Per-process GPU usage and VRAM (NVIDIA via NVML; AMD and Intel on Linux from the driver, for your own processes), the busiest engine counting, so a transcoding job shows its use of the video encoder; per-process disk I/O, and the container or virtual machine each process runs in (Docker, Podman, Kubernetes, LXC, systemd-nspawn, libvirt, Proxmox VE; Linux).
 - Combined CPU + GPU power draw, fan speeds (with your own labels for fan channels), and UPSes through [Network UPS Tools](#ups-network-ups-tools).
 - **Multiple hosts over plain SSH**: `rigtop --agent` streams snapshots over stdin/stdout, so there is no daemon to run and no port to open.
 
@@ -265,7 +265,7 @@ Most readings need neither extra software nor privileges: CPU, memory, processes
 | Reading | Needs | Debian / Ubuntu | Arch / CachyOS |
 |---|---|---|---|
 | NVIDIA GPUs | the driver's NVML library | comes with the NVIDIA driver | `nvidia-utils` |
-| AMD / Intel GPUs | nothing (sysfs); Intel's utilization is not available without privileges | | |
+| AMD / Intel GPUs | nothing (sysfs; per-process use from the driver's fdinfo, for processes of your own user); Intel's overall utilization is not available without privileges | | |
 | Wi-Fi signal and rate | `iw` | `sudo apt install iw` | `sudo pacman -S iw` |
 | SMART | `smartmontools` and a timer ([below](#smart-and-btrfs-scrub-results-optional)) | `sudo apt install smartmontools` | `sudo pacman -S smartmontools` |
 | CPU power | read access to RAPL (below) | | |
