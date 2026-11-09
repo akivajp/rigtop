@@ -35,7 +35,8 @@
   </Resources>
 
   <Applications>
-    <!-- The GUI: in the Start menu, and `rigtop-gui` in a terminal (for its options, such as --demo). -->
+    <!-- The GUI: in the Start menu, and `rigtop-gui` in a terminal (for its options, such as the demo).
+         (No double hyphens in XML comments.) -->
     <Application Id="rigtop" Executable="rigtop-gui.exe" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
         DisplayName="rigtop"
