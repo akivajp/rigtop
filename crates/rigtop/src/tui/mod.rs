@@ -125,10 +125,11 @@ struct Reload {
 }
 
 /// `[updates]`, with release checks off for the demo: there is nothing to
-/// update in a showcase, and a notice would end up in screenshots.
+/// update in a showcase, and a notice would end up in screenshots. Off as
+/// well from the Microsoft Store's package: the Store brings new versions.
 fn release_checks(config: &Config, demo: bool) -> UpdatesConfig {
     UpdatesConfig {
-        check: config.updates.check && !demo,
+        check: config.updates.check && !demo && !rigtop_core::package::is_packaged(),
         ..config.updates.clone()
     }
 }

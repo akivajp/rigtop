@@ -11,6 +11,7 @@ use egui_tiles::{Container, SimplificationOptions, Tile, TileId, Tiles, Tree, Ui
 use rigtop_core::config::{ConfigWatcher, HostConfig, OverviewSection, ProcessView, SensorConfig};
 use rigtop_core::demo::DemoSource;
 use rigtop_core::hosts::{HostKind, HostSpec, host_specs};
+use rigtop_core::package;
 use rigtop_core::public_ip::PublicIpLookup;
 use rigtop_core::remote::RemoteSource;
 use rigtop_core::snooze::Snoozes;
@@ -582,8 +583,9 @@ impl RigtopApp {
             app.snoozes = Snoozes::persistent(path);
         }
         // No release checks for the demo: nothing to update in a
-        // showcase, and a notice would end up in screenshots.
-        app.release_checker = (app.config.updates.check && !demo)
+        // showcase, and a notice would end up in screenshots. None from the
+        // Microsoft Store's package either: the Store brings new versions.
+        app.release_checker = (app.config.updates.check && !demo && !package::is_packaged())
             .then(|| ReleaseChecker::new(app.config.updates.check_interval()));
         app.repaint = Some(cc.egui_ctx.clone());
         app.graph_span = storage
@@ -790,8 +792,9 @@ impl RigtopApp {
             });
         }
         if old.updates != self.config.updates {
-            self.release_checker = (self.config.updates.check && !self.demo)
-                .then(|| ReleaseChecker::new(self.config.updates.check_interval()));
+            self.release_checker =
+                (self.config.updates.check && !self.demo && !package::is_packaged())
+                    .then(|| ReleaseChecker::new(self.config.updates.check_interval()));
         }
         if old.notifications.level != self.config.notifications.level {
             self.notifier = Notifier::new(self.config.notifications.level);
@@ -2300,6 +2303,26 @@ mod tests {
         harness.get_by_label("set up…").click();
         harness.run();
         assert!(harness.query_by_label_contains("is running").is_some());
+        assert!(harness.query_by_label("Set up").is_none());
+    }
+
+    #[test]
+    fn librehardwaremonitor_setup_from_the_store_only_explains() {
+        let mut snapshot = sample_snapshot();
+        snapshot.lhm_error = Some("127.0.0.1:8085: connection refused".to_owned());
+        let mut harness = harness_with(snapshot);
+        // As from the Microsoft Store's package.
+        harness.state_mut().primary_mut().lhm_setup.guide_only = true;
+        harness.run();
+        harness.get_by_label("set up…").click();
+        harness.run();
+        // The steps and a link to the README, but nothing that installs.
+        assert!(harness.query_by_label_contains("port 8085").is_some());
+        assert!(
+            harness
+                .query_by_label("How to set it up (README)")
+                .is_some()
+        );
         assert!(harness.query_by_label("Set up").is_none());
     }
 

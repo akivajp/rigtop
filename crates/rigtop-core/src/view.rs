@@ -447,8 +447,12 @@ pub struct AlertLog {
 
 /// Where a front-end ("tui", "gui") keeps its alert history: the state
 /// directory (`~/.local/state/rigtop/` on Linux), else the local data
-/// directory (macOS, Windows).
+/// directory (macOS, Windows), or the package's `LocalState` folder from the
+/// Microsoft Store.
 pub fn alert_log_path(front_end: &str) -> Option<PathBuf> {
+    if let Some(dir) = crate::package::local_state() {
+        return Some(dir.join(format!("alerts-{front_end}.jsonl")));
+    }
     dirs::state_dir()
         .or_else(dirs::data_local_dir)
         .map(|dir| dir.join("rigtop").join(format!("alerts-{front_end}.jsonl")))

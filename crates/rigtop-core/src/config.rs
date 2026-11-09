@@ -2,7 +2,8 @@
 //!
 //! The file lives at `<config dir>/rigtop/config.toml`
 //! (`~/.config/rigtop/config.toml` on Linux, `%APPDATA%\rigtop\config.toml`
-//! on Windows). A missing file means "all defaults".
+//! on Windows, the package's `LocalState\config.toml` from the Microsoft
+//! Store). A missing file means "all defaults".
 //!
 //! ```toml
 //! [sensors]
@@ -809,7 +810,12 @@ pub fn create_if_missing(path: &Path) -> io::Result<bool> {
 
 impl Config {
     /// Default path of the configuration file, if the platform has a config directory.
+    /// From the Microsoft Store's package, the package's `LocalState` folder
+    /// (see [`crate::package`]).
     pub fn default_path() -> Option<PathBuf> {
+        if let Some(dir) = crate::package::local_state() {
+            return Some(dir.join("config.toml"));
+        }
         dirs::config_dir().map(|dir| dir.join("rigtop").join("config.toml"))
     }
 

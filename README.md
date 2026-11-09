@@ -444,10 +444,10 @@ rigtop collects no telemetry. It connects only to:
 - the hosts you list for remote monitoring, through your own `ssh`;
 - LibreHardwareMonitor on this machine (Windows, `[lhm] url`);
 - Network UPS Tools' upsd at `[ups] address` (this machine by default), for the state of a UPS;
-- github.com, to see whether a new release is out, at startup and every hour. It only asks which release is the latest and sends nothing about your machine; `[updates] check = false` in the [configuration](#configuration) turns it off. An update you choose to install is downloaded from github.com.
+- github.com, to see whether a new release is out, at startup and every hour. It only asks which release is the latest and sends nothing about your machine; `[updates] check = false` in the [configuration](#configuration) turns it off. An update you choose to install is downloaded from github.com. The Microsoft Store's copy does neither: the Store brings its updates.
 - only if you turn on `[network] public_ip` (off by default): the service in `public_ip_url` (api.ipify.org by default), from each monitored host, every 30 minutes, to learn the host's public address. Like any web request, it shows the service that address.
 
-Widgets run the commands you configure.
+Widgets run the commands you configure. Updating rigtop on a remote host (when you ask) makes that host download the release from github.com.
 
 ## License
 

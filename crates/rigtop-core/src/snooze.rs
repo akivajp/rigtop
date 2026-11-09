@@ -77,6 +77,9 @@ pub struct Snoozes {
 
 /// The file every front-end shares: next to the alert histories.
 pub fn snooze_path() -> Option<PathBuf> {
+    if let Some(dir) = crate::package::local_state() {
+        return Some(dir.join("snoozed.json"));
+    }
     dirs::state_dir()
         .or_else(dirs::data_local_dir)
         .map(|dir| dir.join("rigtop").join("snoozed.json"))

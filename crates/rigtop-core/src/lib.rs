@@ -27,6 +27,7 @@ mod lhm;
 #[cfg(target_os = "linux")]
 pub mod linux;
 pub mod nut;
+pub mod package;
 pub mod public_ip;
 pub mod remote;
 pub mod smart;

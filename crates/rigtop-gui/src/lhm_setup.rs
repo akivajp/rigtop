@@ -6,6 +6,10 @@
 //! only by editing `LibreHardwareMonitor.config` next to the executable, and
 //! start it as administrator. Windows asks for permission for the driver
 //! and for starting it.
+//!
+//! From the Microsoft Store's package the window only explains these steps
+//! and links to the README: Store apps must not install other software that
+//! brings a driver of its own.
 
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -22,11 +26,27 @@ struct Progress {
     outcome: Option<Result<String, String>>,
 }
 
+/// The README's steps, linked to instead of setting up from the Store's package.
+const GUIDE_URL: &str =
+    "https://github.com/akivajp/rigtop#temperatures-fans-and-cpu-power-with-librehardwaremonitor";
+
 /// State of the setup window.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct LhmSetup {
     open: bool,
     progress: Option<Arc<Mutex<Progress>>>,
+    /// Explain the steps instead of doing them (the Microsoft Store's package).
+    pub(crate) guide_only: bool,
+}
+
+impl Default for LhmSetup {
+    fn default() -> Self {
+        Self {
+            open: false,
+            progress: None,
+            guide_only: rigtop_core::package::is_packaged(),
+        }
+    }
 }
 
 impl LhmSetup {
@@ -78,6 +98,7 @@ pub fn dialog(ctx: &egui::Context, state: &mut GuiState) {
     let port = local_port(&state.config.lhm.url);
     let setup = &mut state.lhm_setup;
     let busy = setup.busy();
+    let guide_only = setup.guide_only;
     let mut close = false;
     // Port to set up on, when the window offers to.
     let mut offer = None;
@@ -118,6 +139,21 @@ pub fn dialog(ctx: &egui::Context, state: &mut GuiState) {
                      Options > Remote Web Server > Run; rigtop shows the values \
                      within 10 seconds.",
                 );
+            }
+            (None, Some(port)) if guide_only => {
+                ui.label(
+                    "Windows reports these only to programs with a hardware driver. \
+                     rigtop reads them from LibreHardwareMonitor, a free program you \
+                     install and run separately:",
+                );
+                ui.label(" - install it (it brings its PawnIO driver along)");
+                ui.label(" - start it as administrator");
+                ui.label(format!(
+                    " - turn on Options > Remote Web Server > Run (port {port})"
+                ));
+                ui.add_space(4.0);
+                ui.label(RichText::new("rigtop shows the values within 10 seconds.").color(DIM));
+                ui.hyperlink_to("How to set it up (README)", GUIDE_URL);
             }
             (None, Some(port)) => {
                 ui.label(
