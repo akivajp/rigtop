@@ -7,6 +7,16 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Added
+- An MSIX package for the Microsoft Store (`packaging/msix/`, built by the
+  release workflow as the artifact `store-msix`, not attached to the GitHub
+  release). It has the GUI in the Start menu and both `rigtop-gui` and
+  `rigtop` as terminal commands. From the package, rigtop keeps its
+  configuration file and alert histories in the package's `LocalState`
+  folder (where an editor can see them), does not look for new versions
+  (the Store updates it), and "set up…" explains how to set up
+  LibreHardwareMonitor instead of installing it.
+
 ### Changed
 - `--demo` no longer looks for new releases: there is nothing to update in
   the showcase, and its notice ended up in screenshots taken with an older

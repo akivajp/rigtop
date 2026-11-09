@@ -105,6 +105,55 @@ jobs:
           name: rigtop-${{ matrix.target }}
           path: dist/*
           retention-days: 30
+      # The MSIX package for the Microsoft Store (uploaded to Partner Center
+      # by hand), and a copy signed with a throwaway certificate for trying
+      # it on a test PC. Not part of the GitHub release: an unsigned package
+      # cannot be installed. The identity comes from the repository's
+      # variables (Partner Center > Product identity).
+      - name: MSIX package
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          MSIX_IDENTITY_NAME: ${{ vars.MSIX_IDENTITY_NAME }}
+          MSIX_PUBLISHER: ${{ vars.MSIX_PUBLISHER }}
+          MSIX_PUBLISHER_DISPLAY_NAME: ${{ vars.MSIX_PUBLISHER_DISPLAY_NAME }}
+        run: |
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"' |
+            Select-Object -First 1).Matches.Groups[1].Value
+          $params = @{ BinDir = "target/${{ matrix.target }}/release"; Version = $version; OutDir = "msix"; TestSign = $true }
+          if ($env:MSIX_IDENTITY_NAME) { $params.IdentityName = $env:MSIX_IDENTITY_NAME }
+          if ($env:MSIX_PUBLISHER) { $params.Publisher = $env:MSIX_PUBLISHER }
+          if ($env:MSIX_PUBLISHER_DISPLAY_NAME) { $params.PublisherDisplayName = $env:MSIX_PUBLISHER_DISPLAY_NAME }
+          ./packaging/msix/build.ps1 @params
+          Get-ChildItem msix
+      # The checks Partner Center runs on a submission, run here first
+      # (installs the test copy). The report is kept with the package.
+      - name: Windows App Certification Kit
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $appcert = "${env:ProgramFiles(x86)}\Windows Kits\10\App Certification Kit\appcert.exe"
+          if (-not (Test-Path $appcert)) { Write-Host "the App Certification Kit is not installed"; exit 0 }
+          $cer = Get-ChildItem msix/*-test.cer | Select-Object -First 1
+          $test = Get-ChildItem msix/*-test.msix | Select-Object -First 1
+          Import-Certificate -FilePath $cer.FullName -CertStoreLocation Cert:\LocalMachine\TrustedPeople | Out-Null
+          & $appcert reset
+          & $appcert test -appxpackagepath $test.FullName -reportoutputpath "$PWD\msix\wack-report.xml"
+          Write-Host "appcert exit code: $LASTEXITCODE"
+          if (Test-Path msix/wack-report.xml) {
+            [xml] $report = Get-Content -Raw msix/wack-report.xml
+            Write-Host "Overall: $($report.REPORT.OVERALL_RESULT)"
+            $report.SelectNodes("//TEST[RESULT!='PASS']") | ForEach-Object {
+              Write-Host "$($_.RESULT): $($_.NAME)"
+            }
+          }
+      - uses: actions/upload-artifact@v7
+        if: runner.os == 'Windows'
+        with:
+          name: store-msix
+          path: msix/*
+          retention-days: 30
 
   release:
     name: Publish release
@@ -125,6 +174,8 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           path: dist
+          # The archives only (the MSIX package, store-msix, is for Partner Center).
+          pattern: rigtop-*
           merge-multiple: true
       - name: Add the install script
         # Served at releases/latest/download/install.sh for the one-liner.
