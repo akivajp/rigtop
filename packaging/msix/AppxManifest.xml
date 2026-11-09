@@ -35,10 +35,10 @@
   </Resources>
 
   <!-- One application (the Store takes no more per package): the GUI, in the Start
-       menu. Both programs are commands in a terminal through its execution aliases:
-       `rigtop-gui` (for its options, such as the demo) and `rigtop`, the terminal
-       version (a console program). Several may run at once (terminals, agents for
-       remote monitoring), which a console alias requires anyway.
+       menu. Its one execution alias (an application may have only one) makes the
+       terminal version, a console program, the command `rigtop` in a terminal.
+       Several may run at once (terminals, agents for remote monitoring), which a
+       console alias requires anyway.
        (No double hyphens in XML comments.) -->
   <Applications>
     <Application Id="rigtop" Executable="rigtop-gui.exe" EntryPoint="Windows.FullTrustApplication"
@@ -52,11 +52,6 @@
         <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
       </uap:VisualElements>
       <Extensions>
-        <uap5:Extension Category="windows.appExecutionAlias" Executable="rigtop-gui.exe" EntryPoint="Windows.FullTrustApplication">
-          <uap5:AppExecutionAlias>
-            <uap5:ExecutionAlias Alias="rigtop-gui.exe" />
-          </uap5:AppExecutionAlias>
-        </uap5:Extension>
         <uap5:Extension Category="windows.appExecutionAlias" Executable="rigtop.exe" EntryPoint="Windows.FullTrustApplication">
           <uap5:AppExecutionAlias desktop4:Subsystem="console">
             <uap5:ExecutionAlias Alias="rigtop.exe" />

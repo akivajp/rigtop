@@ -10,8 +10,8 @@ include breaking changes).
 ### Added
 - An MSIX package for the Microsoft Store (`packaging/msix/`, built by the
   release workflow as the artifact `store-msix`, not attached to the GitHub
-  release). It has the GUI in the Start menu and both `rigtop-gui` and
-  `rigtop` as terminal commands. From the package, rigtop keeps its
+  release). It has the GUI in the Start menu and the terminal version as the
+  command `rigtop`. From the package, rigtop keeps its
   configuration file and alert histories in the package's `LocalState`
   folder (where an editor can see them), does not look for new versions
   (the Store updates it), and "set up…" explains how to set up

@@ -2,7 +2,7 @@
 
 Partner Center（日本語の画面）で rigtop を申請するときに入れる内容です（アプリとゲーム → rigtop → 申請の開始）。Markdown を表示した状態からコピーして、欄に貼っていく想定で書いています。1 つずつ欄に入れるもの（製品の機能、検索用語、キャプション）はリストにしています。掲載情報の文は README と内容をそろえてください。
 
-Store 版は zip 版と次の点が違う前提で書いています: 新しい版の確認と自分の更新をしない（Store が更新を配る）、LibreHardwareMonitor を入れる「set up…」は手順の案内だけ、設定ファイルはパッケージの LocalState に置く、端末から `rigtop`（TUI）と `rigtop-gui` を起動できる（実行エイリアス）。
+Store 版は zip 版と次の点が違う前提で書いています: 新しい版の確認と自分の更新をしない（Store が更新を配る）、LibreHardwareMonitor を入れる「set up…」は手順の案内だけ、設定ファイルはパッケージの LocalState に置く、GUI はスタートメニューから、端末版は端末で `rigtop` として起動できる（実行エイリアス。Store はパッケージに 1 つのアプリケーションしか認めず、エイリアスも 1 つまでのため、`rigtop-gui` のコマンドは無い）。
 
 ## 価格と使用可能状況
 
@@ -41,7 +41,7 @@ Store 版は zip 版と次の点が違う前提で書いています: 新しい�
 - **公開の保留オプション**: 初回は「[今すぐ公開] を選択するまで、この提出物を公開しない」。告知の準備ができてから公開する
 - **認定の注意書き**: この画面ではなく、リンク先の「追加のテスト情報」のページに、次の英語の文を貼る。ポリシー 10.2.4（Microsoft 以外のドライバーへの依存は認定の注意書きで開示）に当たりうるので、LibreHardwareMonitor のことも書いている
 
-  > rigtop opens a window showing this PC: CPU, GPUs, memory, drives, network and processes. No account, sign-in or test data is needed. To see the multi-host features without other machines, run `rigtop-gui --demo` in a terminal: it shows three made-up hosts. The package also has the terminal version, `rigtop` (app execution alias).
+  > rigtop opens a window showing this PC: CPU, GPUs, memory, drives, network and processes. No account, sign-in or test data is needed. The package also has the terminal version: `rigtop` in a terminal (app execution alias). To see the multi-host features without other machines, run `rigtop --demo` in a terminal: it shows three made-up hosts.
   >
   > Optional: temperatures, fans and CPU power are read from LibreHardwareMonitor's local web server (127.0.0.1:8085) if the user installs and runs that separate program, which uses its own driver. rigtop does not install it or any driver, and works without it; the CPU panel then shows a note and a link to instructions.
   >
