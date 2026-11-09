@@ -7,6 +7,8 @@ include breaking changes).
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-11-09
+
 ### Added
 - An MSIX package for the Microsoft Store (`packaging/msix/`, built by the
   release workflow as the artifact `store-msix`, not attached to the GitHub
@@ -713,7 +715,8 @@ First release.
 - Windows support (CPU, memory, processes, network with link speeds, drives,
   NVIDIA GPUs; temperatures, fans and CPU power are not available yet)
 
-[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.31.0...HEAD
+[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.32.0...HEAD
+[0.32.0]: https://github.com/akivajp/rigtop/compare/v0.31.0...v0.32.0
 [0.31.0]: https://github.com/akivajp/rigtop/compare/v0.30.0...v0.31.0
 [0.30.0]: https://github.com/akivajp/rigtop/compare/v0.29.0...v0.30.0
 [0.29.0]: https://github.com/akivajp/rigtop/compare/v0.28.0...v0.29.0
