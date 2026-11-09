@@ -55,7 +55,9 @@
       </Extensions>
     </Application>
     <!-- The terminal version: `rigtop` in a terminal only, not in the Start menu. -->
-    <Application Id="rigtopTerminal" Executable="rigtop.exe" EntryPoint="Windows.FullTrustApplication">
+    <!-- Several at once (terminals, and agents for remote monitoring); a console alias requires it. -->
+    <Application Id="rigtopTerminal" Executable="rigtop.exe" EntryPoint="Windows.FullTrustApplication"
+      desktop4:SupportsMultipleInstances="true">
       <uap:VisualElements
         DisplayName="rigtop (terminal)"
         Description="The terminal version of rigtop"
