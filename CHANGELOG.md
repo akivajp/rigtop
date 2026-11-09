@@ -18,6 +18,9 @@ include breaking changes).
   LibreHardwareMonitor instead of installing it.
 
 ### Changed
+- The Windows executables carry the Visual C++ runtime (static linking), so
+  they start on a fresh Windows without the Visual C++ Redistributable
+  (`VCRUNTIME140.dll`).
 - `--demo` no longer looks for new releases: there is nothing to update in
   the showcase, and its notice ended up in screenshots taken with an older
   build.

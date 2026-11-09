@@ -1,0 +1,7 @@
+# Link the Visual C++ runtime statically on Windows. Without it, the
+# executables need VCRUNTIME140.dll, which a fresh Windows does not have:
+# the Microsoft Store's package (MSIX) failed to start with "VCRUNTIME140.dll
+# was not found". The zip, Scoop and winget builds no longer need the
+# Visual C++ Redistributable either. (Not part of the crates.io packages.)
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
