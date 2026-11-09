@@ -63,7 +63,7 @@ Store 版は zip 版と次の点が違う前提で書いています: 新しい�
 | 2 | `2-workstation.png` | ワークステーションの詳細（コア・GPU 2 枚・ストレージ・プロセスのツリー） |
 | 3 | `3-storage.png` | NAS（SMART の警告・RAID の再構築・ZFS・UPS） |
 | 4 | `4-alerts.png` | 警告の一覧と履歴、スヌーズ |
-| 5 | `5-windows.png` | **未作成**。Store 版を共有の仮想マシンに入れ、この PC（Windows）を表示して撮る（1〜4 は Linux のホストなので、Windows で動いている画面を 1 枚入れる） |
+| 5 | `5-windows.png` | **任意・未作成**。Windows で動いている画面。共有の仮想マシンでは GPU・温度が出ず、ソフトウェア描画で rigtop-gui 自身が CPU 300% と出るため撮っていない。入れるなら、実機の Windows で Store 版を表示して撮る（プロセス一覧は `/top` などで絞り、利用者名・ホスト名・他社のアプリ名が写らないようにする）。後の申請で足してもよい |
 
 キャプション（「イメージの字幕の追加」、200 文字まで）は、各言語の掲載情報の節にある。
 
@@ -111,7 +111,7 @@ Microsoft Store ロゴ（任意）:
 - A workstation over SSH: CPU cores and temperatures, two GPUs, drive health and processes with their GPU use
 - A NAS over SSH: a drive failing SMART, a RAID resync, a ZFS pool and the UPS
 - Alerts now and their history; snooze one for an hour, a day, or until it clears
-- rigtop on Windows (5 枚目を撮ったら、写っている内容に合わせて直す)
+- （5 枚目を入れるとき）rigtop on Windows: CPU cores, temperatures and fans through LibreHardwareMonitor, the GPU and processes
 
 **What's new in this version**: 空欄のまま（Partner Center の説明では、初回の申請では空にする）
 
@@ -186,7 +186,7 @@ Microsoft Store ロゴ（任意）:
 - SSH でつないだワークステーション: CPU のコアと温度、2 枚の GPU、ドライブの健康状態、プロセスごとの GPU の使用量
 - SSH でつないだ NAS: SMART の警告が出たドライブ、RAID の再構築、ZFS のプール、UPS
 - 今の警告と履歴。1 時間・1 日・解消するまで黙らせることも
-- Windows での rigtop（5 枚目を撮ったら、写っている内容に合わせて直す）
+- （5 枚目を入れるとき）Windows での rigtop: CPU のコア、LibreHardwareMonitor 経由の温度とファン、GPU、プロセス
 
 **このバージョンの新機能**: 空欄のまま
 
