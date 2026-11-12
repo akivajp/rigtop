@@ -7,6 +7,32 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Added
+- rigtop is on the Microsoft Store
+  (<https://apps.microsoft.com/detail/9n6jmv1qndck>), the recommended way to
+  install it on Windows 11: signed, and updated by the Store. The README
+  says what differs in the Store's copy.
+- The Store's texts and screenshots live in `packaging/msix/store/` and go
+  to the Store through its submission API: each tag makes a draft
+  submission with the new package, and the Microsoft Store workflow
+  (`msstore.yml`) commits it. No secret is stored (GitHub OIDC, through
+  akivajp/msstore-submit).
+
+### Fixed
+- A Windows host whose rigtop comes from the Microsoft Store or Scoop could
+  not be monitored over SSH: Windows gives SSH sessions the system's `PATH`
+  only, not the user's, where both put rigtop. When `rigtop` is not found
+  on a Windows host, rigtop now tries the Store's copy
+  (`%LOCALAPPDATA%\Microsoft\WindowsApps\rigtop.exe`) and then Scoop's
+  (`%USERPROFILE%\scoop\shims\rigtop.exe`), as it tries `~/.local/bin` and
+  `~/.cargo/bin` elsewhere. Checked against a Windows 11 with the Store's
+  package, also with nobody signed in there.
+- A Windows in another language than English (checked with Japanese) that
+  did not find `rigtop` was not recognized as such: the host stayed at
+  "connection closed (exit status: 1)", since cmd.exe's message is in the
+  system's code page and its bytes ended the reading of the errors. It now
+  says that rigtop was not found, and where it looked.
+
 ## [0.32.0] - 2026-11-09
 
 ### Added

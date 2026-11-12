@@ -47,7 +47,16 @@ curl -fsSLO https://github.com/akivajp/rigtop/releases/latest/download/install.s
 less install.sh && sh install.sh
 ```
 
-**更新**: rigtop は起動時と1時間ごとに、github.com で新しいリリースが出ていないかを確かめます（最新のリリースがどれかを問い合わせるだけで、手元の情報は送りません）。新しい版があると見出しに表示し（TUI は `U`、GUI はボタン。GUI は Linux と macOS ではデスクトップ通知も出します）、動いている rigtop をその版に入れ替えられます。新しい版は再起動の後に動きます（GUI には再起動のボタンがあります）。`cargo install` やパッケージマネージャーで入れたものは書き換えず、更新のコマンドを案内します。Windows では rigtop を終了してから `scoop update rigtop` を実行するか、新しい zip で入れ替えてください。[設定](#設定)の `[updates]` で、間隔を変えたり、確認（`check = false`）や通知（`notify = false`）を止めたりできます。
+Windows 11 では、[Microsoft Store](https://apps.microsoft.com/detail/9n6jmv1qndck) から入れるのがおすすめです。署名済みなので SmartScreen の警告が出ず、更新も Store が届けます。スタートメニューに rigtop（GUI）が入り、端末では `rigtop`（端末版）が使えます。Store 版は次の点が違います。
+
+- 設定と警告の履歴は、パッケージ専用のフォルダー `%LOCALAPPDATA%\Packages\C2B504BA.rigtop_1raghr5p0ryyw\LocalState` に置きます（GUI の「config…」と `rigtop --edit-config` はそこのファイルを開きます）。アンインストールすると一緒に消えます。
+- 新しいリリースの確認と自分の更新はしません（Store が更新します）。
+- 「set up…」は [LibreHardwareMonitor](#librehardwaremonitor-で温度ファンcpu-の消費電力を表示する) を入れる代わりに、手順を案内します（Store のアプリは、ドライバーを伴うほかのソフトを入れられないため）。
+- `rigtop-gui` のコマンドはありません（Store のパッケージが持てるコマンドは 1 つ）。GUI はスタートメニューから起動します。`rigtop --demo` などのオプションは `rigtop` で使えます。
+
+Windows では、下の Scoop と zip も使えます。
+
+**更新**: rigtop は起動時と1時間ごとに、github.com で新しいリリースが出ていないかを確かめます（最新のリリースがどれかを問い合わせるだけで、手元の情報は送りません）。新しい版があると見出しに表示し（TUI は `U`、GUI はボタン。GUI は Linux と macOS ではデスクトップ通知も出します）、動いている rigtop をその版に入れ替えられます。新しい版は再起動の後に動きます（GUI には再起動のボタンがあります）。`cargo install` やパッケージマネージャーで入れたものは書き換えず、更新のコマンドを案内します。Windows では rigtop を終了してから `scoop update rigtop` を実行するか、新しい zip で入れ替えてください（Microsoft Store 版は Store が更新します）。[設定](#設定)の `[updates]` で、間隔を変えたり、確認（`check = false`）や通知（`notify = false`）を止めたりできます。
 
 または、[Releases](https://github.com/akivajp/rigtop/releases) のページから環境に合ったアーカイブを取得し、中のバイナリを `PATH` の通った場所に置いてください。
 
@@ -70,7 +79,7 @@ Debian と Ubuntu（22.04 以降）向けには、Releases のページに `.deb
 sudo apt install ./rigtop_*_amd64.deb
 ```
 
-Windows では [Scoop](https://scoop.sh) で [akivajp のバケット](https://github.com/akivajp/scoop-bucket) からも入れられます（スタートメニューに rigtop-gui が登録され、`scoop update rigtop` で更新できます）。
+Windows では、Microsoft Store（上）のほかに [Scoop](https://scoop.sh) で [akivajp のバケット](https://github.com/akivajp/scoop-bucket) からも入れられます（スタートメニューに rigtop-gui が登録され、`scoop update rigtop` で更新できます）。
 
 ```powershell
 scoop bucket add akivajp https://github.com/akivajp/scoop-bucket
@@ -98,13 +107,14 @@ cd rigtop/packaging/aur/rigtop && makepkg -si
 |---|---|
 | インストールスクリプト | `rm ~/.local/bin/rigtop ~/.local/bin/rigtop-gui` |
 | `.deb` | `sudo apt remove rigtop` |
+| Microsoft Store | 設定 → アプリ → インストールされているアプリ → rigtop → アンインストール（設定も一緒に消えます） |
 | Scoop | `scoop uninstall rigtop` |
 | Homebrew | `brew uninstall rigtop` |
 | `cargo install` | `cargo uninstall rigtop rigtop-gui` |
 | PKGBUILD | `sudo pacman -R rigtop` |
 | アーカイブ | 展開したファイルを削除 |
 
-設定していれば、[SMART の収集](#smart-と-btrfs-の-scrub-結果任意)は `sudo rigtop --uninstall-collector` で、集めたファイルごと削除できます。[CPU 電力](#cpu-の消費電力rapl)の udev ルールは `/etc/udev/rules.d/90-rigtop-rapl.rules` です。設定は `~/.config/rigtop/`（Windows は `%APPDATA%\rigtop\`）に、GUI のウィンドウの配置は `~/.local/share/rigtop/`（macOS は `~/Library/Application Support/rigtop/`、Windows は `%APPDATA%\rigtop\data\`）にあります。GUI から LibreHardwareMonitor を入れた場合は `winget uninstall LibreHardwareMonitor.LibreHardwareMonitor` で削除できます。
+設定していれば、[SMART の収集](#smart-と-btrfs-の-scrub-結果任意)は `sudo rigtop --uninstall-collector` で、集めたファイルごと削除できます。[CPU 電力](#cpu-の消費電力rapl)の udev ルールは `/etc/udev/rules.d/90-rigtop-rapl.rules` です。設定は `~/.config/rigtop/`（Windows は `%APPDATA%\rigtop\`）に、GUI のウィンドウの配置は `~/.local/share/rigtop/`（macOS は `~/Library/Application Support/rigtop/`、Windows は `%APPDATA%\rigtop\data\`）にあります。Microsoft Store 版はどちらもパッケージのフォルダーの中に置き、アンインストールで Windows が一緒に消します。GUI から LibreHardwareMonitor を入れた場合は `winget uninstall LibreHardwareMonitor.LibreHardwareMonitor` で削除できます。
 
 ## 使い方
 
@@ -220,9 +230,10 @@ rigtop は OS の `ssh`（Windows では標準の OpenSSH クライアント）�
 
 - パスワードを聞かれない認証（鍵や ssh-agent）が必要です。ホスト鍵も登録済みである必要があるので、先に一度 `ssh <ホスト>` で接続してください。
 - 非対話の SSH セッション（`ssh ホスト コマンド`）では、`~/.local/bin`（インストールスクリプトの入れ先）や `~/.cargo/bin` に `PATH` が通っていないことがよくあります（zsh は `~/.zshenv` しか読まず、bash は多くの場合何も読みません）。そこで `rigtop` が見つからなければ、rigtop が自動で `~/.local/bin/rigtop --agent`、次に `~/.cargo/bin/rigtop --agent` を試します。それ以外の場所に置いた場合は、ホストの `command`（`--host` なら `--remote-command`）でコマンドを指定してください。
+- Windows のホストには、OpenSSH サーバー（設定 → システム → オプション機能）が要ります。既定のシェルは cmd.exe のままにしてください（変えていなければ cmd.exe です）。Windows は SSH のセッションにシステムの `PATH` しか渡さず、Microsoft Store や Scoop が rigtop を置くユーザーの `PATH` は入りません。そこで `rigtop` が見つからなければ、rigtop が自動で Store 版（`%LOCALAPPDATA%\Microsoft\WindowsApps\rigtop.exe`）、次に Scoop 版（`%USERPROFILE%\scoop\shims\rigtop.exe`）を試します。Store 版は、その PC に誰もサインインしていなくても応答します。
 - 遠隔のプロセスの終了は、SSH でログインしたユーザーの権限で行われます。
 - 遠隔ホストの見出しには、通信の往復時間を出します（`12ms`。5秒ごとに測り、500ms 以上は黄）。回線が遅いのか、ホストが重いのかの見分けに使えます。ホスト側に rigtop 0.23 以降が必要です。
-- 手元と違う版の rigtop が入っているホストは、見出しにその版を出します（`agent 0.8.2`）。新しい項目は、そのホストの rigtop を更新すると表示されます。手元より古い場合は、TUI の `u` か GUI でその表示をクリックすると、手元と同じ版に更新できます（TUI のオーバービューでの `u`、または GUI のタブの行の「update agents (N)…」で、該当する全ホストをまとめて更新します）。確認の後、SSH 越しにリリースのインストールスクリプトを実行して、エージェントとして動いている rigtop を入れ替え、つなぎ直します（curl か wget のある Linux・macOS のホスト）。`cargo install` やパッケージマネージャーで入れたものは書き換えず、更新のコマンドを案内します。Windows のホストは Scoop で更新してください。
+- 手元と違う版の rigtop が入っているホストは、見出しにその版を出します（`agent 0.8.2`）。新しい項目は、そのホストの rigtop を更新すると表示されます。手元より古い場合は、TUI の `u` か GUI でその表示をクリックすると、手元と同じ版に更新できます（TUI のオーバービューでの `u`、または GUI のタブの行の「update agents (N)…」で、該当する全ホストをまとめて更新します）。確認の後、SSH 越しにリリースのインストールスクリプトを実行して、エージェントとして動いている rigtop を入れ替え、つなぎ直します（curl か wget のある Linux・macOS のホスト）。`cargo install` やパッケージマネージャーで入れたものは書き換えず、更新のコマンドを案内します。Windows のホストは、Microsoft Store か Scoop で更新してください。
 
 ## 画面なしでの警告の通知（`rigtop --watch`）
 
@@ -297,7 +308,7 @@ Linux との違い:
 
 ### LibreHardwareMonitor で温度・ファン・CPU の消費電力を表示する
 
-`rigtop-gui` では、CPU パネルの案内の横にある **set up…** が下の手順 1〜3 を代行します。必要なら winget で LibreHardwareMonitor を導入し、Web サーバーをこの PC からだけ接続できる形（127.0.0.1）で有効にして起動します。手作業で行う場合:
+`rigtop-gui` では、CPU パネルの案内の横にある **set up…** が下の手順 1〜3 を代行します。必要なら winget で LibreHardwareMonitor を導入し、Web サーバーをこの PC からだけ接続できる形（127.0.0.1）で有効にして起動します（Microsoft Store 版は、代わりにこの手順を表示します）。手作業で行う場合:
 
 1. CPU のセンサーに要る PawnIO ドライバと一緒に導入します（ドライバの導入で管理者の承認を求められます）。
    ```powershell
@@ -341,7 +352,7 @@ UPS を別の機械につないでいる場合（NUT のクライアント）は
 
 ## 設定
 
-`~/.config/rigtop/config.toml`（Windows は `%APPDATA%\rigtop\config.toml`）。GUI の「config…」で既定のアプリで開くか、フォルダーを表示できます（Windows で `.toml` を開くアプリが無ければメモ帳で開きます）。`rigtop --edit-config` は `$VISUAL` か `$EDITOR` で開き、閉じた後に書き間違いが無いか確かめます。どちらも、ファイルが無ければ全項目を既定値でコメントアウトしたひな形を作ってから開きます。どの項目も省略できます。rigtop の起動中に書き換えても、1秒ほどで反映されます。`[[hosts]]` に足したホストにはつなぎ、消したホストからは切断します（残ったホストの履歴はそのまま）。ウィジェットは作り直します。ファイルが読めないときは、その旨を表示して今の設定のまま動きます。
+`~/.config/rigtop/config.toml`（Windows は `%APPDATA%\rigtop\config.toml`、Microsoft Store 版は `%LOCALAPPDATA%\Packages\C2B504BA.rigtop_1raghr5p0ryyw\LocalState\config.toml`）。GUI の「config…」で既定のアプリで開くか、フォルダーを表示できます（Windows で `.toml` を開くアプリが無ければメモ帳で開きます）。`rigtop --edit-config` は `$VISUAL` か `$EDITOR` で開き、閉じた後に書き間違いが無いか確かめます。どちらも、ファイルが無ければ全項目を既定値でコメントアウトしたひな形を作ってから開きます。どの項目も省略できます。rigtop の起動中に書き換えても、1秒ほどで反映されます。`[[hosts]]` に足したホストにはつなぎ、消したホストからは切断します（残ったホストの履歴はそのまま）。ウィジェットは作り直します。ファイルが読めないときは、その旨を表示して今の設定のまま動きます。
 
 ```toml
 [sensors]

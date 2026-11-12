@@ -47,7 +47,16 @@ curl -fsSLO https://github.com/akivajp/rigtop/releases/latest/download/install.s
 less install.sh && sh install.sh
 ```
 
-**Updates**: rigtop looks for a new release on github.com at startup and every hour (it only asks which release is the latest; nothing about your machine is sent). When there is one, the title says so (`U` in the TUI, a button in the GUI, which also shows a desktop notification on Linux and macOS) and offers to install it in place of the running program; the new version runs after a restart (the GUI has a restart button). Copies from `cargo install` or a package manager are left alone, with the command to update them; on Windows, quit rigtop and run `scoop update rigtop` or replace it with the new zip. `[updates]` in the [configuration](#configuration) changes the interval or turns the check (`check = false`) or the notification (`notify = false`) off.
+On Windows 11, the recommended way is the [Microsoft Store](https://apps.microsoft.com/detail/9n6jmv1qndck): the package is signed (no SmartScreen warning) and the Store keeps it up to date. It puts rigtop (the GUI) in the Start menu and the terminal version on your `PATH` as `rigtop`. What differs in the Store's copy:
+
+- The settings and the alert history are in the package's own folder, `%LOCALAPPDATA%\Packages\C2B504BA.rigtop_1raghr5p0ryyw\LocalState` ("config…" in the GUI and `rigtop --edit-config` open the file there), which uninstalling removes.
+- It does not look for new releases or update itself; the Store does.
+- "set up…" explains how to set up [LibreHardwareMonitor](#temperatures-fans-and-cpu-power-with-librehardwaremonitor) instead of installing it (Store apps must not install other software that brings a driver).
+- There is no `rigtop-gui` command (a Store package has one command): start the GUI from the Start menu; `rigtop` takes the options, such as `rigtop --demo`.
+
+Scoop and the zip, both below, work on Windows too.
+
+**Updates**: rigtop looks for a new release on github.com at startup and every hour (it only asks which release is the latest; nothing about your machine is sent). When there is one, the title says so (`U` in the TUI, a button in the GUI, which also shows a desktop notification on Linux and macOS) and offers to install it in place of the running program; the new version runs after a restart (the GUI has a restart button). Copies from `cargo install` or a package manager are left alone, with the command to update them; on Windows, quit rigtop and run `scoop update rigtop` or replace it with the new zip (the Microsoft Store updates its copy by itself). `[updates]` in the [configuration](#configuration) changes the interval or turns the check (`check = false`) or the notification (`notify = false`) off.
 
 Or download an archive for your platform from the [Releases](https://github.com/akivajp/rigtop/releases) page and put the binaries on your `PATH`:
 
@@ -70,7 +79,7 @@ On Debian and Ubuntu (22.04 or newer), the Releases page also has `.deb` package
 sudo apt install ./rigtop_*_amd64.deb
 ```
 
-On Windows with [Scoop](https://scoop.sh), from the [akivajp bucket](https://github.com/akivajp/scoop-bucket), which also adds rigtop-gui to the Start menu (`scoop update rigtop` updates it):
+On Windows, besides the Microsoft Store (above), with [Scoop](https://scoop.sh), from the [akivajp bucket](https://github.com/akivajp/scoop-bucket), which also adds rigtop-gui to the Start menu (`scoop update rigtop` updates it):
 
 ```powershell
 scoop bucket add akivajp https://github.com/akivajp/scoop-bucket
@@ -98,13 +107,14 @@ cd rigtop/packaging/aur/rigtop && makepkg -si
 |---|---|
 | The install script | `rm ~/.local/bin/rigtop ~/.local/bin/rigtop-gui` |
 | `.deb` | `sudo apt remove rigtop` |
+| The Microsoft Store | Settings → Apps → Installed apps → rigtop → Uninstall (its settings go with it) |
 | Scoop | `scoop uninstall rigtop` |
 | Homebrew | `brew uninstall rigtop` |
 | `cargo install` | `cargo uninstall rigtop rigtop-gui` |
 | PKGBUILD | `sudo pacman -R rigtop` |
 | An archive | Delete the files you extracted |
 
-Then, if you set them up: `sudo rigtop --uninstall-collector` removes the [SMART collector](#smart-and-btrfs-scrub-results-optional) and its files, and the udev rule for [CPU power](#cpu-power-rapl) is `/etc/udev/rules.d/90-rigtop-rapl.rules`. Settings are in `~/.config/rigtop/` (Windows: `%APPDATA%\rigtop\`), and the GUI keeps its window layout in `~/.local/share/rigtop/` (macOS: `~/Library/Application Support/rigtop/`, Windows: `%APPDATA%\rigtop\data\`). LibreHardwareMonitor, if the GUI installed it for you: `winget uninstall LibreHardwareMonitor.LibreHardwareMonitor`.
+Then, if you set them up: `sudo rigtop --uninstall-collector` removes the [SMART collector](#smart-and-btrfs-scrub-results-optional) and its files, and the udev rule for [CPU power](#cpu-power-rapl) is `/etc/udev/rules.d/90-rigtop-rapl.rules`. Settings are in `~/.config/rigtop/` (Windows: `%APPDATA%\rigtop\`), and the GUI keeps its window layout in `~/.local/share/rigtop/` (macOS: `~/Library/Application Support/rigtop/`, Windows: `%APPDATA%\rigtop\data\`); the Microsoft Store's copy keeps both inside its package folder, which Windows removes with it. LibreHardwareMonitor, if the GUI installed it for you: `winget uninstall LibreHardwareMonitor.LibreHardwareMonitor`.
 
 ## Usage
 
@@ -220,9 +230,10 @@ rigtop starts `rigtop --agent` on each remote host through your system's `ssh` (
 
 - Authentication must work without a prompt (key or agent), and the host key must already be known: connect once with `ssh <host>` first.
 - Non-interactive SSH sessions often lack `~/.local/bin` (where the install script puts rigtop) and `~/.cargo/bin` on their `PATH` (zsh reads only `~/.zshenv` for them, bash usually nothing). When `rigtop` is not found there, rigtop tries `~/.local/bin/rigtop --agent`, then `~/.cargo/bin/rigtop --agent`, by itself. For other locations, set `command` for the host (or `--remote-command` for `--host`).
+- A Windows host needs its OpenSSH server (Settings → System → Optional features) with cmd.exe as the default shell, which it is unless changed. Windows gives SSH sessions the system's `PATH` only, not the user's, where the Microsoft Store and Scoop put rigtop: when `rigtop` is not found there, rigtop tries the Store's copy (`%LOCALAPPDATA%\Microsoft\WindowsApps\rigtop.exe`), then Scoop's (`%USERPROFILE%\scoop\shims\rigtop.exe`), by itself. The Store's copy also answers while nobody is signed in on that PC.
 - Killing processes on a remote host uses the SSH user's permissions.
 - Each remote host's title shows the round trip of its link (`12ms`, measured every 5 seconds; yellow from 500 ms), to tell a slow connection or a struggling host. Hosts need rigtop 0.23 or later for it.
-- A host whose rigtop is another version than yours says so in its title (`agent 0.8.2`); newer readings appear once it is updated. When it is older, `u` in the TUI or a click on that note in the GUI updates it to your version (`u` in the TUI's overview, or "update agents (N)…" in the GUI's tab bar, updates every such host at once): after you confirm, rigtop runs the release's install script over SSH (Linux and macOS hosts with curl or wget) and replaces the rigtop the agent runs, then reconnects. Copies from `cargo install` or a package manager are left alone, with the command to update them; Windows hosts update with Scoop.
+- A host whose rigtop is another version than yours says so in its title (`agent 0.8.2`); newer readings appear once it is updated. When it is older, `u` in the TUI or a click on that note in the GUI updates it to your version (`u` in the TUI's overview, or "update agents (N)…" in the GUI's tab bar, updates every such host at once): after you confirm, rigtop runs the release's install script over SSH (Linux and macOS hosts with curl or wget) and replaces the rigtop the agent runs, then reconnects. Copies from `cargo install` or a package manager are left alone, with the command to update them; Windows hosts update through the Microsoft Store or with Scoop.
 
 ## Alerts without a window (`rigtop --watch`)
 
@@ -297,7 +308,7 @@ What differs from Linux:
 
 ### Temperatures, fans and CPU power with LibreHardwareMonitor
 
-In `rigtop-gui`, **set up…** next to the note in the CPU panel does steps 1 to 3 for you: it installs LibreHardwareMonitor with winget if needed, turns its web server on for this computer only (127.0.0.1) and starts it. By hand:
+In `rigtop-gui`, **set up…** next to the note in the CPU panel does steps 1 to 3 for you: it installs LibreHardwareMonitor with winget if needed, turns its web server on for this computer only (127.0.0.1) and starts it (the Microsoft Store's copy shows these steps instead). By hand:
 
 1. Install it, together with the PawnIO driver it needs for CPU sensors (Windows asks for administrator approval for the driver):
    ```powershell
@@ -341,7 +352,7 @@ A machine whose UPS is plugged into another one (a NUT client) can read it from 
 
 ## Configuration
 
-`~/.config/rigtop/config.toml` (`%APPDATA%\rigtop\config.toml` on Windows). "config…" in the GUI opens it in the default app (Notepad on Windows when nothing else opens `.toml` files) or shows its folder, and `rigtop --edit-config` opens it in `$VISUAL` or `$EDITOR` and checks it afterwards; both first create it with every setting commented out at its default if there is none. Every setting is optional. Edits apply while rigtop runs, within a second: hosts added to `[[hosts]]` connect and removed ones disconnect (the others keep their history), and widgets restart. If the file cannot be read, rigtop says so and keeps the settings it has.
+`~/.config/rigtop/config.toml` (`%APPDATA%\rigtop\config.toml` on Windows; `%LOCALAPPDATA%\Packages\C2B504BA.rigtop_1raghr5p0ryyw\LocalState\config.toml` for the Microsoft Store's copy). "config…" in the GUI opens it in the default app (Notepad on Windows when nothing else opens `.toml` files) or shows its folder, and `rigtop --edit-config` opens it in `$VISUAL` or `$EDITOR` and checks it afterwards; both first create it with every setting commented out at its default if there is none. Every setting is optional. Edits apply while rigtop runs, within a second: hosts added to `[[hosts]]` connect and removed ones disconnect (the others keep their history), and widgets restart. If the file cannot be read, rigtop says so and keeps the settings it has.
 
 ```toml
 [sensors]
