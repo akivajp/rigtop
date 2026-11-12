@@ -47,6 +47,13 @@ jobs:
             os: windows-latest
             packages: -p rigtop -p rigtop-gui
             bins: rigtop.exe rigtop-gui.exe
+            msix_arch: x64
+          # Built on Arm, where the tests and the package checks can run.
+          - target: aarch64-pc-windows-msvc
+            os: windows-11-arm
+            packages: -p rigtop -p rigtop-gui
+            bins: rigtop.exe rigtop-gui.exe
+            msix_arch: arm64
           - target: aarch64-apple-darwin
             os: macos-latest
             packages: -p rigtop -p rigtop-gui
@@ -120,7 +127,7 @@ jobs:
         run: |
           $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"' |
             Select-Object -First 1).Matches.Groups[1].Value
-          $params = @{ BinDir = "target/${{ matrix.target }}/release"; Version = $version; OutDir = "msix"; TestSign = $true }
+          $params = @{ BinDir = "target/${{ matrix.target }}/release"; Version = $version; OutDir = "msix"; Arch = "${{ matrix.msix_arch }}"; TestSign = $true }
           if ($env:MSIX_IDENTITY_NAME) { $params.IdentityName = $env:MSIX_IDENTITY_NAME }
           if ($env:MSIX_PUBLISHER) { $params.Publisher = $env:MSIX_PUBLISHER }
           if ($env:MSIX_PUBLISHER_DISPLAY_NAME) { $params.PublisherDisplayName = $env:MSIX_PUBLISHER_DISPLAY_NAME }
@@ -139,10 +146,11 @@ jobs:
           $test = Get-ChildItem msix/*-test.msix | Select-Object -First 1
           Import-Certificate -FilePath $cer.FullName -CertStoreLocation Cert:\LocalMachine\TrustedPeople | Out-Null
           & $appcert reset
-          & $appcert test -appxpackagepath $test.FullName -reportoutputpath "$PWD\msix\wack-report.xml"
+          $out = "msix\wack-report-${{ matrix.msix_arch }}.xml"
+          & $appcert test -appxpackagepath $test.FullName -reportoutputpath "$PWD\$out"
           Write-Host "appcert exit code: $LASTEXITCODE"
-          if (Test-Path msix/wack-report.xml) {
-            [xml] $report = Get-Content -Raw msix/wack-report.xml
+          if (Test-Path $out) {
+            [xml] $report = Get-Content -Raw $out
             Write-Host "Overall: $($report.REPORT.OVERALL_RESULT)"
             $report.SelectNodes("//TEST[RESULT!='PASS']") | ForEach-Object {
               Write-Host "$($_.RESULT): $($_.NAME)"
@@ -151,8 +159,22 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: runner.os == 'Windows'
         with:
-          name: store-msix
+          name: store-msix-${{ matrix.msix_arch }}
           path: msix/*
+          retention-days: 30
+
+  # The packages of both architectures in one artifact, store-msix: what
+  # the store job below submits, and what to download for a test PC.
+  store-packages:
+    name: Microsoft Store packages
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/upload-artifact/merge@v7
+        with:
+          name: store-msix
+          pattern: store-msix-*
+          delete-merged: true
           retention-days: 30
 
   # A new Microsoft Store submission with this version's MSIX package and
@@ -163,7 +185,7 @@ jobs:
   # only once committed; don't edit or submit it there). Tags only.
   store:
     name: Microsoft Store submission
-    needs: build
+    needs: store-packages
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: read

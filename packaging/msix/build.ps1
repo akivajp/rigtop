@@ -4,7 +4,7 @@
 
 .DESCRIPTION
   Lays out rigtop-gui.exe and rigtop.exe, the images and AppxManifest.xml (with the
-  identity and the version filled in), indexes the images with makepri
+  identity, the version and the architecture filled in), indexes the images with makepri
   (for their scale-* and targetsize-* variants) and packs them with
   makeappx. Needs the Windows SDK (GitHub's windows-latest has it).
 
@@ -15,6 +15,9 @@
 
 .EXAMPLE
   ./packaging/msix/build.ps1 -BinDir target/release -Version 0.32.0 -OutDir dist -TestSign
+
+.EXAMPLE
+  ./packaging/msix/build.ps1 -BinDir target/aarch64-pc-windows-msvc/release -Arch arm64 -Version 0.32.0 -OutDir dist
 #>
 param(
   # The folder with rigtop-gui.exe and rigtop.exe.
@@ -29,6 +32,8 @@ param(
   [string] $Publisher = "CN=14FA0ABF-60AB-41EA-B780-C6A9B9C7147D",
   # Product identity: Package/Properties/PublisherDisplayName.
   [string] $PublisherDisplayName = "Akiva Miura",
+  # What the executables in BinDir were built for.
+  [ValidateSet("x64", "arm64")] [string] $Arch = "x64",
   # Also make a copy signed with a self-signed certificate, for testing.
   [switch] $TestSign
 )
@@ -43,9 +48,14 @@ function Invoke-Tool([string] $Tool, [string[]] $Arguments) {
 
 if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw "version $Version is not x.y.z" }
 
-# The newest SDK's tools.
-$bin = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\10.*\x64\makeappx.exe" |
-  Sort-Object { [version]$_.Directory.Parent.Name } | Select-Object -Last 1
+# The newest SDK's tools. They pack for any architecture; the x64 ones run
+# on Arm too (emulated), and are what every SDK has.
+$bin = $null
+foreach ($tools in "x64", "arm64", "x86") {
+  $bin = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\10.*\$tools\makeappx.exe" -ErrorAction SilentlyContinue |
+    Sort-Object { [version]$_.Directory.Parent.Name } | Select-Object -Last 1
+  if ($bin) { break }
+}
 if (-not $bin) { throw "the Windows SDK (makeappx.exe) is not installed" }
 $sdk = $bin.Directory.FullName
 Write-Host "Windows SDK tools: $sdk"
@@ -64,7 +74,8 @@ $manifest = (Get-Content -Raw (Join-Path $here "AppxManifest.xml")).
   Replace("@IDENTITY_NAME@", $IdentityName).
   Replace("@PUBLISHER@", [System.Security.SecurityElement]::Escape($Publisher)).
   Replace("@PUBLISHER_DISPLAY_NAME@", [System.Security.SecurityElement]::Escape($PublisherDisplayName)).
-  Replace("@VERSION@", "$Version.0")
+  Replace("@VERSION@", "$Version.0").
+  Replace("@ARCH@", $Arch)
 Set-Content -Encoding utf8 (Join-Path $layout "AppxManifest.xml") $manifest
 
 # resources.pri: lets Windows pick Assets\Square44x44Logo.scale-200.png and
@@ -81,7 +92,7 @@ Invoke-Tool "$sdk\makepri.exe" @("new", "/pr", $layout, "/cf", $priconfig,
   "/mn", (Join-Path $layout "AppxManifest.xml"), "/of", (Join-Path $layout "resources.pri"), "/o")
 
 # The package for the Store.
-$name = "rigtop-v$Version-x64"
+$name = "rigtop-v$Version-$Arch"
 $msix = Join-Path $OutDir "$name.msix"
 Invoke-Tool "$sdk\makeappx.exe" @("pack", "/d", $layout, "/p", $msix, "/o")
 Write-Host "Package: $msix"

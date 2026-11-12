@@ -2,7 +2,7 @@
 <!--
   The MSIX package for the Microsoft Store. build.ps1 fills in the @…@
   values: the identity comes from Partner Center (Product identity), the
-  version from Cargo.toml.
+  version from Cargo.toml, the architecture from the build.
 -->
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
@@ -16,7 +16,7 @@
     Name="@IDENTITY_NAME@"
     Publisher="@PUBLISHER@"
     Version="@VERSION@"
-    ProcessorArchitecture="x64" />
+    ProcessorArchitecture="@ARCH@" />
 
   <Properties>
     <DisplayName>rigtop</DisplayName>
