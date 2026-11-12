@@ -34,6 +34,16 @@ The images in `Assets/` are rendered from `crates/rigtop-gui/assets/rigtop.svg`,
 
 ## Publishing on the Store
 
-The identity (Partner Center > rigtop > Product identity) is in the repository variables that the workflow reads: `MSIX_IDENTITY_NAME`, `MSIX_PUBLISHER`, `MSIX_PUBLISHER_DISPLAY_NAME`. Upload `rigtop-vX.Y.Z-x64.msix` from the `store-msix` artifact to the submission's **Packages**; what goes into the rest of the submission is in [`store-listing.ja.md`](store-listing.ja.md) (in Japanese, for the Japanese Partner Center).
+rigtop is on the Store as [9N6JMV1QNDCK](https://apps.microsoft.com/detail/9n6jmv1qndck). The package's identity (Partner Center > rigtop > Product identity) is in the repository variables that the workflow reads: `MSIX_IDENTITY_NAME`, `MSIX_PUBLISHER`, `MSIX_PUBLISHER_DISPLAY_NAME`.
+
+Submissions go through the Store's submission API, by the shared workflow [akivajp/msstore-submit](https://github.com/akivajp/msstore-submit) (it signs in with GitHub OIDC through this repository's `msstore` environment; no secret is stored):
+
+1. Rewrite `release_notes` ("What's new in this version") in every listing file, [`store/en-us.toml`](store/en-us.toml) and [`store/ja.toml`](store/ja.toml). They hold the Store's texts (description, features, search terms, captions) and are what the Store shows: edit them here, not in Partner Center.
+2. Tag the release. The release workflow builds the package and makes a **draft** submission with it and the listing files; the log of its "Microsoft Store submission" job shows every field that changes.
+3. Look at that log, then submit the draft: `gh workflow run msstore.yml -f command=commit` (or delete it with `-f command=discard`). Partner Center shows the changes of an API submission only once it is committed, and a draft edited or submitted there can no longer be handled through the API.
+
+For the listing alone (no new package): `gh workflow run msstore.yml -f command=submit`, with `-f images=true` to replace the screenshots too (`store/screenshots/`), then `commit` as above. `check` and `show` read the app's submissions and change nothing.
+
+What was entered by hand in Partner Center for the first submission, and cannot be set through the API (pricing, properties, the age rating, the reason for `runFullTrust`), is recorded in [`store-listing.ja.md`](store-listing.ja.md) (in Japanese).
 
 Each version needs a new package version (the workflow takes it from `Cargo.toml`); the Store's last number stays 0.

@@ -1,0 +1,83 @@
+# rigtop's Microsoft Store listing in Japanese, applied by the
+# Microsoft Store workflow (.github/workflows/msstore.yml, akivajp/msstore-submit).
+# Fields left out keep the values of the last submission.
+
+title = "rigtop"
+short_description = "この PC と、管理しているほかのマシンをまとめて見るシステムモニター。CPU・すべての GPU・メモリ・ドライブ・ネットワーク・プロセスに、ドライブの健康状態と RAID、SSH でつないだ複数のホストを 1 画面で。"
+# No URLs here (Partner Center's advice); the first paragraph discloses the
+# optional dependency on LibreHardwareMonitor (Store policy 10.2.4).
+description = '''
+Windows では、温度・ファン・CPU の電力は、別に入れて動かす無料のソフト LibreHardwareMonitor から読みます。無くてもそれ以外はすべて表示します。
+
+rigtop は、この PC と、管理しているワークステーション・ノート PC・自宅のサーバー・NAS の様子を並べて表示します。コアごとの CPU の負荷、すべての GPU、メモリ、ドライブ、ネットワーク、プロセスに加えて、ほかのモニターではあまり見られないドライブの健康状態と RAID も見張ります。
+
+この PC では:
+• コアごとの CPU の負荷とクロック。温度・ファン・電力は LibreHardwareMonitor から
+• NVIDIA の GPU: 負荷・ビデオメモリ・温度・電力と、プロセスごとの GPU の使用率とビデオメモリ
+• メモリ、ドライブの読み書きと健康状態（摩耗・予備領域・温度）、ネットワークのリンク速度とアドレス
+• プロセスの検索・ツリー表示・詳細・タスクの終了・強制終了
+
+SSH でほかのマシンも:
+• rigtop を入れた Linux・macOS・Windows のホストを追加できます。Windows 標準の OpenSSH クライアントと手元の SSH の鍵で、相手のマシンの rigtop を動かします。常駐のサーバーも、ポートの開放も要りません。
+• ホストごとのカードを並べたオーバービュー。注意が要るホストを先頭にすることも
+• Linux のホストからは: SMART、mdadm の RAID と再構築の進み具合、ZFS のプールとスクラブ、btrfs のエラー、プロセスごとのコンテナーや仮想マシン、AMD・Intel の GPU、Network UPS Tools 経由の UPS
+• 指示すると、遠隔ホストの rigtop を手元と同じ版に更新します（そのホストが公式のリリースをダウンロードします）
+
+ドライブの故障の兆候、RAID の縮退、残り少ないディスク、CPU・GPU・ドライブの高温、メモリ不足を警告し、履歴も残します。1 時間・1 日・解消するまで黙らせることができ、しきい値はホストごとに設定できます。
+
+そのほか: パネルの大きさ・配置・表示を変えられる、1 分から 24 時間までのグラフ、拡大・縮小、自分のコマンドの出力を表示するウィジェット、端末版の「rigtop」。
+
+利用状況のデータは送りません。アプリの画面は英語です。無料のオープンソースです（MIT または Apache 2.0）。'''
+# "What's new in this version": rewrite for each release.
+release_notes = "Microsoft Store から入れた rigtop のある Windows の PC を、追加の設定なしで、ほかのマシンから SSH で監視できるようになりました（Windows は SSH のセッションにシステムの PATH しか渡しませんが、rigtop が自分で見つけます）。rigtop の入っていない Windows のホストでは、日本語の Windows でも読める文で理由を表示します。"
+# 20 at most, 200 characters each.
+features = [
+  "コアごとの CPU の負荷・クロック・温度・ファン・電力",
+  "すべての GPU と、プロセスごとの GPU の使用率とビデオメモリ（NVIDIA）",
+  "メモリ、ドライブの読み書きと健康状態、ネットワークのリンク速度",
+  "プロセスの検索・ツリー表示・詳細・タスクの終了・強制終了",
+  "SSH で複数のホストを監視。サーバーもポートの開放も不要",
+  "Linux のホストのドライブの健康状態: SMART・mdadm・ZFS・btrfs",
+  "Linux のホストのプロセスごとのコンテナーと仮想マシン",
+  "Network UPS Tools 経由の UPS の状態",
+  "警告の履歴とスヌーズ。しきい値はホストごとに",
+  "指示すると遠隔ホストの rigtop を更新",
+  "パネルの大きさと配置を変えられる。グラフは 24 時間まで",
+  "自分のコマンドの出力を表示するウィジェット",
+  "端末版の rigtop",
+  "無料のオープンソース",
+]
+# Search terms, 7 at most.
+keywords = [
+  "システムモニター",
+  "リソースモニター",
+  "ハードウェアモニター",
+  "GPU",
+  "サーバー監視",
+  "SSH",
+  "system monitor",
+]
+copyright = "Copyright (c) 2026 Akiva Miura"
+license_terms = "MIT License または Apache License 2.0 のいずれかを選択できます: https://github.com/akivajp/rigtop#license"
+developed_by = "Akiva Miura"
+
+# Screenshots (PNG, 1366x768 or larger), in this order; replaced only when the
+# workflow runs with images = true. The app is in English only, so both
+# languages show the same pictures (the demo's made-up hosts), with their own
+# captions.
+
+[[screenshots]]
+file = "screenshots/1-overview.png"
+caption = "管理しているマシンを 1 画面に。注意が要るものは色で分かる"
+
+[[screenshots]]
+file = "screenshots/2-workstation.png"
+caption = "SSH でつないだワークステーション: CPU のコアと温度、2 枚の GPU、ドライブの健康状態、プロセスごとの GPU の使用量"
+
+[[screenshots]]
+file = "screenshots/3-storage.png"
+caption = "SSH でつないだ NAS: SMART の警告が出たドライブ、RAID の再構築、ZFS のプール、UPS"
+
+[[screenshots]]
+file = "screenshots/4-alerts.png"
+caption = "今の警告と履歴。1 時間・1 日・解消するまで黙らせることも"

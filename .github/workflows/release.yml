@@ -105,8 +105,8 @@ jobs:
           name: rigtop-${{ matrix.target }}
           path: dist/*
           retention-days: 30
-      # The MSIX package for the Microsoft Store (uploaded to Partner Center
-      # by hand), and a copy signed with a throwaway certificate for trying
+      # The MSIX package for the Microsoft Store (the store job below puts it
+      # in a draft submission), and a copy signed with a throwaway certificate for trying
       # it on a test PC. Not part of the GitHub release: an unsigned package
       # cannot be installed. The identity comes from the repository's
       # variables (Partner Center > Product identity).
@@ -154,6 +154,29 @@ jobs:
           name: store-msix
           path: msix/*
           retention-days: 30
+
+  # A new Microsoft Store submission with this version's MSIX package and
+  # the listing files (packaging/msix/store), through akivajp/msstore-submit
+  # (GitHub OIDC; the environment `msstore` is what Entra ID trusts). Left
+  # as a draft: its log shows what changes, and the Microsoft Store
+  # workflow's commit command submits it (Partner Center shows the changes
+  # only once committed; don't edit or submit it there). Tags only.
+  store:
+    name: Microsoft Store submission
+    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: read
+      id-token: write
+    uses: akivajp/msstore-submit/.github/workflows/store.yml@main
+    with:
+      app-id: 9N6JMV1QNDCK
+      command: submit
+      artifact: store-msix
+      # The Store's package, not the test copy (-x64-test.msix).
+      package: rigtop-v*-x64.msix
+      listings: packaging/msix/store
+      commit: false
 
   release:
     name: Publish release

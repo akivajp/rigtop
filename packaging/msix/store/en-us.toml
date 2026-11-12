@@ -1,0 +1,83 @@
+# rigtop's Microsoft Store listing in English (United States), applied by the
+# Microsoft Store workflow (.github/workflows/msstore.yml, akivajp/msstore-submit).
+# Fields left out keep the values of the last submission.
+
+title = "rigtop"
+short_description = "A system monitor for your PC and the other machines you look after: CPU, every GPU, memory, drives, network and processes, drive health and RAID, and many hosts over SSH on one screen."
+# No URLs here (Partner Center's advice); the first paragraph discloses the
+# optional dependency on LibreHardwareMonitor (Store policy 10.2.4).
+description = '''
+On Windows, temperatures, fans and CPU power come from LibreHardwareMonitor, a free program installed and run separately. Without it, rigtop shows everything else.
+
+rigtop shows how your PC is doing, and the workstations, laptops, home servers and NAS you look after, side by side: CPU load per core, every GPU, memory, drives, network and the processes. It also watches what other monitors mostly skip: drive health and RAID.
+
+On this PC:
+• CPU load per core and clock; temperatures, fans and power through LibreHardwareMonitor
+• NVIDIA GPUs: load, video memory, temperature and power, and each process's GPU use and video memory
+• Memory, drives with their I/O and health (wear, spare, temperature), network with link speeds and addresses
+• Processes with search, a tree view, details, end task and kill
+
+Other machines over SSH:
+• Add Linux, macOS or Windows hosts that have rigtop installed. rigtop runs it there through the OpenSSH client built into Windows, with your SSH keys: no server to run, no port to open.
+• An overview with a card per host, alerts first if you like
+• From Linux hosts: SMART, mdadm RAID with resync progress, ZFS pools and scrubs, btrfs errors, the container or virtual machine of each process, AMD and Intel GPUs, and UPSes through Network UPS Tools
+• When you ask, rigtop updates rigtop on a remote host to its own version: that host downloads the official release.
+
+Alerts for failing drives, degraded RAID, nearly full disks, hot CPUs, GPUs and drives, and memory running out, with a history kept between runs. Snooze one for an hour, a day, or until it clears; set the thresholds per host.
+
+Also: panels you can resize, rearrange and hide; graphs from one minute to 24 hours; zoom; widgets that show the output of your own commands; and a terminal version, "rigtop".
+
+rigtop sends no telemetry. The app is in English. It is free and open source (MIT or Apache 2.0).'''
+# "What's new in this version": rewrite for each release.
+release_notes = "A Windows PC with rigtop from the Microsoft Store can now be monitored from another machine over SSH without extra settings: rigtop finds it although Windows gives SSH sessions the system's PATH only. A Windows host without rigtop now says so in plain words, also on a Windows in another language than English."
+# 20 at most, 200 characters each.
+features = [
+  "CPU load per core, clock, temperatures, fans and power",
+  "Every GPU with each process's GPU use and video memory (NVIDIA)",
+  "Memory, drives with I/O and health, network with link speeds",
+  "Processes with search, tree view, details, end task and kill",
+  "Many hosts over SSH with an overview, no server or open port",
+  "Drive health from Linux hosts: SMART, mdadm, ZFS and btrfs",
+  "Containers and virtual machines per process on Linux hosts",
+  "UPS state through Network UPS Tools",
+  "Alerts with a history and snooze; thresholds per host",
+  "Updates rigtop on remote hosts when you ask",
+  "Resizable, rearrangeable panels; graphs up to 24 hours",
+  "Widgets that show the output of your own commands",
+  "A terminal version, rigtop",
+  "Free and open source",
+]
+# Search terms, 7 at most.
+keywords = [
+  "system monitor",
+  "resource monitor",
+  "hardware monitor",
+  "GPU monitor",
+  "server monitoring",
+  "SSH",
+  "RAID",
+]
+copyright = "Copyright (c) 2026 Akiva Miura"
+license_terms = "MIT License or Apache License 2.0, at your option: https://github.com/akivajp/rigtop#license"
+developed_by = "Akiva Miura"
+
+# Screenshots (PNG, 1366x768 or larger), in this order; replaced only when the
+# workflow runs with images = true. The app is in English only, so both
+# languages show the same pictures (the demo's made-up hosts), with their own
+# captions.
+
+[[screenshots]]
+file = "screenshots/1-overview.png"
+caption = "Every machine you look after on one screen, with what needs attention marked"
+
+[[screenshots]]
+file = "screenshots/2-workstation.png"
+caption = "A workstation over SSH: CPU cores and temperatures, two GPUs, drive health and processes with their GPU use"
+
+[[screenshots]]
+file = "screenshots/3-storage.png"
+caption = "A NAS over SSH: a drive failing SMART, a RAID resync, a ZFS pool and the UPS"
+
+[[screenshots]]
+file = "screenshots/4-alerts.png"
+caption = "Alerts now and their history; snooze one for an hour, a day, or until it clears"
