@@ -2124,6 +2124,142 @@ mod tests {
         }
     }
 
+    /// An overview of the demo hosts (two rows of two cards), `size` points
+    /// at `pixels_per_point`.
+    fn demo_overview(size: [f32; 2], pixels_per_point: f32) -> Harness<'static, RigtopApp> {
+        use rigtop_core::DataSource;
+        use rigtop_core::demo::{DemoHost, DemoSource};
+        let mut app =
+            RigtopApp::for_test(Config::default(), &["workstation", "laptop", "nas", "nas2"]);
+        for host in &mut app.hosts {
+            let kind = DemoHost::ALL
+                .into_iter()
+                .find(|d| d.name() == host.spec.name)
+                .unwrap_or(DemoHost::Nas);
+            let mut source = DemoSource::new(kind);
+            for _ in 0..40 {
+                host.state
+                    .apply(Event::Snapshot(Box::new(source.poll().unwrap())));
+            }
+        }
+        Harness::builder()
+            .with_size(size)
+            .with_pixels_per_point(pixels_per_point)
+            .build_ui_state(|ui, app: &mut RigtopApp| app.show(ui), app)
+    }
+
+    #[test]
+    fn overview_layout_settles_with_fixed_data() {
+        // Each card measured its sections with their graphs (rounded to the
+        // pixel grid) as text, so each frame's plan undid the one before:
+        // the graphs grew and shrank, or came and went, by the frame. At
+        // 1250x1020 points the lower row moved by 0.6 points every frame.
+        let tops = |harness: &Harness<'_, RigtopApp>| -> Vec<f32> {
+            ["CPU", "Mem", "Program", "Net"]
+                .iter()
+                .flat_map(|label| harness.query_all_by_label(label))
+                .map(|node| node.rect().top())
+                .collect()
+        };
+        let mut unsettled = Vec::new();
+        for (width, pixels_per_point) in [(1250.0, 1.0), (920.0, 1.36)] {
+            for height in (1000..1100).step_by(6) {
+                let mut harness = demo_overview([width, height as f32], pixels_per_point);
+                harness.run();
+                let first = tops(&harness);
+                for _ in 0..3 {
+                    harness.step();
+                    if tops(&harness) != first {
+                        unsettled.push((width, height, pixels_per_point));
+                        break;
+                    }
+                }
+            }
+        }
+        assert!(unsettled.is_empty(), "{unsettled:?}");
+    }
+
+    #[test]
+    fn card_titles_leave_out_what_does_not_fit() {
+        // Long notes on every title: drawn from the right edge whatever the
+        // room, they ran over the host name, and past the card's left edge
+        // they moved the whole card over its neighbor.
+        let mut app = RigtopApp::for_test(Config::default(), &["local", "zefat", "gamla", "zion"]);
+        for host in &mut app.hosts {
+            let mut snapshot = sample_snapshot();
+            snapshot.host.hostname = "a-rather-long-hostname".to_owned();
+            snapshot.host.rigtop_version = "0.0.1".to_owned();
+            snapshot.host.reboot_required = Some("linux-image".to_owned());
+            snapshot.link_rtt_ms = Some(1.2);
+            host.state.apply(Event::Snapshot(Box::new(snapshot)));
+        }
+        let width = 1040.0;
+        let mut harness = Harness::builder()
+            .with_size([width, 860.0])
+            .with_pixels_per_point(1.63)
+            .build_ui_state(|ui, app: &mut RigtopApp| app.show(ui), app);
+        harness.run();
+        harness.run();
+        let sections: Vec<egui::Rect> = harness
+            .query_all_by_label("sections")
+            .map(|node| node.rect())
+            .collect();
+        assert_eq!(sections.len(), 4);
+        for name in ["local", "zefat", "gamla", "zion"] {
+            // The card's title (the tab with the same text comes first).
+            let title = harness
+                .query_all_by_label(&format!("● {name}"))
+                .map(|node| node.rect())
+                .max_by(|a, b| a.top().total_cmp(&b.top()))
+                .expect("card title");
+            let row = |rect: &egui::Rect| (rect.center().y - title.center().y).abs() < 4.0;
+            let button = sections
+                .iter()
+                .filter(|r| row(r) && r.left() > title.right())
+                .min_by(|a, b| a.left().total_cmp(&b.left()))
+                .expect("sections button");
+            // This card's notes (the next card's are right of its button).
+            let mine = |rect: &egui::Rect| {
+                row(rect)
+                    && rect.center().x > title.left() - 20.0
+                    && rect.center().x < button.right()
+            };
+            // The notes shown sit between the name and the button.
+            for note in [
+                "agent 0.0.1",
+                "reboot needed",
+                "a-rather-long-hostname",
+                "1.2ms",
+            ] {
+                for rect in harness
+                    .query_all_by_label(note)
+                    .map(|n| n.rect())
+                    .filter(mine)
+                {
+                    assert!(
+                        rect.left() >= title.right() && rect.right() <= button.left(),
+                        "{name}: {note:?} at {rect:?}, title {title:?}, button {button:?}"
+                    );
+                }
+            }
+        }
+        // Every card stays in its column: what the cards show starts at
+        // the left edge of one of the two columns.
+        let mut lefts: Vec<f32> = harness
+            .query_all_by_label("CPU")
+            .map(|node| node.rect().left().round())
+            .collect();
+        lefts.sort_by(f32::total_cmp);
+        lefts.dedup();
+        assert_eq!(lefts.len(), 2, "{lefts:?}");
+        assert!(lefts[0] >= 0.0, "{lefts:?}");
+        // What is left out shows on the name's hover text: the most important
+        // notes stay longest.
+        let shown = |note: &str| harness.query_all_by_label(note).next().is_some();
+        assert!(shown("reboot needed"));
+        assert!(!shown("a-rather-long-hostname") || shown("agent 0.0.1"));
+    }
+
     #[test]
     fn the_process_table_settings_follow_from_host_to_host() {
         let mut app = RigtopApp::for_test(Config::default(), &["local", "zefat"]);

@@ -7,6 +7,20 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Fixed
+- The overview's cards in the GUI no longer flicker: at some window sizes
+  and zoom levels, a row of cards changed its layout with every frame, its
+  CPU graph growing and shrinking or coming and going. Each card counted
+  its graphs (rounded to the pixel grid) as text it had to make room for,
+  so each frame's layout undid the one before.
+- A card's title leaves out what does not fit next to the host name (the
+  host's own name first, then the uptime, the SSH round trip, the agent's
+  version and "reboot needed"); the host name's hover text lists it. These
+  notes were drawn over the host name on narrow cards, and past the card's
+  edge they moved the whole card over its neighbor.
+- A new zoom or window size no longer shows one frame laid out for the old
+  one: the overview lays the frame out again before it is shown.
+
 ## [0.35.0] - 2026-11-13
 
 ### Added

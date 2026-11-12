@@ -274,7 +274,8 @@ pub fn show(
                         sections,
                     })
                     .collect();
-                let mut planner = RowPlanner::new(ui.ctx(), cards, processes);
+                let graph_gap = ui.spacing().item_spacing.y;
+                let mut planner = RowPlanner::new(ui.ctx(), cards, processes, graph_gap);
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = gap;
                     for (position, &index) in row.iter().enumerate() {
@@ -287,6 +288,9 @@ pub fn show(
                                 .layout(Layout::top_down(Align::Min))
                                 .id_salt(("card", index)),
                         );
+                        // Whatever does not fit is cut at the card's edge
+                        // rather than drawn over the next card.
+                        card_ui.set_clip_rect(rect.expand(1.0).intersect(ui.clip_rect()));
                         let response = card(&mut card_ui, host, &mut planner, position);
                         if response.open {
                             open = Some(index);
@@ -334,43 +338,9 @@ fn card(ui: &mut Ui, host: &HostEntry, planner: &mut RowPlanner, position: usize
         .show(ui, |ui| {
             ui.set_min_size(ui.available_size());
             ui.set_max_height(ui.available_height());
-            let (color, status) = host_status(host);
-            ui.horizontal(|ui| {
-                let name = ui
-                    .add(
-                        egui::Label::new(dot_label(color, &host.spec.name, true))
-                            .sense(Sense::click()),
-                    )
-                    .on_hover_text(format!("{status}\nclick for details"))
-                    .on_hover_cursor(egui::CursorIcon::PointingHand);
-                if name.clicked() {
-                    response.open = true;
-                }
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    response.sections = sections_menu(ui, host, sections);
-                    if let Some(snapshot) = &host.state.snapshot {
-                        ui.label(dim(format!(
-                            "up {}",
-                            format::duration(snapshot.host.uptime_secs)
-                        )));
-                        if let Some((text, slow)) = rigtop_core::view::link_rtt_text(snapshot) {
-                            ui.label(if slow { colored(text, WARN) } else { dim(text) })
-                                .on_hover_text(rigtop_core::view::LINK_RTT_HINT);
-                        }
-                        if let Some(reason) = &snapshot.host.reboot_required {
-                            ui.label(colored(rigtop_core::view::REBOOT_NOTE, WARN))
-                                .on_hover_text(rigtop_core::view::reboot_hint(reason));
-                        }
-                        if snapshot.host.hostname != host.spec.name {
-                            ui.label(dim(snapshot.host.hostname.clone()));
-                        }
-                        if let Some(note) = rigtop_core::view::version_note(snapshot) {
-                            ui.label(colored(note, WARN))
-                                .on_hover_text(rigtop_core::view::version_hint(snapshot));
-                        }
-                    }
-                });
-            });
+            let (open, new_sections) = title_row(ui, host, sections);
+            response.open = open;
+            response.sections = new_sections;
 
             let Some(snapshot) = &host.state.snapshot else {
                 ui.label(dim(host.waiting_message()));
@@ -410,36 +380,38 @@ fn card(ui: &mut Ui, host: &HostEntry, planner: &mut RowPlanner, position: usize
                 let top = ui.cursor().top();
                 if sections.contains(&slot.section) {
                     let layout = &plan.layout;
-                    let graph = match slot.section {
+                    // Where the section's text ends. The graphs are left out
+                    // of the measure: counting them (rounded to the pixel
+                    // grid, with the gap after them) as text made each plan
+                    // undo the one before, and the graph flickered.
+                    let text_bottom = match slot.section {
                         OverviewSection::Cpu => {
-                            cpu_section(ui, host, snapshot, layout.cpu, layout.cpu_model);
-                            layout.cpu
+                            cpu_section(ui, host, snapshot, layout.cpu, layout.cpu_model)
                         }
                         OverviewSection::Gpu => {
                             gpu_section(ui, snapshot, layout.gpu_names, card.integrated_gpu());
-                            0.0
+                            ui.cursor().top()
                         }
                         OverviewSection::Memory => {
                             memory_section(ui, snapshot);
-                            0.0
+                            ui.cursor().top()
                         }
                         OverviewSection::Processes => {
                             let columns = &host.state.config.overview.process_columns;
                             process_section(ui, snapshot, plan.process_rows, columns);
-                            0.0
+                            ui.cursor().top()
                         }
                         OverviewSection::Network => {
                             network_section(ui, host, snapshot, layout.network)
                         }
                         OverviewSection::Storage => {
                             storage_section(ui, snapshot, layout.disks);
-                            0.0
+                            ui.cursor().top()
                         }
                     };
                     let estimate =
                         card.text_rows(slot.section, layout, plan.process_rows) as f32 * ROW;
-                    measured[extra_index(slot.section)] =
-                        (ui.cursor().top() - top - graph - estimate).max(0.0);
+                    measured[extra_index(slot.section)] = (text_bottom - top - estimate).max(0.0);
                 }
                 pad_to(ui, top + slot.text + slot.graph + SECTION_GAP);
             }
@@ -467,6 +439,10 @@ struct CardLayout {
 const MAX_DISKS: usize = 4;
 /// Space after each section.
 const SECTION_GAP: f32 = 3.0;
+/// Changes of a card's measured extra heights up to this are ignored:
+/// positions rounded to the pixel grid differ by a fraction of a point from
+/// one layout to the next, and following them never settles.
+const EXTRA_TOLERANCE: f32 = 1.0;
 /// Measured extra heights of a card: its alert lines, then each section.
 const EXTRAS: usize = 1 + OverviewSection::ALL.len();
 type Extras = [f32; EXTRAS];
@@ -598,6 +574,8 @@ struct CardPlan {
 struct RowPlanner<'a> {
     cards: Vec<RowCard<'a>>,
     processes: usize,
+    /// The space egui leaves after a graph (the item spacing).
+    graph_gap: f32,
     /// Extra heights each card measured on the previous frame.
     extras: Vec<Extras>,
     /// Extra heights each card measures on this frame.
@@ -606,7 +584,7 @@ struct RowPlanner<'a> {
 }
 
 impl<'a> RowPlanner<'a> {
-    fn new(ctx: &egui::Context, cards: Vec<RowCard<'a>>, processes: usize) -> Self {
+    fn new(ctx: &egui::Context, cards: Vec<RowCard<'a>>, processes: usize, graph_gap: f32) -> Self {
         let extras: Vec<Extras> = cards
             .iter()
             .map(|card| {
@@ -618,6 +596,7 @@ impl<'a> RowPlanner<'a> {
         Self {
             cards,
             processes,
+            graph_gap,
             extras,
             measured,
             plans: None,
@@ -627,18 +606,50 @@ impl<'a> RowPlanner<'a> {
     /// The plan of every card, given the height under the cards' titles.
     fn plan(&mut self, available: f32) -> Vec<CardPlan> {
         self.plans
-            .get_or_insert_with(|| row_plan(available, &self.cards, self.processes, &self.extras))
+            .get_or_insert_with(|| {
+                row_plan(
+                    available,
+                    &self.cards,
+                    self.processes,
+                    &self.extras,
+                    self.graph_gap,
+                )
+            })
             .clone()
     }
 
-    /// Keeps what the cards measured for the next frame.
+    /// Keeps what the cards measured for the next frame (changes within
+    /// [`EXTRA_TOLERANCE`] are ignored). When that changes the plan, the
+    /// frame is laid out again before it is shown, so a new zoom or width
+    /// does not show a frame planned with the old measures.
     fn remember(&self, ctx: &egui::Context) {
-        for (card, measured) in self.cards.iter().zip(&self.measured) {
-            if card.snapshot().is_some() {
-                ctx.data_mut(|d| d.insert_temp(extras_id(card.host), *measured));
+        let mut changed = false;
+        for ((card, measured), used) in self.cards.iter().zip(&self.measured).zip(&self.extras) {
+            if card.snapshot().is_none() {
+                continue;
+            }
+            let kept = settled_extras(used, measured);
+            if kept != *used {
+                changed = true;
+                ctx.data_mut(|d| d.insert_temp(extras_id(card.host), kept));
             }
         }
+        if changed {
+            ctx.request_discard("overview card layout");
+        }
     }
+}
+
+/// The extra heights to plan with next: the measured ones, except where
+/// they are within [`EXTRA_TOLERANCE`] of those used.
+fn settled_extras(used: &Extras, measured: &Extras) -> Extras {
+    std::array::from_fn(|i| {
+        if (measured[i] - used[i]).abs() <= EXTRA_TOLERANCE {
+            used[i]
+        } else {
+            measured[i]
+        }
+    })
 }
 
 fn extras_id(host: &HostEntry) -> egui::Id {
@@ -680,6 +691,7 @@ fn row_plan(
     cards: &[RowCard],
     processes: usize,
     extras: &[Extras],
+    graph_gap: f32,
 ) -> Vec<CardPlan> {
     let Some(order) = section_order(cards) else {
         // Sections in different orders cannot line up: each card alone.
@@ -692,6 +704,7 @@ fn row_plan(
                     std::slice::from_ref(card),
                     processes,
                     std::slice::from_ref(extra),
+                    graph_gap,
                 )
             })
             .collect();
@@ -789,15 +802,17 @@ fn row_plan(
         (false, false) => (0.0, 0.0),
     };
     // Below ~18 px a graph is just noise; above these caps it adds little.
+    // Whole points, and the gap egui leaves after a graph is kept with it.
     let size = |share: f32, cap: f32| {
-        let height = (spare * share).min(cap);
+        let height = (spare * share - graph_gap).min(cap).floor();
         if height >= 18.0 { height } else { 0.0 }
     };
     let (cpu_graph, net_graph) = (size(cpu_share, 400.0), size(net_share, 260.0));
+    let with_gap = |graph: f32| if graph > 0.0 { graph + graph_gap } else { 0.0 };
     for slot in &mut slots {
         slot.graph = match slot.section {
-            OverviewSection::Cpu => cpu_graph,
-            OverviewSection::Network => net_graph,
+            OverviewSection::Cpu => with_gap(cpu_graph),
+            OverviewSection::Network => with_gap(net_graph),
             _ => 0.0,
         };
     }
@@ -819,6 +834,156 @@ fn row_plan(
             }
         })
         .collect()
+}
+
+/// A note on the right of a card's title.
+struct TitleNote {
+    text: RichText,
+    hover: Option<String>,
+    /// Which notes stay when the title is short of room (higher first).
+    priority: u8,
+}
+
+/// The notes of a card's title, in the order drawn from its right edge.
+fn title_notes(host: &HostEntry) -> Vec<TitleNote> {
+    let Some(snapshot) = &host.state.snapshot else {
+        return Vec::new();
+    };
+    let mut notes = vec![TitleNote {
+        text: dim(format!(
+            "up {}",
+            format::duration(snapshot.host.uptime_secs)
+        )),
+        hover: None,
+        priority: 2,
+    }];
+    if let Some((text, slow)) = view::link_rtt_text(snapshot) {
+        notes.push(TitleNote {
+            text: if slow { colored(text, WARN) } else { dim(text) },
+            hover: Some(view::LINK_RTT_HINT.to_owned()),
+            priority: if slow { 3 } else { 1 },
+        });
+    }
+    if let Some(reason) = &snapshot.host.reboot_required {
+        notes.push(TitleNote {
+            text: colored(view::REBOOT_NOTE, WARN),
+            hover: Some(view::reboot_hint(reason)),
+            priority: 5,
+        });
+    }
+    if snapshot.host.hostname != host.spec.name {
+        notes.push(TitleNote {
+            text: dim(snapshot.host.hostname.clone()),
+            hover: None,
+            priority: 0,
+        });
+    }
+    if let Some(note) = view::version_note(snapshot) {
+        notes.push(TitleNote {
+            text: colored(note, WARN),
+            hover: Some(view::version_hint(snapshot)),
+            priority: 4,
+        });
+    }
+    notes
+}
+
+/// The width of `text` on one line.
+fn text_width(ui: &Ui, text: impl Into<egui::WidgetText>) -> f32 {
+    text.into()
+        .into_galley(
+            ui,
+            Some(egui::TextWrapMode::Extend),
+            f32::INFINITY,
+            egui::TextStyle::Body,
+        )
+        .size()
+        .x
+}
+
+/// Which of the notes fit in `room` next to each other (each takes its
+/// width and `spacing`), the most important first.
+fn fitting_notes(priorities: &[u8], widths: &[f32], spacing: f32, mut room: f32) -> Vec<bool> {
+    let mut order: Vec<usize> = (0..priorities.len()).collect();
+    order.sort_by_key(|&i| std::cmp::Reverse(priorities[i]));
+    let mut shown = vec![false; priorities.len()];
+    for i in order {
+        let width = widths[i] + spacing;
+        if width <= room {
+            room -= width;
+            shown[i] = true;
+        }
+    }
+    shown
+}
+
+/// A card's title: the host name (a link to its tab), the notes that fit
+/// next to it and the "sections" button. Notes left out for want of room
+/// show on the name's hover text: drawn anyway, they ran over the name,
+/// and past the card's left edge they moved the whole card to the left.
+/// Returns whether the name was clicked, and the new section order.
+fn title_row(
+    ui: &mut Ui,
+    host: &HostEntry,
+    sections: &[OverviewSection],
+) -> (bool, Option<Option<Vec<OverviewSection>>>) {
+    let (color, status) = host_status(host);
+    let notes = title_notes(host);
+    ui.horizontal(|ui| {
+        let spacing = ui.spacing().item_spacing.x;
+        let button = text_width(ui, dim("sections")) + 2.0 * ui.spacing().button_padding.x;
+        let name = dot_label(color, &host.spec.name, true);
+        let name_width = text_width(ui, name.clone());
+        // A little to spare: measured and laid out widths may round apart.
+        let room = ui.available_width() - button - name_width - 2.0 * spacing - 2.0;
+        let priorities: Vec<u8> = notes.iter().map(|n| n.priority).collect();
+        let widths: Vec<f32> = notes
+            .iter()
+            .map(|n| text_width(ui, n.text.clone()))
+            .collect();
+        let shown = fitting_notes(&priorities, &widths, spacing, room);
+
+        let mut hover = status;
+        let left_out: Vec<&str> = notes
+            .iter()
+            .zip(&shown)
+            .filter(|(_, shown)| !**shown)
+            .map(|(note, _)| note.text.text())
+            .collect();
+        if !left_out.is_empty() {
+            hover.push('\n');
+            hover.push_str(&left_out.join(" · "));
+        }
+        hover.push_str("\nclick for details");
+        // The name takes what the button leaves, elided if that is short.
+        let name_room = (ui.available_width() - button - spacing).max(0.0);
+        let clicked = ui
+            .allocate_ui_with_layout(
+                vec2(name_room, ui.spacing().interact_size.y),
+                Layout::left_to_right(Align::Center),
+                |ui| ui.add(egui::Label::new(name).truncate().sense(Sense::click())),
+            )
+            .inner
+            .on_hover_text(hover)
+            .on_hover_cursor(egui::CursorIcon::PointingHand)
+            .clicked();
+        let new_sections = ui
+            .with_layout(Layout::right_to_left(Align::Center), |ui| {
+                let new_sections = sections_menu(ui, host, sections);
+                for (note, shown) in notes.iter().zip(&shown) {
+                    if *shown {
+                        let label = ui.label(note.text.clone());
+                        if let Some(text) = &note.hover {
+                            label.on_hover_text(text);
+                        }
+                    }
+                }
+                new_sections
+            })
+            .inner;
+        (clicked, new_sections)
+    })
+    .inner
 }
 
 /// Lets the user show, hide and reorder sections for one host.
@@ -907,7 +1072,14 @@ fn meter_row(ui: &mut Ui, label: &str, ratio: f32, value: RichText) {
     });
 }
 
-fn cpu_section(ui: &mut Ui, host: &HostEntry, snapshot: &Snapshot, graph_height: f32, model: bool) {
+/// The CPU meter, details and graph; where the text ends (above the graph).
+fn cpu_section(
+    ui: &mut Ui,
+    host: &HostEntry,
+    snapshot: &Snapshot,
+    graph_height: f32,
+    model: bool,
+) -> f32 {
     let cpu = &snapshot.cpu;
     meter_row(
         ui,
@@ -955,6 +1127,7 @@ fn cpu_section(ui: &mut Ui, host: &HostEntry, snapshot: &Snapshot, graph_height:
             ui.label(dim(format!(" load {:.2}", load[0])));
         }
     });
+    let text_bottom = ui.cursor().top();
     // Usage history, as tall as the card's spare room allows.
     if graph_height > 0.0 {
         let width = ui.available_width();
@@ -972,6 +1145,7 @@ fn cpu_section(ui: &mut Ui, host: &HostEntry, snapshot: &Snapshot, graph_height:
             false,
         );
     }
+    text_bottom
 }
 
 fn gpu_section(
@@ -1129,14 +1303,14 @@ fn process_section(
     });
 }
 
-/// The network line and its graph; the height of the graph drawn.
+/// The network line and its graph; where the text ends (above the graph).
 fn network_section(ui: &mut Ui, host: &HostEntry, snapshot: &Snapshot, graph_height: f32) -> f32 {
     let history = &host.state.history;
     let Some(name) = history.net_interface.as_deref() else {
-        return 0.0;
+        return ui.cursor().top();
     };
     let Some(net) = snapshot.networks.iter().find(|n| n.name == name) else {
-        return 0.0;
+        return ui.cursor().top();
     };
     ui.horizontal(|ui| {
         ui.add_sized([44.0, ROW - 2.0], egui::Label::new(dim("Net")));
@@ -1150,6 +1324,7 @@ fn network_section(ui: &mut Ui, host: &HostEntry, snapshot: &Snapshot, graph_hei
             format::rate(net.tx_bytes_per_sec)
         ));
     });
+    let text_bottom = ui.cursor().top();
     if graph_height > 0.0 {
         let width = ui.available_width();
         let (span, interval) = (host.state.graph_span, host.state.interval);
@@ -1163,9 +1338,8 @@ fn network_section(ui: &mut Ui, host: &HostEntry, snapshot: &Snapshot, graph_hei
             widgets::rx_color,
             false,
         );
-        return graph_height;
     }
-    0.0
+    text_bottom
 }
 
 /// One disk's I/O: "nvme0n1  R 1.2M/s  W 40K/s  3%  0.4ms  52°C".
