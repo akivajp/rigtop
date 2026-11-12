@@ -1,0 +1,39 @@
+# Microsoft Store submissions, through the shared workflow in
+# akivajp/msstore-submit (signs in with GitHub OIDC; no secret is stored).
+# The environment `msstore` of this repository is what the Entra ID app's
+# federated credential trusts.
+name: Microsoft Store
+
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: "check / show: read (changes nothing); submit: a new submission with the listing files (no package); commit: submit the draft; discard: delete the pending one"
+        type: choice
+        options: [check, show, submit, commit, discard]
+        default: check
+      images:
+        description: "submit: also replace the screenshots"
+        type: boolean
+        default: false
+      commit:
+        description: "submit: commit it (otherwise it stays a draft in Partner Center)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  store:
+    permissions:
+      contents: read
+      id-token: write
+    uses: akivajp/msstore-submit/.github/workflows/store.yml@main
+    with:
+      # rigtop's Store ID (Partner Center > Product identity).
+      app-id: 9N6JMV1QNDCK
+      command: ${{ inputs.command }}
+      listings: packaging/msix/store
+      images: ${{ inputs.images }}
+      commit: ${{ inputs.commit }}
