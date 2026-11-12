@@ -44,11 +44,14 @@ jobs:
           "host: $($json.host.os), $($json.cpu.per_core_percent.Count) cores, $($json.processes.Count) processes"
           if (-not (Get-Command rigtop-gui -ErrorAction SilentlyContinue)) { throw "rigtop-gui is not on the PATH" }
           # What the installed executable was built for (the PE header's machine).
-          $exe = (Get-Command rigtop).Source
+          $exe = Join-Path (scoop prefix rigtop) "rigtop.exe"
           $bytes = [System.IO.File]::ReadAllBytes($exe)
           $pe = [BitConverter]::ToInt32($bytes, 0x3C)
           $machine = [BitConverter]::ToUInt16($bytes, $pe + 4)
           "executable: $exe, machine 0x$($machine.ToString('X4')) (8664 = x64, AA64 = Arm64), runner $env:RUNNER_ARCH"
+          if ($env:RUNNER_ARCH -eq "ARM64" -and $machine -ne 0xAA64) {
+            Write-Host "::warning::Scoop installed a build that is not for Arm64 (a manifest without an arm64 entry)"
+          }
           Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Scoop Apps" -Filter "rigtop*"
 
   deb:
@@ -160,12 +163,10 @@ jobs:
           rigtop --version
 
   winget:
-    name: winget (${{ matrix.runner }})
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        runner: [windows-latest, windows-11-arm]
+    name: winget (Windows)
+    # x64 only: GitHub's Arm runner has no winget. `winget validate` checks
+    # the Arm64 installer's entry too.
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
       - name: Validate and install the manifest of this commit
@@ -183,9 +184,8 @@ jobs:
           $json = & "$links\rigtop.exe" --dump-json | ConvertFrom-Json
           "host: $($json.host.os), $($json.processes.Count) processes"
           if (-not (Test-Path "$links\rigtop-gui.exe")) { throw "rigtop-gui is not linked" }
-          $env:PATH = "$links;$env:PATH"
           # What the installed executable was built for (the PE header's machine).
-          $exe = (Get-Command rigtop).Source
+          $exe = "$links\rigtop.exe"
           $bytes = [System.IO.File]::ReadAllBytes($exe)
           $pe = [BitConverter]::ToInt32($bytes, 0x3C)
           $machine = [BitConverter]::ToUInt16($bytes, $pe + 4)
