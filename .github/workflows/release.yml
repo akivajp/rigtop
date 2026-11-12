@@ -147,9 +147,21 @@ jobs:
             Write-Host "installing the App Certification Kit"
             $setup = Join-Path $env:RUNNER_TEMP "winsdksetup.exe"
             Invoke-WebRequest "https://go.microsoft.com/fwlink/?linkid=2382321" -OutFile $setup
-            Start-Process -Wait -FilePath $setup -ArgumentList "/features OptionId.WindowsSoftwareLogoToolkit /quiet /norestart /log $env:RUNNER_TEMP\winsdksetup.log"
+            $log = Join-Path $env:RUNNER_TEMP "winsdksetup.log"
+            $setupRun = Start-Process -Wait -PassThru -FilePath $setup -ArgumentList "/features", "OptionId.WindowsSoftwareLogoToolkit", "/quiet", "/norestart", "/log", "`"$log`""
+            Write-Host "winsdksetup exit code: $($setupRun.ExitCode)"
+            # Wherever it went (the kit's folder may differ on Arm).
+            $found = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits", "$env:ProgramFiles\Windows Kits" -Recurse -Filter appcert.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($found) { $appcert = $found.FullName }
+            if (-not (Test-Path $appcert)) {
+              Get-ChildItem $env:RUNNER_TEMP -Filter "winsdksetup*.log" | ForEach-Object {
+                Write-Host "== $($_.Name)"
+                Get-Content $_.FullName | Select-String -Pattern "LogoToolkit|App Certification|error|fail|not applicable|unsupported" | Select-Object -Last 40
+              }
+            }
           }
           if (-not (Test-Path $appcert)) { Write-Host "the App Certification Kit is not installed"; exit 0 }
+          Write-Host "App Certification Kit: $appcert"
           $cer = Get-ChildItem msix/*-test.cer | Select-Object -First 1
           $test = Get-ChildItem msix/*-test.msix | Select-Object -First 1
           Import-Certificate -FilePath $cer.FullName -CertStoreLocation Cert:\LocalMachine\TrustedPeople | Out-Null
