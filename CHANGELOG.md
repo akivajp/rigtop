@@ -7,6 +7,8 @@ include breaking changes).
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-11-12
+
 ### Added
 - rigtop is on the Microsoft Store
   (<https://apps.microsoft.com/detail/9n6jmv1qndck>), the recommended way to
@@ -741,7 +743,8 @@ First release.
 - Windows support (CPU, memory, processes, network with link speeds, drives,
   NVIDIA GPUs; temperatures, fans and CPU power are not available yet)
 
-[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.32.0...HEAD
+[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.33.0...HEAD
+[0.33.0]: https://github.com/akivajp/rigtop/compare/v0.32.0...v0.33.0
 [0.32.0]: https://github.com/akivajp/rigtop/compare/v0.31.0...v0.32.0
 [0.31.0]: https://github.com/akivajp/rigtop/compare/v0.30.0...v0.31.0
 [0.30.0]: https://github.com/akivajp/rigtop/compare/v0.29.0...v0.30.0
