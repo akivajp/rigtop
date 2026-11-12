@@ -1,14 +1,19 @@
 {
-    "version": "0.34.0",
+    "version": "0.35.0",
     "description": "System monitor for workstations, laptops and NAS (terminal UI and native GUI), a btop alternative with storage health, GPU usage and many hosts over SSH",
     "homepage": "https://github.com/akivajp/rigtop",
     "license": "MIT|Apache-2.0",
     "notes": "Temperatures, fans and CPU power come from LibreHardwareMonitor; rigtop-gui's \"set up...\" button installs and configures it.",
     "architecture": {
         "64bit": {
-            "url": "https://github.com/akivajp/rigtop/releases/download/v0.34.0/rigtop-v0.34.0-x86_64-pc-windows-msvc.zip",
-            "hash": "3b00686d9ec7b14579704bed788df677e0621a000071842badb2a4a9e88c76b7",
-            "extract_dir": "rigtop-v0.34.0-x86_64-pc-windows-msvc"
+            "url": "https://github.com/akivajp/rigtop/releases/download/v0.35.0/rigtop-v0.35.0-x86_64-pc-windows-msvc.zip",
+            "hash": "52cceea1b91fa589cc67ca806464fcb72c4e770a7273707ca7a6496165027640",
+            "extract_dir": "rigtop-v0.35.0-x86_64-pc-windows-msvc"
+        },
+        "arm64": {
+            "url": "https://github.com/akivajp/rigtop/releases/download/v0.35.0/rigtop-v0.35.0-aarch64-pc-windows-msvc.zip",
+            "hash": "2e78d7adf6d8eda11014a5288813b9da8c3a864ce0e376f0c565fedbef330731",
+            "extract_dir": "rigtop-v0.35.0-aarch64-pc-windows-msvc"
         }
     },
     "bin": [
@@ -27,6 +32,10 @@
             "64bit": {
                 "url": "https://github.com/akivajp/rigtop/releases/download/v$version/rigtop-v$version-x86_64-pc-windows-msvc.zip",
                 "extract_dir": "rigtop-v$version-x86_64-pc-windows-msvc"
+            },
+            "arm64": {
+                "url": "https://github.com/akivajp/rigtop/releases/download/v$version/rigtop-v$version-aarch64-pc-windows-msvc.zip",
+                "extract_dir": "rigtop-v$version-aarch64-pc-windows-msvc"
             }
         },
         "hash": {

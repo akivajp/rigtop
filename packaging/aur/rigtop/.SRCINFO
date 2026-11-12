@@ -1,6 +1,6 @@
 pkgbase = rigtop
 	pkgdesc = System monitor for workstations, laptops and NAS (TUI and native GUI), a btop alternative with storage health, GPU usage and many hosts over SSH
-	pkgver = 0.34.0
+	pkgver = 0.35.0
 	pkgrel = 1
 	url = https://github.com/akivajp/rigtop
 	arch = x86_64
@@ -21,7 +21,7 @@ pkgbase = rigtop
 	optdepends = nvidia-utils: NVIDIA GPUs
 	optdepends = openssh: monitoring remote hosts
 	options = !lto
-	source = rigtop-0.34.0.tar.gz::https://github.com/akivajp/rigtop/archive/v0.34.0.tar.gz
-	sha256sums = 1154f881b3a5437a8318d5c44b5cca878e57ef4be2056774960ad318699e6e62
+	source = rigtop-0.35.0.tar.gz::https://github.com/akivajp/rigtop/archive/v0.35.0.tar.gz
+	sha256sums = 937f203c7573ee8dfb680bb97d2722ac811052a7b481b03c03cd4ae80f0dfdde
 
 pkgname = rigtop
