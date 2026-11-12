@@ -141,6 +141,14 @@ jobs:
         shell: pwsh
         run: |
           $appcert = "${env:ProgramFiles(x86)}\Windows Kits\10\App Certification Kit\appcert.exe"
+          if (-not (Test-Path $appcert)) {
+            # GitHub's Arm runner has the SDK without the kit: install the
+            # kit alone from the SDK's installer (10.0.26100.9457).
+            Write-Host "installing the App Certification Kit"
+            $setup = Join-Path $env:RUNNER_TEMP "winsdksetup.exe"
+            Invoke-WebRequest "https://go.microsoft.com/fwlink/?linkid=2382321" -OutFile $setup
+            Start-Process -Wait -FilePath $setup -ArgumentList "/features OptionId.WindowsSoftwareLogoToolkit /quiet /norestart /log $env:RUNNER_TEMP\winsdksetup.log"
+          }
           if (-not (Test-Path $appcert)) { Write-Host "the App Certification Kit is not installed"; exit 0 }
           $cer = Get-ChildItem msix/*-test.cer | Select-Object -First 1
           $test = Get-ChildItem msix/*-test.msix | Select-Object -First 1
@@ -195,8 +203,9 @@ jobs:
       app-id: 9N6JMV1QNDCK
       command: submit
       artifact: store-msix
-      # The Store's package, not the test copy (-x64-test.msix).
-      package: rigtop-v*-x64.msix
+      # The Store's packages (x64 and arm64), not the test copies (-test.msix).
+      package: rigtop-v*-*64.msix
+      package-count: 2
       listings: packaging/msix/store
       commit: false
 
