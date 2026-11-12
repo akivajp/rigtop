@@ -14,7 +14,7 @@ The release workflow (`.github/workflows/release.yml`) builds the package on eve
 
 - `rigtop-vX.Y.Z-x64.msix` and `-arm64.msix`: for Partner Center, one per architecture (unsigned; the Store signs what it publishes);
 - `rigtop-vX.Y.Z-<arch>-test.msix` and `-test.cer`: copies signed with a throwaway self-signed certificate, for trying the package;
-- `wack-report-<arch>.xml`: the Windows App Certification Kit's reports on the packages (the checks Partner Center runs).
+- `wack-report-x64.xml`: the Windows App Certification Kit's report on the x64 package (the checks Partner Center runs). GitHub's Arm runner has no kit; there the workflow only installs the test copy and runs `rigtop` through its alias (as it does on x64).
 
 On Windows with the Windows SDK, the same by hand:
 
