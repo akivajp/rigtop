@@ -7,6 +7,8 @@ include breaking changes).
 
 ## [Unreleased]
 
+## [0.35.1] - 2026-11-13
+
 ### Fixed
 - The overview's cards in the GUI no longer flicker: at some window sizes
   and zoom levels, a row of cards changed its layout with every frame, its
@@ -786,7 +788,8 @@ First release.
 - Windows support (CPU, memory, processes, network with link speeds, drives,
   NVIDIA GPUs; temperatures, fans and CPU power are not available yet)
 
-[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.35.0...HEAD
+[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.35.1...HEAD
+[0.35.1]: https://github.com/akivajp/rigtop/compare/v0.35.0...v0.35.1
 [0.35.0]: https://github.com/akivajp/rigtop/compare/v0.34.0...v0.35.0
 [0.34.0]: https://github.com/akivajp/rigtop/compare/v0.33.0...v0.34.0
 [0.33.0]: https://github.com/akivajp/rigtop/compare/v0.32.0...v0.33.0
