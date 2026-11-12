@@ -151,8 +151,8 @@ sh "$script" --version {tag} --bin-dir "$dir" $gui
 /// here, if it cannot: the update script needs a POSIX shell.
 pub fn unsupported_reason(os: &str) -> Option<String> {
     os.starts_with("Windows").then(|| {
-        "on Windows, update rigtop there with `scoop update rigtop`, or with the zip \
-         from the releases page"
+        "on Windows, update rigtop there: the Microsoft Store updates its copy by \
+         itself; otherwise `scoop update rigtop`, or the zip from the releases page"
             .to_owned()
     })
 }

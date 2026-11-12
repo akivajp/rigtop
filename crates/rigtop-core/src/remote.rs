@@ -29,8 +29,31 @@ pub const DEFAULT_REMOTE_COMMAND: &str = "rigtop --agent";
 /// `PATH`. Release binaries come first: they update without building.
 pub const FALLBACK_REMOTE_COMMANDS: [&str; 2] =
     ["~/.local/bin/rigtop --agent", "~/.cargo/bin/rigtop --agent"];
+/// Tried in order when a Windows host does not find the default command:
+/// the SSH sessions of Windows' OpenSSH server get the system's `PATH`
+/// only, without the user's, where the Microsoft Store (app execution
+/// aliases) and Scoop (shims) put rigtop. In cmd.exe's syntax, the default
+/// shell of that server.
+pub const WINDOWS_FALLBACK_REMOTE_COMMANDS: [&str; 2] = [
+    r#""%LOCALAPPDATA%\Microsoft\WindowsApps\rigtop.exe" --agent"#,
+    r#""%USERPROFILE%\scoop\shims\rigtop.exe" --agent"#,
+];
 /// Exit status of POSIX shells for "command not found".
 const NOT_FOUND_STATUS: i32 = 127;
+/// Exit status of cmd.exe (and PowerShell) for a command that is not found.
+const WINDOWS_NOT_FOUND_STATUS: i32 = 1;
+
+/// Whether an agent that exited was not found, and by which kind of shell
+/// (which decides the places to try next).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NotFound {
+    /// Found, or it failed for another reason.
+    No,
+    /// A POSIX shell did not find it.
+    Posix,
+    /// cmd.exe (or PowerShell) did not find it.
+    Windows,
+}
 
 /// Minimum time between connection attempts after a failure.
 const RECONNECT_DELAY: Duration = Duration::from_secs(5);
@@ -60,6 +83,9 @@ pub struct RemoteTarget {
     /// Arguments to try in order when the remote command is not found
     /// (for the default command: [`FALLBACK_REMOTE_COMMANDS`]).
     pub fallback_args: Vec<Vec<String>>,
+    /// The same when a Windows host does not find it (for the default
+    /// command: [`WINDOWS_FALLBACK_REMOTE_COMMANDS`]).
+    pub windows_fallback_args: Vec<Vec<String>>,
 }
 
 impl RemoteTarget {
@@ -85,8 +111,11 @@ impl RemoteTarget {
         args.push(remote_command.to_owned());
         // Only the default command falls back; one set by the user is
         // taken as it is.
-        let fallback_args = if remote_command == DEFAULT_REMOTE_COMMAND {
-            FALLBACK_REMOTE_COMMANDS
+        let fallbacks = |commands: &[&str]| -> Vec<Vec<String>> {
+            if remote_command != DEFAULT_REMOTE_COMMAND {
+                return Vec::new();
+            }
+            commands
                 .iter()
                 .map(|command| {
                     let mut fallback = args.clone();
@@ -94,14 +123,15 @@ impl RemoteTarget {
                     fallback
                 })
                 .collect()
-        } else {
-            Vec::new()
         };
+        let fallback_args = fallbacks(&FALLBACK_REMOTE_COMMANDS);
+        let windows_fallback_args = fallbacks(&WINDOWS_FALLBACK_REMOTE_COMMANDS);
         Self {
             name: destination.to_owned(),
             program: "ssh".to_owned(),
             args,
             fallback_args,
+            windows_fallback_args,
         }
     }
 }
@@ -180,8 +210,20 @@ impl Connection {
         thread::Builder::new()
             .name("rigtop-remote-stderr".to_owned())
             .spawn(move || {
-                for line in BufReader::new(stderr_pipe).lines() {
-                    let Ok(line) = line else { break };
+                // Bytes, not `lines()`: cmd.exe answers in the system's code
+                // page (not UTF-8 on, say, a Japanese Windows), and such a
+                // line must neither end the reading nor be lost.
+                let mut reader = BufReader::new(stderr_pipe);
+                let mut bytes = Vec::new();
+                loop {
+                    bytes.clear();
+                    match reader.read_until(b'\n', &mut bytes) {
+                        Ok(0) | Err(_) => break,
+                        Ok(_) => {}
+                    }
+                    let line = String::from_utf8_lossy(&bytes)
+                        .trim_end_matches(['\r', '\n'])
+                        .to_owned();
                     let mut lines = lines.lock().unwrap_or_else(|e| e.into_inner());
                     if lines.len() == STDERR_LINES {
                         lines.pop_front();
@@ -205,8 +247,10 @@ impl Connection {
     }
 
     /// Explanation for a lost connection, from the process's stderr, and
-    /// whether the remote command was not found.
-    fn failure(&mut self) -> (String, bool) {
+    /// whether the remote command was not found. `windows_attempt` says
+    /// that one of the Windows places was tried, whose "not found" has
+    /// nothing but its exit status to go by.
+    fn failure(&mut self, windows_attempt: bool) -> (String, NotFound) {
         // Give the stderr thread a moment to collect the final lines.
         thread::sleep(Duration::from_millis(100));
         let status = self.child.try_wait().ok().flatten();
@@ -217,10 +261,23 @@ impl Connection {
             .find(|l| !l.trim().is_empty())
             .cloned()
             .unwrap_or_default();
-        // ssh passes the remote exit status on; cmd.exe says "not recognized".
-        let not_found = status.and_then(|s| s.code()) == Some(NOT_FOUND_STATUS)
-            || detail.contains("command not found")
-            || detail.contains("not recognized");
+        // ssh passes the remote exit status on (its own failures are 255).
+        let code = status.and_then(|s| s.code());
+        // cmd.exe names the command in quotes at the start of its message
+        // ("'rigtop' is not recognized as ..."), whatever the language; the
+        // rest may be in a code page that is not UTF-8.
+        let names_rigtop = lines
+            .iter()
+            .any(|l| l.contains("'rigtop'") || l.contains("\"rigtop\""));
+        let not_found = if code == Some(NOT_FOUND_STATUS) || detail.contains("command not found") {
+            NotFound::Posix
+        } else if code == Some(WINDOWS_NOT_FOUND_STATUS)
+            && (windows_attempt || names_rigtop || detail.contains("not recognized"))
+        {
+            NotFound::Windows
+        } else {
+            NotFound::No
+        };
         let reason = match (detail.is_empty(), status) {
             (false, _) => detail,
             (true, Some(status)) => format!("connection closed ({status})"),
@@ -274,6 +331,8 @@ pub struct RemoteSource {
     /// Which command starts the agent: 0 for the configured one, then the
     /// fallbacks in order.
     attempt: usize,
+    /// The host answered like Windows: the fallbacks are the Windows ones.
+    windows: bool,
     /// The command was not found and the next one should be tried at once.
     retry_now: bool,
 }
@@ -301,6 +360,7 @@ impl RemoteSource {
             agent_version: String::new(),
             last_error: None,
             attempt: 0,
+            windows: false,
             retry_now: false,
         }
     }
@@ -325,13 +385,14 @@ impl RemoteSource {
                 }
             }
             self.last_attempt = Some(Instant::now());
+            let fallbacks = if self.windows {
+                &self.target.windows_fallback_args
+            } else {
+                &self.target.fallback_args
+            };
             let args = match self.attempt {
                 0 => &self.target.args,
-                n => self
-                    .target
-                    .fallback_args
-                    .get(n - 1)
-                    .unwrap_or(&self.target.args),
+                n => fallbacks.get(n - 1).unwrap_or(&self.target.args),
             };
             let mut connection = match Connection::spawn(&self.target, args) {
                 Ok(connection) => connection,
@@ -372,24 +433,44 @@ impl RemoteSource {
 
     /// Drops the connection and returns an error explaining why.
     fn disconnect(&mut self, reason: Option<String>) -> SourceError {
+        let windows_attempt = self.windows && self.attempt > 0;
         let (mut reason, not_found) = match (reason, self.connection.as_mut()) {
-            (Some(reason), _) => (reason, false),
-            (None, Some(connection)) => connection.failure(),
-            (None, None) => ("connection closed".to_owned(), false),
+            (Some(reason), _) => (reason, NotFound::No),
+            (None, Some(connection)) => connection.failure(windows_attempt),
+            (None, None) => ("connection closed".to_owned(), NotFound::No),
         };
         self.connection = None;
-        if not_found && !self.target.fallback_args.is_empty() {
-            if self.attempt < self.target.fallback_args.len() {
+        if not_found != NotFound::No {
+            // The answer to the configured command says which shell it is.
+            if self.attempt == 0 {
+                self.windows = not_found == NotFound::Windows;
+            }
+            let fallbacks = if self.windows {
+                &self.target.windows_fallback_args
+            } else {
+                &self.target.fallback_args
+            };
+            if self.attempt < fallbacks.len() {
                 self.attempt += 1;
                 self.retry_now = true;
                 self.last_attempt = None;
-            } else {
+            } else if !fallbacks.is_empty() {
                 // None worked; start over with the PATH next time, in case
                 // rigtop gets installed there.
                 self.attempt = 0;
-                reason = format!(
-                    "rigtop is not on the PATH, in ~/.local/bin or in ~/.cargo/bin ({reason})"
-                );
+                reason = if self.windows {
+                    // cmd.exe's own words may be unreadable (see the
+                    // stderr thread), so they are left out.
+                    "rigtop was not found: Windows gives SSH sessions the system's PATH \
+                     only, and there is no copy from the Microsoft Store or Scoop \
+                     (set `command` for this host)"
+                        .to_owned()
+                } else {
+                    format!(
+                        "rigtop is not on the PATH, in ~/.local/bin or in ~/.cargo/bin ({reason})"
+                    )
+                };
+                self.windows = false;
             }
         }
         let error = SourceError::Disconnected(format!("{}: {reason}", self.target.name));
@@ -678,9 +759,54 @@ mod tests {
             .collect();
         assert_eq!(fallbacks, FALLBACK_REMOTE_COMMANDS);
         assert_eq!(&target.fallback_args[0][n - 3..n - 1], ["--", "zefat"]);
+        // ... and on a Windows host, to where the Store and Scoop put it ...
+        let windows: Vec<&str> = target
+            .windows_fallback_args
+            .iter()
+            .map(|args| args[n - 1].as_str())
+            .collect();
+        assert_eq!(windows, WINDOWS_FALLBACK_REMOTE_COMMANDS);
+        assert!(windows[0].starts_with(r#""%LOCALAPPDATA%\Microsoft\WindowsApps\rigtop.exe""#));
         // ... a command the user chose does not.
         let custom = RemoteTarget::ssh("zefat", "/opt/rigtop/bin/rigtop --agent");
         assert!(custom.fallback_args.is_empty());
+        assert!(custom.windows_fallback_args.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_windows_host_without_rigtop_gets_a_readable_message() {
+        // cmd.exe on a Japanese Windows: the command in quotes, the rest in
+        // code page 932 (not UTF-8), exit status 1.
+        let cmd_says = r"printf '\047rigtop\047 \202\315\201A\r\n\221\200\215\354\r\n' >&2; exit 1";
+        let args = |script: &str| vec!["-c".to_owned(), script.to_owned()];
+        let mut source = RemoteSource::new(RemoteTarget {
+            name: "win".to_owned(),
+            program: "sh".to_owned(),
+            args: args(cmd_says),
+            fallback_args: vec![args("exit 3")],
+            windows_fallback_args: vec![args("exit 1"), args("exit 1")],
+        });
+        let err = source.poll().unwrap_err().to_string();
+        assert!(
+            err.contains("Microsoft Store or Scoop") && err.contains("`command`"),
+            "{err}"
+        );
+        assert!(!err.contains('\u{fffd}'), "no unreadable bytes: {err}");
+        assert_eq!(source.attempt, 0, "the PATH comes first again next time");
+        assert!(!source.windows);
+
+        // An exit status of 1 alone (an agent that fails) is not "not found".
+        let mut source = RemoteSource::new(RemoteTarget {
+            name: "failing".to_owned(),
+            program: "sh".to_owned(),
+            args: args("echo 'Error: something else' >&2; exit 1"),
+            fallback_args: vec![args("exit 3")],
+            windows_fallback_args: vec![args("exit 1")],
+        });
+        let err = source.poll().unwrap_err().to_string();
+        assert!(err.contains("something else"), "{err}");
+        assert_eq!(source.attempt, 0);
     }
 
     /// `sh -c <script>` standing in for ssh.
@@ -692,6 +818,7 @@ mod tests {
             program: "sh".to_owned(),
             args: args(script),
             fallback_args: fallbacks.iter().map(|script| args(script)).collect(),
+            windows_fallback_args: Vec::new(),
         }
     }
 
@@ -725,6 +852,7 @@ mod tests {
             program: "/nonexistent/ssh".to_owned(),
             args: Vec::new(),
             fallback_args: Vec::new(),
+            windows_fallback_args: Vec::new(),
         });
         let err = source.poll().unwrap_err().to_string();
         assert!(err.contains("cannot start"), "{err}");
@@ -748,6 +876,7 @@ mod tests {
                 "echo 'rigtop: command not found' >&2; exit 127".to_owned(),
             ],
             fallback_args: Vec::new(),
+            windows_fallback_args: Vec::new(),
         });
         let err = source.poll().unwrap_err().to_string();
         assert!(err.contains("fake: rigtop: command not found"), "{err}");
@@ -764,6 +893,7 @@ mod tests {
                 r#"echo '{"type":"hello","protocol":999,"version":"9.9.9"}'; sleep 5"#.to_owned(),
             ],
             fallback_args: Vec::new(),
+            windows_fallback_args: Vec::new(),
         });
         let err = source.poll().unwrap_err().to_string();
         assert!(err.contains("protocol 999"), "{err}");
@@ -784,6 +914,7 @@ mod tests {
                     .to_owned(),
             ],
             fallback_args: Vec::new(),
+            windows_fallback_args: Vec::new(),
         });
         let snapshot = source.poll().unwrap();
         assert_eq!(snapshot.host.hostname, "nas");

@@ -14,6 +14,7 @@ fn agent_source() -> RemoteSource {
         program: env!("CARGO_BIN_EXE_rigtop").to_owned(),
         args: vec!["--agent".to_owned()],
         fallback_args: Vec::new(),
+        windows_fallback_args: Vec::new(),
     })
 }
 
@@ -40,8 +41,41 @@ fn falls_back_when_the_command_is_not_found() {
                 format!("exec '{}' --agent", env!("CARGO_BIN_EXE_rigtop")),
             ],
         ],
+        windows_fallback_args: Vec::new(),
     });
     let snapshot = source.poll().expect("snapshot through the fallback");
+    assert!(!snapshot.host.hostname.is_empty());
+}
+
+/// A Windows host whose SSH session does not find rigtop (the user's PATH
+/// is missing there): cmd.exe's answer, here as a Japanese Windows gives it
+/// (in its code page, not UTF-8), leads to the Windows places, not to
+/// `~/.local/bin`, and the agent starts from the second of them.
+#[cfg(unix)]
+#[test]
+fn falls_back_to_the_windows_places_when_cmd_does_not_find_it() {
+    // "'rigtop' は、内部コマンドまたは外部コマンド、" in code page 932.
+    let cmd_says = r"printf '\047rigtop\047 \202\315\201A\223\340\225\224\r\n\221\200\215\354\r\n' >&2; exit 1";
+    let mut source = RemoteSource::new(RemoteTarget {
+        name: "windows".to_owned(),
+        program: "sh".to_owned(),
+        args: vec!["-c".to_owned(), cmd_says.to_owned()],
+        fallback_args: vec![vec![
+            "-c".to_owned(),
+            "echo 'a POSIX place was tried on a Windows host' >&2; exit 2".to_owned(),
+        ]],
+        windows_fallback_args: vec![
+            // No copy from the Store: only the exit status says so.
+            vec!["-c".to_owned(), "exit 1".to_owned()],
+            vec![
+                "-c".to_owned(),
+                format!("exec '{}' --agent", env!("CARGO_BIN_EXE_rigtop")),
+            ],
+        ],
+    });
+    let snapshot = source
+        .poll()
+        .expect("snapshot through the Windows fallback");
     assert!(!snapshot.host.hostname.is_empty());
 }
 
