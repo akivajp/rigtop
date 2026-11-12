@@ -29,7 +29,7 @@ Also: panels you can resize, rearrange and hide; graphs from one minute to 24 ho
 
 rigtop sends no telemetry. The app is in English. It is free and open source (MIT or Apache 2.0).'''
 # "What's new in this version": rewrite for each release.
-release_notes = "The process list on the overview's cards is now a table as wide as the card, with columns that no longer move as the names change. It shows GPU use next to VRAM by default, and [overview] process_columns in the configuration file picks the columns: CPU, memory, GPU use, VRAM, disk I/O, user and command line."
+release_notes = "rigtop now runs natively on Windows on Arm (it ran under x64 emulation before). The GPUs of Arm PCs are not shown yet (GPU readings come from NVIDIA's library)."
 # 20 at most, 200 characters each.
 features = [
   "CPU load per core, clock, temperatures, fans and power",

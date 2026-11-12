@@ -7,6 +7,8 @@ include breaking changes).
 
 ## [Unreleased]
 
+## [0.35.0] - 2026-11-13
+
 ### Added
 - Windows on Arm: native builds of `rigtop` and `rigtop-gui`, as a zip
   (`aarch64-pc-windows-msvc`), from Scoop, and in the Microsoft Store's
@@ -770,7 +772,8 @@ First release.
 - Windows support (CPU, memory, processes, network with link speeds, drives,
   NVIDIA GPUs; temperatures, fans and CPU power are not available yet)
 
-[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.34.0...HEAD
+[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.35.0...HEAD
+[0.35.0]: https://github.com/akivajp/rigtop/compare/v0.34.0...v0.35.0
 [0.34.0]: https://github.com/akivajp/rigtop/compare/v0.33.0...v0.34.0
 [0.33.0]: https://github.com/akivajp/rigtop/compare/v0.32.0...v0.33.0
 [0.32.0]: https://github.com/akivajp/rigtop/compare/v0.31.0...v0.32.0
