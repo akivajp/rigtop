@@ -44,7 +44,7 @@ Submissions go through the Store's submission API, by the shared workflow [akiva
 2. Tag the release. The release workflow builds the packages (x64 and Arm64) and makes a **draft** submission with them and the listing files; the log of its "Microsoft Store submission" job shows every field that changes.
 3. Look at that log, then submit the draft: `gh workflow run msstore.yml -f command=commit` (or delete it with `-f command=discard`). Partner Center shows the changes of an API submission only once it is committed, and a draft edited or submitted there can no longer be handled through the API.
 
-For the listing alone (no new package): `gh workflow run msstore.yml -f command=submit`, with `-f images=true` to replace the screenshots too (`store/screenshots/`), then `commit` as above. `check` and `show` read the app's submissions and change nothing.
+For the listing alone (no new package): `gh workflow run msstore.yml -f command=submit`, with `-f images=true` to replace the screenshots too (`store/screenshots/`), then `commit` as above. If the release run built the packages but did not make its submission (a failed job), `gh workflow run msstore.yml -f command=submit -f release_run=<the release run's ID>` makes it from that run's `store-msix`. `check` and `show` read the app's submissions and change nothing.
 
 What was entered by hand in Partner Center for the first submission, and cannot be set through the API (pricing, properties, the age rating, the reason for `runFullTrust`), is recorded in [`store-listing.ja.md`](store-listing.ja.md) (in Japanese).
 

@@ -20,12 +20,42 @@ on:
         description: "submit: commit it (otherwise it stays a draft in Partner Center)"
         type: boolean
         default: false
+      release_run:
+        description: "submit: also the packages (artifact store-msix) of this run of the release workflow (its ID), when its own submission did not happen"
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
 jobs:
+  # The packages of a release run, as an artifact of this run (the shared
+  # workflow takes the packages from the run it is called from).
+  packages:
+    name: Packages from the release run
+    if: inputs.command == 'submit' && inputs.release_run != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: store-msix
+          path: store-msix
+          run-id: ${{ inputs.release_run }}
+          github-token: ${{ github.token }}
+      - run: ls -l store-msix
+      - uses: actions/upload-artifact@v7
+        with:
+          name: store-msix
+          path: store-msix/*
+          retention-days: 7
+
   store:
+    needs: packages
+    # Also when there are no packages to fetch (the job above skipped).
+    if: ${{ !cancelled() && needs.packages.result != 'failure' }}
     permissions:
       contents: read
       id-token: write
@@ -37,3 +67,7 @@ jobs:
       listings: packaging/msix/store
       images: ${{ inputs.images }}
       commit: ${{ inputs.commit }}
+      # With release_run: its Store packages (x64 and arm64, not the test copies).
+      artifact: ${{ inputs.release_run != '' && 'store-msix' || '' }}
+      package: rigtop-v*-*64.msix
+      package-count: 2

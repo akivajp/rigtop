@@ -198,11 +198,12 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      # The parts are kept: deleting them after the merge failed once with
+      # a 404 (v0.35.1), which failed the job and skipped the submission.
       - uses: actions/upload-artifact/merge@v7
         with:
           name: store-msix
           pattern: store-msix-*
-          delete-merged: true
           retention-days: 30
 
   # A new Microsoft Store submission with this version's MSIX package and
