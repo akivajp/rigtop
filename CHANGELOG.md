@@ -7,15 +7,25 @@ include breaking changes).
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-11-12
+
+### Added
+- `[overview] process_columns` picks the columns of the process list on the
+  overview's cards, next to the program names: `"cpu"`, `"memory"`, `"gpu"`
+  and `"vram"` by default (the GPU ones on hosts with a GPU), and also
+  `"disk"` (I/O), `"user"` and `"command"`. A card shows as many as it is
+  wide enough for; they come in the order of the host view's table.
+
 ### Changed
-- The process list of an overview card (GUI) is a table as wide as the
-  card, with columns that stay where they are. They were sized by the
-  names shown, so every column moved from one update to the next as the
-  longest name came and went, and the list filled only half of the card.
-  Now the numbers have fixed, right-aligned columns, the program names
-  take the rest, and a wider card also shows each process's VRAM and GPU
-  use, its disk I/O, its user and its command line, as the host view's
-  table does. Rows are faintly striped.
+- The process list of an overview card is a table as wide as the card, with
+  columns that stay where they are, in the GUI and the TUI. In the GUI the
+  columns were sized by the names shown, so every column moved from one
+  update to the next as the longest name came and went, and the list
+  filled only half of the card; in the TUI it was 36 characters wide
+  whatever the box's width. Now the numbers are in fixed, right-aligned
+  columns at the right edge and the program names take the rest; GPU use
+  joins VRAM by default. In the GUI, rows are faintly striped and a name
+  cut short shows whole on hover.
 
 ## [0.33.0] - 2026-11-12
 
@@ -753,7 +763,8 @@ First release.
 - Windows support (CPU, memory, processes, network with link speeds, drives,
   NVIDIA GPUs; temperatures, fans and CPU power are not available yet)
 
-[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.33.0...HEAD
+[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.34.0...HEAD
+[0.34.0]: https://github.com/akivajp/rigtop/compare/v0.33.0...v0.34.0
 [0.33.0]: https://github.com/akivajp/rigtop/compare/v0.32.0...v0.33.0
 [0.32.0]: https://github.com/akivajp/rigtop/compare/v0.31.0...v0.32.0
 [0.31.0]: https://github.com/akivajp/rigtop/compare/v0.30.0...v0.31.0

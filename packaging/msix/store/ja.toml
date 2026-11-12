@@ -29,7 +29,7 @@ SSH でほかのマシンも:
 
 利用状況のデータは送りません。アプリの画面は英語です。無料のオープンソースです（MIT または Apache 2.0）。'''
 # "What's new in this version": rewrite for each release.
-release_notes = "Microsoft Store から入れた rigtop のある Windows の PC を、追加の設定なしで、ほかのマシンから SSH で監視できるようになりました（Windows は SSH のセッションにシステムの PATH しか渡しませんが、rigtop が自分で見つけます）。rigtop の入っていない Windows のホストでは、日本語の Windows でも読める文で理由を表示します。"
+release_notes = "オーバービューのカードのプロセス一覧を、カードの幅いっぱいの表にしました。表示中の名前の長さで列が動くことがなくなり、既定で GPU の使用率も VRAM の隣に表示します。列は設定ファイルの [overview] process_columns で選べます（CPU・メモリ・GPU の使用率・VRAM・ディスクの I/O・ユーザー・コマンドライン）。"
 # 20 at most, 200 characters each.
 features = [
   "コアごとの CPU の負荷・クロック・温度・ファン・電力",
