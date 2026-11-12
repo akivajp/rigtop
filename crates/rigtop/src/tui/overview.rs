@@ -7,10 +7,10 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Paragraph, Wrap};
-use rigtop_core::config::{IntegratedGpu, OverviewSection};
+use rigtop_core::config::{IntegratedGpu, OverviewProcessColumn, OverviewSection};
 use rigtop_core::format;
 use rigtop_core::snapshot::Snapshot;
-use rigtop_core::view::{Severity, attention_rank};
+use rigtop_core::view::{self, Severity, attention_rank};
 
 use super::HostTui;
 use super::app::App;
@@ -530,9 +530,12 @@ fn section_lines(
         OverviewSection::Cpu => cpu_lines(card.app, snapshot, width),
         OverviewSection::Gpu => gpu_lines(snapshot, width, card.app.config.gpu.integrated),
         OverviewSection::Memory => memory_lines(snapshot, width),
-        OverviewSection::Processes => {
-            process_lines(snapshot, processes.min(left.saturating_sub(1)))
-        }
+        OverviewSection::Processes => process_lines(
+            snapshot,
+            processes.min(left.saturating_sub(1)),
+            width,
+            &card.app.config.overview.process_columns,
+        ),
         OverviewSection::Network => network_lines(card.app, snapshot),
         OverviewSection::Storage => storage_lines(snapshot, width),
     }
@@ -847,45 +850,57 @@ fn memory_lines(snapshot: &Snapshot, width: usize) -> Vec<Line<'static>> {
     vec![meter_line("Mem", ratio, width, value)]
 }
 
-fn process_lines(snapshot: &Snapshot, limit: usize) -> Vec<Line<'static>> {
+/// The busiest processes as a table as wide as the box: the columns of
+/// `[overview] process_columns` that fit `width`, the numbers at the right
+/// edge and the program names in what is left.
+fn process_lines(
+    snapshot: &Snapshot,
+    limit: usize,
+    width: usize,
+    wanted: &[OverviewProcessColumn],
+) -> Vec<Line<'static>> {
     let mut processes: Vec<_> = snapshot
         .processes
         .iter()
         .filter(|p| !p.kernel_thread)
         .collect();
     processes.sort_by(|a, b| b.cpu_percent.total_cmp(&a.cpu_percent));
-    let mut lines = vec![Line::from(dim(format!(
-        "{:<18} {:>6} {:>6} {:>6}",
-        "Program", "Cpu%", "Mem", "VRAM"
-    )))];
+    let layout = view::overview_process_columns(width, !snapshot.gpus.is_empty(), wanted);
+    let gpu_usage = view::gpu_usage_by_pid(snapshot);
+    // A cell of `chars` columns: numbers right-aligned, text after a gap.
+    let cell = |column: OverviewProcessColumn, chars: usize, text: &str| {
+        if column.right_aligned() {
+            let text = format::truncate(text, chars.saturating_sub(1));
+            format!("{text:>chars$}")
+        } else {
+            format!(" {}", format::pad(text, chars.saturating_sub(1)))
+        }
+    };
+    let mut header = format::pad("Program", layout.program);
+    for (column, chars) in &layout.columns {
+        header.push_str(&cell(*column, *chars, column.title()));
+    }
+    let mut lines = vec![Line::from(dim(header))];
     for process in processes.iter().take(limit) {
-        let cpu = process.cpu_percent as f64;
-        let vram: u64 = snapshot
-            .gpus
-            .iter()
-            .flat_map(|g| g.processes.iter())
-            .filter(|g| g.pid == process.pid)
-            .filter_map(|g| g.memory_bytes)
-            .sum();
-        lines.push(Line::from(vec![
-            Span::raw(format::pad(&process.name, 18)),
-            colored(
-                format!(" {cpu:>6.1}"),
-                if cpu > 0.0 { percent_color(cpu) } else { DIM },
-            ),
-            Span::raw(format!(" {:>6}", format::bytes(process.memory_bytes))),
-            colored(
-                format!(
-                    " {:>6}",
-                    if vram > 0 {
-                        format::bytes(vram)
-                    } else {
-                        String::new()
-                    }
-                ),
-                GPU_TITLE,
-            ),
-        ]));
+        let gpu = gpu_usage.get(&process.pid).copied().unwrap_or_default();
+        let mut spans = vec![Span::raw(format::pad(&process.name, layout.program))];
+        for (column, chars) in &layout.columns {
+            let text = cell(
+                *column,
+                *chars,
+                &view::overview_process_text(*column, process, gpu),
+            );
+            spans.push(match column {
+                OverviewProcessColumn::Command | OverviewProcessColumn::User => dim(text),
+                OverviewProcessColumn::Cpu => {
+                    let cpu = process.cpu_percent as f64;
+                    colored(text, if cpu > 0.0 { percent_color(cpu) } else { DIM })
+                }
+                OverviewProcessColumn::Vram => colored(text, GPU_TITLE),
+                _ => Span::raw(text),
+            });
+        }
+        lines.push(Line::from(spans));
     }
     // Blank lines up to the limit, so the sections below stay in place.
     lines.resize(limit + 1, Line::default());

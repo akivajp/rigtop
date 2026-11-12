@@ -5,10 +5,10 @@ use std::time::Duration;
 
 use egui::text::LayoutJob;
 use egui::{Align, Color32, FontId, Layout, RichText, Sense, TextFormat, Ui, vec2};
-use rigtop_core::config::OverviewSection;
+use rigtop_core::config::{OverviewProcessColumn, OverviewSection};
 use rigtop_core::format;
 use rigtop_core::snapshot::Snapshot;
-use rigtop_core::view::{Severity, attention_rank};
+use rigtop_core::view::{self, Severity, attention_rank};
 
 use crate::app::{HostEntry, OverviewSettings, ViewAction};
 use crate::widgets::{self, BAD, BORDER, DIM, OK, TEXT, WARN, percent_color, temperature_color};
@@ -424,7 +424,8 @@ fn card(ui: &mut Ui, host: &HostEntry, planner: &mut RowPlanner, position: usize
                             0.0
                         }
                         OverviewSection::Processes => {
-                            process_section(ui, snapshot, plan.process_rows);
+                            let columns = &host.state.config.overview.process_columns;
+                            process_section(ui, snapshot, plan.process_rows, columns);
                             0.0
                         }
                         OverviewSection::Network => {
@@ -1036,154 +1037,65 @@ fn memory_section(ui: &mut Ui, snapshot: &Snapshot) {
 
 /// The top `rows` processes by CPU. The rows are reserved even when there
 /// are fewer processes, so later sections do not jump.
-/// One column of a card's process list.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ProcessColumn {
-    Program,
-    Command,
-    User,
-    Cpu,
-    Mem,
-    Disk,
-    Gpu,
-    Vram,
-}
-
-impl ProcessColumn {
-    fn title(self) -> &'static str {
-        match self {
-            Self::Program => "Program",
-            Self::Command => "Command",
-            Self::User => "User",
-            Self::Cpu => "Cpu%",
-            Self::Mem => "Mem",
-            Self::Disk => "Disk",
-            Self::Gpu => "Gpu%",
-            Self::Vram => "VRAM",
-        }
-    }
-
-    /// Width in characters of a column of fixed width, the gap to the
-    /// column before it included ("1234.5", "1023M", "1023K/s").
-    fn chars(self) -> usize {
-        match self {
-            // These two take what the others leave (see `process_columns`).
-            Self::Program | Self::Command => 0,
-            Self::User => 11,
-            Self::Cpu | Self::Mem | Self::Vram => 7,
-            Self::Disk => 9,
-            Self::Gpu => 6,
-        }
-    }
-
-    /// Numbers are right-aligned, so that their digits line up.
-    fn right_aligned(self) -> bool {
-        !matches!(self, Self::Program | Self::Command | Self::User)
-    }
-}
-
-/// Narrowest the program column gets (a column of VRAM is kept at that).
-const PROGRAM_MIN_CHARS: usize = 16;
-/// The program column an optional column must leave.
-const PROGRAM_GOOD_CHARS: usize = 20;
-/// The program column next to a command column.
-const PROGRAM_WITH_COMMAND_CHARS: usize = 24;
-/// Narrowest command column worth showing.
-const COMMAND_MIN_CHARS: usize = 12;
-
-/// The columns of a card's process list and their widths in characters,
-/// for a card `chars` wide, in the order of the host view's table.
-///
-/// They depend on the card's width and on whether the host has GPUs, and
-/// never on the names shown: sized by their content, the columns moved with
-/// every update as the longest name came and went. The numbers have fixed
-/// widths, the program names take the rest, and a wide card adds what the
-/// host view shows (GPU use, disk I/O, the user, the command line).
-fn process_columns(chars: usize, gpus: bool) -> Vec<(ProcessColumn, usize)> {
-    use ProcessColumn::{Command, Cpu, Disk, Gpu, Mem, Program, User, Vram};
-    let mut shown = vec![Cpu, Mem];
-    // Most wanted first, with the program column each must leave.
-    let optional = [
-        (Vram, gpus, PROGRAM_MIN_CHARS),
-        (Gpu, gpus, PROGRAM_GOOD_CHARS),
-        (Disk, true, PROGRAM_GOOD_CHARS),
-        (User, true, PROGRAM_GOOD_CHARS),
-    ];
-    let fixed = |shown: &[ProcessColumn]| shown.iter().map(|c| c.chars()).sum::<usize>();
-    for (column, available, program) in optional {
-        if available && chars >= fixed(&shown) + column.chars() + program {
-            shown.push(column);
-        }
-    }
-    let rest = chars.saturating_sub(fixed(&shown)).max(8);
-    let (program, command) = if rest >= PROGRAM_WITH_COMMAND_CHARS + COMMAND_MIN_CHARS {
-        (
-            PROGRAM_WITH_COMMAND_CHARS,
-            Some(rest - PROGRAM_WITH_COMMAND_CHARS),
-        )
-    } else {
-        (rest, None)
-    };
-    let mut columns = vec![(Program, program)];
-    columns.extend(command.map(|width| (Command, width)));
-    for column in [User, Cpu, Mem, Disk, Gpu, Vram] {
-        if shown.contains(&column) {
-            columns.push((column, column.chars()));
-        }
-    }
-    columns
-}
-
 /// One cell of the process list: `text` in a slot of exactly `width`,
-/// elided if it is longer (the whole text then shows on hover).
-fn process_cell(ui: &mut Ui, column: ProcessColumn, width: f32, glyph: f32, text: RichText) {
+/// elided if it is longer (the whole text then shows on hover). Text
+/// columns after the first keep a gap of `gap` to the one before.
+fn process_cell(ui: &mut Ui, right_aligned: bool, width: f32, gap: f32, text: RichText) {
     let height = ui.text_style_height(&egui::TextStyle::Body);
     let (mut rect, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
-    let layout = if column.right_aligned() {
+    let layout = if right_aligned {
         Layout::right_to_left(Align::Center)
     } else {
-        // Text columns after the first keep a gap to the one before.
-        if column != ProcessColumn::Program {
-            rect.min.x += glyph;
-        }
+        rect.min.x += gap;
         Layout::left_to_right(Align::Center)
     };
     let mut cell = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(layout));
     cell.add(egui::Label::new(text).truncate());
 }
 
-fn process_section(ui: &mut Ui, snapshot: &Snapshot, rows: usize) {
+/// The busiest processes as a table as wide as the card. Its columns
+/// (`[overview] process_columns`, as far as they fit) depend on the card's
+/// width and the host only: sized by their content, they moved with every
+/// update as the longest name came and went.
+fn process_section(
+    ui: &mut Ui,
+    snapshot: &Snapshot,
+    rows: usize,
+    wanted: &[OverviewProcessColumn],
+) {
     let mut processes: Vec<_> = snapshot
         .processes
         .iter()
         .filter(|p| !p.kernel_thread)
         .collect();
     processes.sort_by(|a, b| b.cpu_percent.total_cmp(&a.cpu_percent));
-    let gpu_usage = rigtop_core::view::gpu_usage_by_pid(snapshot);
+    let gpu_usage = view::gpu_usage_by_pid(snapshot);
     let font = egui::TextStyle::Body.resolve(ui.style());
     let glyph = ui.fonts_mut(|f| f.glyph_width(&font, '0'));
     let width = ui.available_width();
-    let columns = process_columns((width / glyph) as usize, !snapshot.gpus.is_empty());
-    // The program column also takes the fraction of a character left over.
-    let fixed: f32 = columns[1..].iter().map(|(_, c)| *c as f32 * glyph).sum();
-    let column_width = |index: usize, chars: usize| {
-        if index == 0 {
-            (width - fixed).max(chars as f32 * glyph)
-        } else {
-            chars as f32 * glyph
-        }
-    };
+    let layout =
+        view::overview_process_columns((width / glyph) as usize, !snapshot.gpus.is_empty(), wanted);
+    // The program names also take the fraction of a character left over.
+    let fixed: f32 = layout.columns.iter().map(|(_, c)| *c as f32 * glyph).sum();
+    let program_width = (width - fixed).max(layout.program as f32 * glyph);
     ui.scope(|ui| {
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
         ui.horizontal(|ui| {
-            for (index, (column, chars)) in columns.iter().enumerate() {
-                let width = column_width(index, *chars);
-                process_cell(ui, *column, width, glyph, dim(column.title()));
+            process_cell(ui, false, program_width, 0.0, dim("Program"));
+            for (column, chars) in &layout.columns {
+                let width = *chars as f32 * glyph;
+                process_cell(
+                    ui,
+                    column.right_aligned(),
+                    width,
+                    glyph,
+                    dim(column.title()),
+                );
             }
         });
         let row_height = ui.text_style_height(&egui::TextStyle::Body);
         for (row, process) in processes.iter().take(rows).enumerate() {
-            let (gpu_percent, vram) = gpu_usage.get(&process.pid).copied().unwrap_or_default();
+            let gpu = gpu_usage.get(&process.pid).copied().unwrap_or_default();
             // Faint stripes, as in the host view's table: the numbers are
             // a way from the names they belong to.
             if row % 2 == 1 {
@@ -1192,31 +1104,21 @@ fn process_section(ui: &mut Ui, snapshot: &Snapshot, rows: usize) {
                     .rect_filled(stripe, 2.0, ui.visuals().faint_bg_color);
             }
             ui.horizontal(|ui| {
-                for (index, (column, chars)) in columns.iter().enumerate() {
+                let name = RichText::new(process.name.as_str());
+                process_cell(ui, false, program_width, 0.0, name);
+                for (column, chars) in &layout.columns {
+                    let text = view::overview_process_text(*column, process, gpu);
                     let text = match column {
-                        ProcessColumn::Program => RichText::new(process.name.as_str()),
-                        ProcessColumn::Command => dim(process.command.as_str()),
-                        ProcessColumn::User => dim(process.user.as_str()),
-                        ProcessColumn::Cpu => {
+                        OverviewProcessColumn::Command | OverviewProcessColumn::User => dim(text),
+                        OverviewProcessColumn::Cpu => {
                             let cpu = process.cpu_percent;
-                            colored(
-                                format!("{cpu:.1}"),
-                                if cpu > 0.0 { percent_color(cpu) } else { DIM },
-                            )
+                            colored(text, if cpu > 0.0 { percent_color(cpu) } else { DIM })
                         }
-                        ProcessColumn::Mem => RichText::new(format::bytes(process.memory_bytes)),
-                        ProcessColumn::Disk => {
-                            RichText::new(rigtop_core::view::disk_rate_text(process))
-                        }
-                        ProcessColumn::Gpu => {
-                            RichText::new(gpu_percent.map_or(String::new(), |g| format!("{g:.0}")))
-                        }
-                        ProcessColumn::Vram => colored(
-                            vram.filter(|v| *v > 0).map_or(String::new(), format::bytes),
-                            widgets::GPU_TITLE,
-                        ),
+                        OverviewProcessColumn::Vram => colored(text, widgets::GPU_TITLE),
+                        _ => RichText::new(text),
                     };
-                    process_cell(ui, *column, column_width(index, *chars), glyph, text);
+                    let width = *chars as f32 * glyph;
+                    process_cell(ui, column.right_aligned(), width, glyph, text);
                 }
             });
         }
@@ -1375,38 +1277,6 @@ fn storage_section(ui: &mut Ui, snapshot: &Snapshot, disks: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn process_columns_depend_on_the_width_only() {
-        use ProcessColumn::{Command, Cpu, Disk, Gpu, Mem, Program, User, Vram};
-        let names = |chars, gpus| -> Vec<ProcessColumn> {
-            process_columns(chars, gpus)
-                .into_iter()
-                .map(|(c, _)| c)
-                .collect()
-        };
-        // A narrow card: what the list always had, the names taking the rest.
-        assert_eq!(names(40, false), [Program, Cpu, Mem]);
-        assert_eq!(names(40, true), [Program, Cpu, Mem, Vram]);
-        assert_eq!(process_columns(40, true)[0], (Program, 40 - 3 * 7));
-        // More room: GPU use and disk I/O, then the user ...
-        assert_eq!(names(62, true), [Program, Cpu, Mem, Disk, Gpu, Vram]);
-        assert_eq!(names(75, true), [Program, User, Cpu, Mem, Disk, Gpu, Vram]);
-        // ... and the command line, next to names of a fixed width.
-        let wide = process_columns(110, true);
-        assert_eq!(
-            wide.iter().map(|(c, _)| *c).collect::<Vec<_>>(),
-            [Program, Command, User, Cpu, Mem, Disk, Gpu, Vram]
-        );
-        assert_eq!(wide[0].1, PROGRAM_WITH_COMMAND_CHARS);
-        // Every width is used up, whatever the card's.
-        for chars in 30..200 {
-            for gpus in [false, true] {
-                let total: usize = process_columns(chars, gpus).iter().map(|(_, w)| w).sum();
-                assert_eq!(total, chars, "{chars} characters, GPUs: {gpus}");
-            }
-        }
-    }
 
     #[test]
     fn card_columns_trade_width_for_height_when_cramped() {

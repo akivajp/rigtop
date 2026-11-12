@@ -15,6 +15,7 @@
 #sections = ["cpu", "gpu", "memory", "processes", "network", "storage"]
 #include_local = true               # a card for this machine
 #processes = 10                     # processes per card
+#process_columns = ["cpu", "memory", "gpu", "vram"]  # next to their names; also "disk", "user", "command"
 #alerts_first = false               # cards of hosts with alerts first
 
 #[alerts]

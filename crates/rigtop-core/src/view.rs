@@ -12,7 +12,7 @@ use std::time::{Duration, SystemTime};
 use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 
-use crate::config::{AlertsConfig, IntegratedGpu};
+use crate::config::{AlertsConfig, IntegratedGpu, OverviewProcessColumn};
 use crate::format;
 use crate::snapshot::{
     CpuStats, GpuStats, NetworkStats, OomKill, PcieLink, Pressure, ProcessInfo, Snapshot, UpsStats,
@@ -1488,6 +1488,97 @@ fn drive_temperatures(snapshot: &Snapshot) -> Vec<(String, f32)> {
     drives
 }
 
+/// The columns of an overview card's process list: see
+/// [`overview_process_columns`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OverviewProcessColumns {
+    /// Width of the program names, in characters.
+    pub program: usize,
+    /// The other columns, in the order they are shown in, and their widths
+    /// (the gap to the column before included).
+    pub columns: Vec<(OverviewProcessColumn, usize)>,
+}
+
+/// Narrowest the program names get next to CPU, memory and VRAM.
+const OVERVIEW_PROGRAM_MIN_CHARS: usize = 16;
+/// The program names the other columns must leave.
+const OVERVIEW_PROGRAM_GOOD_CHARS: usize = 20;
+/// The program names next to command lines.
+const OVERVIEW_PROGRAM_WITH_COMMAND_CHARS: usize = 24;
+/// Narrowest command lines worth showing.
+const OVERVIEW_COMMAND_MIN_CHARS: usize = 12;
+
+/// The columns of an overview card's process list, for a card `chars`
+/// characters wide: those of `wanted` (`[overview] process_columns`) that
+/// fit, GPU columns only on a host with `gpus`.
+///
+/// They depend on the card's width and the host, never on the names shown,
+/// so that nothing moves from one update to the next. The numbers have
+/// fixed widths at the right edge, and the program names take the rest
+/// (or, with command lines, a fixed width next to them).
+pub fn overview_process_columns(
+    chars: usize,
+    gpus: bool,
+    wanted: &[OverviewProcessColumn],
+) -> OverviewProcessColumns {
+    use OverviewProcessColumn::{Command, Cpu, Disk, Gpu, Memory, User, Vram};
+    // Kept first when the card is narrow, with the names each must leave.
+    let by_priority = [
+        (Cpu, 8),
+        (Memory, 8),
+        (Vram, OVERVIEW_PROGRAM_MIN_CHARS),
+        (Gpu, OVERVIEW_PROGRAM_GOOD_CHARS),
+        (Disk, OVERVIEW_PROGRAM_GOOD_CHARS),
+        (User, OVERVIEW_PROGRAM_GOOD_CHARS),
+    ];
+    let mut shown = Vec::new();
+    let mut fixed = 0;
+    for (column, program) in by_priority {
+        let fits = chars >= fixed + column.chars() + program;
+        if wanted.contains(&column) && (gpus || !column.needs_gpu()) && fits {
+            shown.push(column);
+            fixed += column.chars();
+        }
+    }
+    let rest = chars.saturating_sub(fixed).max(8);
+    let command_fits = rest >= OVERVIEW_PROGRAM_WITH_COMMAND_CHARS + OVERVIEW_COMMAND_MIN_CHARS;
+    let (program, command) = if wanted.contains(&Command) && command_fits {
+        let program = OVERVIEW_PROGRAM_WITH_COMMAND_CHARS;
+        (program, Some(rest - program))
+    } else {
+        (rest, None)
+    };
+    let columns = OverviewProcessColumn::ORDER
+        .into_iter()
+        .filter_map(|column| match column {
+            Command => command.map(|width| (column, width)),
+            _ => shown.contains(&column).then(|| (column, column.chars())),
+        })
+        .collect();
+    OverviewProcessColumns { program, columns }
+}
+
+/// What `column` shows for `process` on an overview card (`gpu`: its
+/// entry of [`gpu_usage_by_pid`]); empty where there is nothing to say.
+pub fn overview_process_text(
+    column: OverviewProcessColumn,
+    process: &ProcessInfo,
+    gpu: (Option<f32>, Option<u64>),
+) -> String {
+    match column {
+        OverviewProcessColumn::Command => process.command.clone(),
+        OverviewProcessColumn::User => process.user.clone(),
+        OverviewProcessColumn::Cpu => format!("{:.1}", process.cpu_percent),
+        OverviewProcessColumn::Memory => format::bytes(process.memory_bytes),
+        OverviewProcessColumn::Disk => disk_rate_text(process),
+        OverviewProcessColumn::Gpu => gpu.0.map_or(String::new(), |g| format!("{g:.0}")),
+        OverviewProcessColumn::Vram => gpu
+            .1
+            .filter(|v| *v > 0)
+            .map_or(String::new(), format::bytes),
+    }
+}
+
 /// pid -> (highest SM %, total VRAM) across the GPUs.
 pub fn gpu_usage_by_pid(snapshot: &Snapshot) -> HashMap<u32, (Option<f32>, Option<u64>)> {
     let mut gpu_usage: HashMap<u32, (Option<f32>, Option<u64>)> = HashMap::new();
@@ -1805,6 +1896,51 @@ pub fn default_interface(snapshot: &Snapshot) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn overview_process_columns_depend_on_the_width_only() {
+        use OverviewProcessColumn::{Command, Cpu, Disk, Gpu, Memory, User, Vram};
+        let default = OverviewProcessColumn::DEFAULT;
+        let names = |chars, gpus, wanted: &[OverviewProcessColumn]| -> Vec<_> {
+            overview_process_columns(chars, gpus, wanted)
+                .columns
+                .into_iter()
+                .map(|(c, _)| c)
+                .collect()
+        };
+        // By default: CPU and memory, and GPU use and VRAM where there is
+        // a GPU; the names take everything else.
+        assert_eq!(names(56, false, &default), [Cpu, Memory]);
+        assert_eq!(names(56, true, &default), [Cpu, Memory, Gpu, Vram]);
+        assert_eq!(
+            overview_process_columns(56, true, &default).program,
+            56 - 27
+        );
+        // A narrow card leaves GPU use out before squeezing the names.
+        assert_eq!(names(40, true, &default), [Cpu, Memory, Vram]);
+        // What the configuration lists, in the host view's order ...
+        let all = [Vram, Gpu, Disk, User, Command, Memory, Cpu];
+        assert_eq!(
+            names(110, true, &all),
+            [Command, User, Cpu, Memory, Disk, Gpu, Vram]
+        );
+        let wide = overview_process_columns(110, true, &all);
+        assert_eq!(wide.program, OVERVIEW_PROGRAM_WITH_COMMAND_CHARS);
+        // ... as far as there is room.
+        assert_eq!(names(62, true, &all), [Cpu, Memory, Disk, Gpu, Vram]);
+        assert_eq!(names(30, false, &[]), []);
+        // Every width is used up, whatever the card's.
+        for chars in 30..200 {
+            for gpus in [false, true] {
+                for wanted in [&default[..], &all[..]] {
+                    let layout = overview_process_columns(chars, gpus, wanted);
+                    let total =
+                        layout.program + layout.columns.iter().map(|(_, w)| w).sum::<usize>();
+                    assert_eq!(total, chars, "{chars} characters, GPUs: {gpus}");
+                }
+            }
+        }
+    }
+
     use super::*;
     use crate::snapshot::{EccErrors, GpuProcess, NetworkStats};
 

@@ -1974,7 +1974,7 @@ mod tests {
                 .build_ui_state(|ui, app: &mut RigtopApp| app.show(ui), app);
             harness.run();
             let mut found = Vec::new();
-            for title in ["Program", "Cpu%", "Disk", "VRAM"] {
+            for title in ["Program", "Cpu%", "Gpu%", "VRAM"] {
                 let node = harness
                     .query_all_by_label(title)
                     .next()

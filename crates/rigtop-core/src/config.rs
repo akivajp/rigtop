@@ -364,6 +364,76 @@ impl TuiConfig {
     }
 }
 
+/// A column of the process list on an overview card, next to the
+/// program's name (which is always shown).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OverviewProcessColumn {
+    /// The command line.
+    Command,
+    User,
+    Cpu,
+    Memory,
+    /// Disk I/O (reads and writes together).
+    Disk,
+    /// GPU use; on hosts with a GPU only.
+    Gpu,
+    /// Video memory; on hosts with a GPU only.
+    Vram,
+}
+
+impl OverviewProcessColumn {
+    /// The columns shown unless `[overview] process_columns` says otherwise.
+    pub const DEFAULT: [Self; 4] = [Self::Cpu, Self::Memory, Self::Gpu, Self::Vram];
+    /// Every column, in the order they are shown in (that of the host
+    /// view's table), whatever the order they are listed in.
+    pub const ORDER: [Self; 7] = [
+        Self::Command,
+        Self::User,
+        Self::Cpu,
+        Self::Memory,
+        Self::Disk,
+        Self::Gpu,
+        Self::Vram,
+    ];
+
+    /// The column's heading.
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Command => "Command",
+            Self::User => "User",
+            Self::Cpu => "Cpu%",
+            Self::Memory => "Mem",
+            Self::Disk => "Disk",
+            Self::Gpu => "Gpu%",
+            Self::Vram => "VRAM",
+        }
+    }
+
+    /// Width in characters, the gap to the column before it included
+    /// ("1234.5", "1023M", "1023K/s"); the command line takes what is left
+    /// (see [`crate::view::overview_process_columns`]).
+    pub fn chars(self) -> usize {
+        match self {
+            Self::Command => 0,
+            Self::User => 11,
+            Self::Cpu | Self::Memory | Self::Vram => 7,
+            Self::Disk => 9,
+            Self::Gpu => 6,
+        }
+    }
+
+    /// Numbers are right-aligned, so that their digits line up.
+    pub fn right_aligned(self) -> bool {
+        !matches!(self, Self::Command | Self::User)
+    }
+
+    /// Whether the column is about GPUs (left out on hosts without one).
+    pub fn needs_gpu(self) -> bool {
+        matches!(self, Self::Gpu | Self::Vram)
+    }
+}
+
 /// Settings of the multi-host overview.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -377,6 +447,9 @@ pub struct OverviewConfig {
     /// Processes listed per card. Hosts not shown in detail only send this
     /// many, to keep SSH traffic small.
     pub processes: usize,
+    /// Columns of that list next to the program's name; a card too narrow
+    /// for all of them leaves some out.
+    pub process_columns: Vec<OverviewProcessColumn>,
     /// Put hosts that need attention first (unreachable or with critical
     /// alerts, then warnings); the others keep their order. Off by default,
     /// so that cards stay where they are.
@@ -389,6 +462,7 @@ impl Default for OverviewConfig {
             sections: OverviewSection::ALL.to_vec(),
             include_local: true,
             processes: 10,
+            process_columns: OverviewProcessColumn::DEFAULT.to_vec(),
             alerts_first: false,
         }
     }
