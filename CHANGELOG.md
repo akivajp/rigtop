@@ -7,6 +7,13 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Added
+- Windows on Arm: native builds of `rigtop` and `rigtop-gui`, as a zip
+  (`aarch64-pc-windows-msvc`), from Scoop, and in the Microsoft Store's
+  package (Arm PCs ran the x64 build under emulation). Built and tested on
+  GitHub's Arm runners only, not yet on a PC; the GPUs of Arm PCs are not
+  shown (GPU readings come from NVIDIA's library).
+
 ## [0.34.0] - 2026-11-12
 
 ### Added

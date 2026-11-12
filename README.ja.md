@@ -65,6 +65,7 @@ Windows では、下の Scoop と zip も使えます。
 | `x86_64-unknown-linux-gnu` | `rigtop`、`rigtop-gui`（glibc 2.35 以降） |
 | `aarch64-unknown-linux-gnu` | `rigtop` |
 | `x86_64-pc-windows-msvc` | `rigtop.exe`、`rigtop-gui.exe` |
+| `aarch64-pc-windows-msvc` | `rigtop.exe`、`rigtop-gui.exe`（Arm 版 Windows） |
 | `aarch64-apple-darwin` | `rigtop`、`rigtop-gui`（署名なし） |
 
 チェックサムは `SHA256SUMS` にあります。Rust の環境（1.95 以降）があれば、[crates.io](https://crates.io/crates/rigtop) から入れることもできます。
@@ -302,6 +303,7 @@ Linux との違い:
 - CPU 使用率、メモリ、プロセス、ネットワーク（リンク速度を含む）、ドライブの容量とドライブごとの I/O、NVIDIA の GPU（ドライバ付属の `nvml.dll` 経由）は、追加のソフト無しで表示できます。
 - 温度・ファン・CPU の消費電力・ドライブの健康状態（摩耗・予備領域・温度）は、Windows が標準で持たないハードウェアのドライバが必要です。[LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor) が動いていればそこから読み取ります（下記）。動いていなければ Windows 自身が出す値だけを表示するので、多くの環境では何も出ません。ドライブはディスクの管理と同じ番号で `disk0`、`disk1`… と表示します。
 - ロードアベレージとディスクの使用率（busy %）はありません。
+- Arm 版 Windows（Microsoft Store・Scoop・`aarch64-pc-windows-msvc` の zip にネイティブのビルドがあります）: GitHub の Arm のランナーでビルドとテストをしただけで、実機ではまだ確かめていません。Arm の PC の GPU は表示されません（GPU の値は NVIDIA のライブラリから読むため）。LibreHardwareMonitor が Arm のプロセッサーから読めるセンサーも少ない可能性があります。
 - Windows にはシグナルがありません。「強制終了」（`K`）はプロセスを即座に終了し、「終了」（`k`）はタスクマネージャーの「タスクの終了」と同じくプロセスのウィンドウに閉じる要求を送ります。ウィンドウの無いプロセス（コンソールのプログラムやサービス）では、その旨を表示します。
 
 ![Windows の rigtop-gui: LibreHardwareMonitor 経由の CPU 温度・ファン・CPU 消費電力、NVIDIA の GPU、ドライブ、ネットワーク](docs/images/rigtop-gui-windows.png)

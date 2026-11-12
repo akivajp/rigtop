@@ -65,6 +65,7 @@ Or download an archive for your platform from the [Releases](https://github.com/
 | `x86_64-unknown-linux-gnu` | `rigtop`, `rigtop-gui` (glibc 2.35 or newer) |
 | `aarch64-unknown-linux-gnu` | `rigtop` |
 | `x86_64-pc-windows-msvc` | `rigtop.exe`, `rigtop-gui.exe` |
+| `aarch64-pc-windows-msvc` | `rigtop.exe`, `rigtop-gui.exe` (Windows on Arm) |
 | `aarch64-apple-darwin` | `rigtop`, `rigtop-gui` (unsigned) |
 
 `SHA256SUMS` lists the checksums. With a Rust toolchain (1.95 or newer) you can also install from [crates.io](https://crates.io/crates/rigtop):
@@ -302,6 +303,7 @@ What differs from Linux:
 - CPU load, memory, processes, network (with link speeds), drive capacity and per-drive I/O, and NVIDIA GPUs (via `nvml.dll` from the driver) work without extra software.
 - Temperatures, fans, CPU power and drive health (wear, spare capacity, temperature) need hardware drivers that Windows does not ship. rigtop reads them from [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor) when it is running (see below); otherwise only what Windows itself reports is shown, which is often nothing. Drives are named `disk0`, `disk1`... as in Disk Management.
 - There is no load average and no disk busy percentage.
+- Windows on Arm (the Microsoft Store, Scoop and the `aarch64-pc-windows-msvc` zip have native builds): built and tested on GitHub's Arm runners only, not yet on a PC. The GPUs of Arm PCs are not shown (GPU readings come from NVIDIA's library), and LibreHardwareMonitor may have few sensors for their processors.
 - Windows has no signals: "kill" (`K`) ends the process immediately; "terminate" (`k`) asks the process's windows to close, like Task Manager's "End task", and reports when the process has no window (console programs, services).
 
 ![rigtop-gui on Windows with CPU temperatures, fans and CPU power read through LibreHardwareMonitor, an NVIDIA GPU, drives and network](docs/images/rigtop-gui-windows.png)
