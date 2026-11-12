@@ -1959,6 +1959,40 @@ mod tests {
     }
 
     #[test]
+    fn overview_process_columns_stay_put_when_names_change() {
+        // Where the columns of a card's process list are, by their titles.
+        let positions = |longest: &str| -> Vec<(String, f32, f32)> {
+            let mut snapshot = sample_snapshot();
+            snapshot.processes[0].name = longest.to_owned();
+            let mut app = RigtopApp::for_test(Config::default(), &["local", "zefat"]);
+            for host in &mut app.hosts {
+                host.state
+                    .apply(Event::Snapshot(Box::new(snapshot.clone())));
+            }
+            let mut harness = Harness::builder()
+                .with_size([1400.0, 900.0])
+                .build_ui_state(|ui, app: &mut RigtopApp| app.show(ui), app);
+            harness.run();
+            let mut found = Vec::new();
+            for title in ["Program", "Cpu%", "Disk", "VRAM"] {
+                let node = harness
+                    .query_all_by_label(title)
+                    .next()
+                    .unwrap_or_else(|| panic!("no {title} column"));
+                found.push((title.to_owned(), node.rect().left(), node.rect().right()));
+            }
+            found
+        };
+        let short = positions("sh");
+        let long = positions("a-program-with-quite-a-long-name-indeed");
+        assert_eq!(short, long, "the columns moved with the names");
+        // The list spans the card: its last column ends far to the right
+        // of where the names start (it used to end after some 35 characters).
+        let (program, vram) = (&short[0], &short[3]);
+        assert!(vram.2 - program.1 > 500.0, "{short:?}");
+    }
+
+    #[test]
     fn clicking_a_tab_opens_the_detail_view() {
         let mut harness = multi_host_harness();
         harness.run();

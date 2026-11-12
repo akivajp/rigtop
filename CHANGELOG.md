@@ -7,6 +7,16 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Changed
+- The process list of an overview card (GUI) is a table as wide as the
+  card, with columns that stay where they are. They were sized by the
+  names shown, so every column moved from one update to the next as the
+  longest name came and went, and the list filled only half of the card.
+  Now the numbers have fixed, right-aligned columns, the program names
+  take the rest, and a wider card also shows each process's VRAM and GPU
+  use, its disk I/O, its user and its command line, as the host view's
+  table does. Rows are faintly striped.
+
 ## [0.33.0] - 2026-11-12
 
 ### Added

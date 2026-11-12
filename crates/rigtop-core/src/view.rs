@@ -1489,7 +1489,7 @@ fn drive_temperatures(snapshot: &Snapshot) -> Vec<(String, f32)> {
 }
 
 /// pid -> (highest SM %, total VRAM) across the GPUs.
-fn gpu_usage_by_pid(snapshot: &Snapshot) -> HashMap<u32, (Option<f32>, Option<u64>)> {
+pub fn gpu_usage_by_pid(snapshot: &Snapshot) -> HashMap<u32, (Option<f32>, Option<u64>)> {
     let mut gpu_usage: HashMap<u32, (Option<f32>, Option<u64>)> = HashMap::new();
     for gpu in &snapshot.gpus {
         for p in &gpu.processes {
