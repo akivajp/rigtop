@@ -142,26 +142,13 @@ jobs:
         run: |
           $appcert = "${env:ProgramFiles(x86)}\Windows Kits\10\App Certification Kit\appcert.exe"
           if (-not (Test-Path $appcert)) {
-            # GitHub's Arm runner has the SDK without the kit: install the
-            # kit alone from the SDK's installer (10.0.26100.9457).
-            Write-Host "installing the App Certification Kit"
-            $setup = Join-Path $env:RUNNER_TEMP "winsdksetup.exe"
-            Invoke-WebRequest "https://go.microsoft.com/fwlink/?linkid=2382321" -OutFile $setup
-            $log = Join-Path $env:RUNNER_TEMP "winsdksetup.log"
-            $setupRun = Start-Process -Wait -PassThru -FilePath $setup -ArgumentList "/features", "OptionId.WindowsSoftwareLogoToolkit", "/quiet", "/norestart", "/log", "`"$log`""
-            Write-Host "winsdksetup exit code: $($setupRun.ExitCode)"
-            # Wherever it went (the kit's folder may differ on Arm).
-            $found = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits", "$env:ProgramFiles\Windows Kits" -Recurse -Filter appcert.exe -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($found) { $appcert = $found.FullName }
-            if (-not (Test-Path $appcert)) {
-              Get-ChildItem $env:RUNNER_TEMP -Filter "winsdksetup*.log" | ForEach-Object {
-                Write-Host "== $($_.Name)"
-                Get-Content $_.FullName | Select-String -Pattern "LogoToolkit|App Certification|error|fail|not applicable|unsupported" | Select-Object -Last 40
-              }
-            }
+            # GitHub's Arm runner has the SDK without the kit, and the SDK's
+            # installer does not put the kit there (it reports success). The
+            # Arm64 package is the x64 one's manifest and images with Arm64
+            # executables; Partner Center certifies both.
+            Write-Host "the App Certification Kit is not installed"
+            exit 0
           }
-          if (-not (Test-Path $appcert)) { Write-Host "the App Certification Kit is not installed"; exit 0 }
-          Write-Host "App Certification Kit: $appcert"
           $cer = Get-ChildItem msix/*-test.cer | Select-Object -First 1
           $test = Get-ChildItem msix/*-test.msix | Select-Object -First 1
           Import-Certificate -FilePath $cer.FullName -CertStoreLocation Cert:\LocalMachine\TrustedPeople | Out-Null
@@ -176,6 +163,27 @@ jobs:
               Write-Host "$($_.RESULT): $($_.NAME)"
             }
           }
+      # Installs the test copy and runs the terminal version through the
+      # package's alias, as from the Store (on Arm, the only check of the
+      # package: the runner has no App Certification Kit).
+      - name: Install and run the package
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Get-AppxPackage *rigtop* | Remove-AppxPackage
+          $cer = Get-ChildItem msix/*-test.cer | Select-Object -First 1
+          Import-Certificate -FilePath $cer.FullName -CertStoreLocation Cert:\LocalMachine\TrustedPeople | Out-Null
+          Add-AppxPackage (Get-ChildItem msix/*-test.msix | Select-Object -First 1).FullName
+          $package = Get-AppxPackage *rigtop*
+          "installed: $($package.PackageFullName)"
+          if ($package.Architecture -ne "${{ matrix.msix_arch }}") { throw "the package is for $($package.Architecture)" }
+          $alias = "$env:LOCALAPPDATA\Microsoft\WindowsApps\rigtop.exe"
+          & $alias --version
+          if ($LASTEXITCODE -ne 0) { throw "rigtop --version failed: $LASTEXITCODE" }
+          $json = & $alias --dump-json | ConvertFrom-Json
+          "host: $($json.host.os), $($json.cpu.per_core_percent.Count) cores, $($json.processes.Count) processes"
+          if (-not $json.processes.Count) { throw "no processes in the snapshot" }
+          $package | Remove-AppxPackage
       - uses: actions/upload-artifact@v7
         if: runner.os == 'Windows'
         with:
