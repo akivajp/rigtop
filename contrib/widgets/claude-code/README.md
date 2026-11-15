@@ -4,8 +4,8 @@ A rigtop [widget](../../../README.md#widgets) showing the subscription usage lim
 
 ```
 ╭ Claude Code ───────────────────────────╮
-│5h       ■■■■■■■■■■ 99% left · 09:40    │
-│week     ■■■■■■■■■■ 95% left · Sun 15:00│
+│5h       ■■■■■■■■■■ 99% left · 4h23m    │
+│week     ■■■■■■■■■■ 95% left · 167h     │
 │────────────────────────────────────────│
 │rigtop                                  │
 │ busy    7a · 1 agent · 25m             │
@@ -21,7 +21,7 @@ A rigtop [widget](../../../README.md#widgets) showing the subscription usage lim
 ╰────────────────────────────────────────╯
 ```
 
-- Usage windows show what is **left** (100% when unused) and when they reset; `RIGTOP_CLAUDE_QUOTA=used` shows usage instead.
+- Usage windows show what is **left** (100% when unused) and how long until they reset (`4h23m`; whole hours from a day on, `167h`); `RIGTOP_CLAUDE_QUOTA=used` shows usage instead, and `RIGTOP_CLAUDE_RESET=clock` the time of day of the reset (`03:40`, `Sun 15:00`).
 - `ctx` is how much of the session's context window its conversation fills, in the session's color but yellow from 70% and red from 90%, when compacting it or starting a new session is worth a thought. The window is 1M tokens for current Claude models (Opus 4.6 and later, Sonnet 4.6 and later, Haiku 5.5, Fable) and models chosen with `[1m]`, 200K for older ones; `RIGTOP_CLAUDE_CONTEXT_WINDOW=1000000` sets it for every session. Other models (e.g. through Ollama) show the token count only.
 - Sessions are named without the project prefix, under the project's name, indented like a tree: a session's status under the project, its `ctx` and subagents under the session. A busy session tells how long it has been working; an idle one whether its turn ended with work still running in the background (`waiting on 1 task, 2 agents`) or it waits for you (`your turn`), and for how long.
 - Working sessions (busy, or with background work) come first, in green, the one at it longest first; then the ones waiting for you, most recent first. One stopped at a permission prompt (`waiting`) stays yellow; one whose turn ended (`your turn`) is yellow for an hour (`RIGTOP_CLAUDE_FRESH_SECS`), then grey without its `ctx` row, and left out after 2 hours (`RIGTOP_CLAUDE_HIDE_SECS`, 0 to keep them all), counted on the last line. A project's name is yellow while one of its sessions waits for you (a permission prompt, or a turn ended under an hour ago), else green while one works, and grey when all are left waiting; it is repeated where the order moves to another project and back.

@@ -9,9 +9,10 @@ include breaking changes).
 
 ### Changed
 
-- Claude Code widget: a quota window that resets within 24 hours shows the
-  time alone (`64% left · 03:10`), without the weekday. The five-hour window
-  used to show one whenever it reset after midnight.
+- Claude Code widget: a quota window shows how long until it resets
+  (`61% left · 4h23m`, `83% left · 167h`) instead of the time of day, which
+  was cut off for the weekly window. `RIGTOP_CLAUDE_RESET=clock` brings the
+  time of day back, now without the weekday when the reset is within 24 hours.
 
 ## [0.35.1] - 2026-11-13
 

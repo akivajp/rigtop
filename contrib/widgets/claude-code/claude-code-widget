@@ -49,6 +49,9 @@ ACTIVE_SECS = int(os.environ.get("RIGTOP_CLAUDE_ACTIVE_SECS", "120"))
 STALE_LIMITS_SECS = 15 * 60
 # "remaining" (100% when unused) or "used".
 QUOTA_MODE = os.environ.get("RIGTOP_CLAUDE_QUOTA", "remaining")
+# How a window's reset is shown: "remaining" (the time until then, `4h23m`)
+# or "clock" (the time of day, `03:40`, with the weekday beyond a day).
+RESET_MODE = os.environ.get("RIGTOP_CLAUDE_RESET", "remaining")
 # A session waiting for you is yellow for this long, then grey...
 FRESH_SECS = int(os.environ.get("RIGTOP_CLAUDE_FRESH_SECS", str(60 * 60)))
 # ...and left out (counted on one line) after this long; 0 keeps it.
@@ -155,6 +158,19 @@ def reset_text(epoch, now):
     return when.strftime("%a %H:%M")
 
 
+def remaining_text(secs):
+    """The time until a reset, short enough for the weekly window to fit:
+    `23m`, `4h23m`, and whole hours from a day on (`167h`), where the
+    minutes no longer matter. Rounded up, so it never reads `0m`."""
+    minutes = max(1, -(-int(secs) // 60))
+    hours, minutes = divmod(minutes, 60)
+    if hours >= 24:
+        return f"{hours}h"
+    if hours:
+        return f"{hours}h{minutes:02d}m"
+    return f"{minutes}m"
+
+
 def window_row(label, used, resets, now):
     """A usage window: `used` in percent, `resets` in epoch seconds. Shown
     as what is left (a full bar when unused) unless QUOTA_MODE is "used"."""
@@ -163,8 +179,14 @@ def window_row(label, used, resets, now):
         return row("reset (no newer data)", label=label, level="dim")
     left = 100 - used
     level = "bad" if left <= 10 else "warn" if left <= 30 else "ok"
-    # The time is when the window resets ("resets" left out to fit).
-    when = f" · {reset_text(resets, now)}" if resets else ""
+    # The time until the window resets, or when it does ("resets" left
+    # out to fit).
+    if not resets:
+        when = ""
+    elif RESET_MODE == "clock":
+        when = f" · {reset_text(resets, now)}"
+    else:
+        when = f" · {remaining_text(resets - now)}"
     if QUOTA_MODE == "used":
         gauge = max(0.0, min(1.0, used / 100))
         return row(f"{used:.0f}% used{when}", label=label, gauge=gauge, level=level)
