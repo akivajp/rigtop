@@ -65,6 +65,9 @@ pub struct WidgetRow {
     /// A line between sections instead of a reading (an empty row where
     /// rigtop does not know it).
     pub separator: bool,
+    /// More about the row, shown where a pointer can rest on it (the
+    /// GUI); left out elsewhere.
+    pub hint: Option<String>,
 }
 
 /// How a gauge is colored.
@@ -348,6 +351,9 @@ mod tests {
         assert_eq!(output.rows[0].gauge_style, GaugeStyle::Heat, "default");
         let left = parse_output(r#"{"rows":[{"gauge":0.8,"gauge_style":"level"}]}"#);
         assert_eq!(left.rows[0].gauge_style, GaugeStyle::Level);
+        assert_eq!(left.rows[0].hint, None);
+        let hinted = parse_output(r#"{"rows":[{"value":"4h23m","hint":"resets 03:40"}]}"#);
+        assert_eq!(hinted.rows[0].hint.as_deref(), Some("resets 03:40"));
         assert_eq!(output.rows[1].value, "rigtop", "`text` is `value`");
         assert!(output.rows[1].heading);
 

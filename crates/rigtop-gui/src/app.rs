@@ -2500,8 +2500,8 @@ mod tests {
     fn sample_widgets() -> Vec<rigtop_core::widget::Widget> {
         use rigtop_core::widget::{Widget, WidgetSource, parse_output};
         let rows = r#"{"rows":[
-            {"label":"5h","value":"58% left · 14:30","gauge":0.58,"gauge_style":"level","level":"ok"},
-            {"label":"week","value":"22% left · Fri 09:00","gauge":0.22,"gauge_style":"level","level":"warn"},
+            {"label":"5h","value":"58% left · 4h23m","gauge":0.58,"gauge_style":"level","level":"ok","hint":"resets Mon 2026-11-16 14:30"},
+            {"label":"week","value":"22% left · 4d18h","gauge":0.22,"gauge_style":"level","level":"warn","hint":"resets Fri 2026-11-20 09:00"},
             {"separator":true},
             {"value":"rigtop","heading":true,"level":"ok"},
             {"label":"busy","value":"7a · 1 agent","level":"ok","label_level":"ok"},
@@ -2539,7 +2539,7 @@ mod tests {
         for label in [
             "Clock",
             "Claude Code",
-            "58% left · 14:30",
+            "58% left · 4h23m",
             "rigtop",
             "your turn",
         ] {
@@ -2548,6 +2548,21 @@ mod tests {
                 "missing {label:?}"
             );
         }
+    }
+
+    #[test]
+    fn widget_row_shows_its_hint_under_the_pointer() {
+        let mut app = RigtopApp::for_test(Config::default(), &["local", "zefat"]);
+        app.widgets = sample_widgets();
+        let mut harness = Harness::builder()
+            .with_size([1400.0, 900.0])
+            .build_ui_state(|ui, app: &mut RigtopApp| app.show(ui), app);
+        harness.run();
+        let hint = "resets Mon 2026-11-16 14:30";
+        assert!(harness.query_by_label(hint).is_none(), "only on hover");
+        harness.get_by_label("58% left · 4h23m").hover();
+        harness.run();
+        assert!(harness.query_by_label(hint).is_some());
     }
 
     #[test]

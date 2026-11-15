@@ -160,12 +160,12 @@ def reset_text(epoch, now):
 
 def remaining_text(secs):
     """The time until a reset, short enough for the weekly window to fit:
-    `23m`, `4h23m`, and whole hours from a day on (`167h`), where the
+    `23m`, `4h23m`, and days and hours from a day on (`6d15h`), where the
     minutes no longer matter. Rounded up, so it never reads `0m`."""
     minutes = max(1, -(-int(secs) // 60))
     hours, minutes = divmod(minutes, 60)
     if hours >= 24:
-        return f"{hours}h"
+        return f"{hours // 24}d{hours % 24:02d}h"
     if hours:
         return f"{hours}h{minutes:02d}m"
     return f"{minutes}m"
@@ -181,18 +181,28 @@ def window_row(label, used, resets, now):
     level = "bad" if left <= 10 else "warn" if left <= 30 else "ok"
     # The time until the window resets, or when it does ("resets" left
     # out to fit).
+    # The other of the two goes in the hint (rigtop's GUI shows it when
+    # the pointer rests on the row).
+    extra = {}
     if not resets:
         when = ""
     elif RESET_MODE == "clock":
         when = f" · {reset_text(resets, now)}"
+        extra["hint"] = f"resets in {remaining_text(resets - now)}"
     else:
         when = f" · {remaining_text(resets - now)}"
+        extra["hint"] = datetime.fromtimestamp(resets).strftime("resets %a %Y-%m-%d %H:%M")
     if QUOTA_MODE == "used":
         gauge = max(0.0, min(1.0, used / 100))
-        return row(f"{used:.0f}% used{when}", label=label, gauge=gauge, level=level)
+        return row(f"{used:.0f}% used{when}", label=label, gauge=gauge, level=level, **extra)
     gauge = max(0.0, min(1.0, left / 100))
     return row(
-        f"{left:.0f}% left{when}", label=label, gauge=gauge, gauge_style="level", level=level
+        f"{left:.0f}% left{when}",
+        label=label,
+        gauge=gauge,
+        gauge_style="level",
+        level=level,
+        **extra,
     )
 
 

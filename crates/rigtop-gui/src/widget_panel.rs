@@ -119,7 +119,10 @@ fn row_ui(ui: &mut Ui, row: &WidgetRow) {
         }
         if let Some(gauge) = row.gauge {
             let width = (ui.available_width() * 0.4).clamp(40.0, 140.0);
-            let (rect, _) = ui.allocate_exact_size(vec2(width, ROW_HEIGHT), Sense::hover());
+            let (rect, bar) = ui.allocate_exact_size(vec2(width, ROW_HEIGHT), Sense::hover());
+            if let Some(hint) = &row.hint {
+                bar.on_hover_text(hint);
+            }
             match row.gauge_style {
                 GaugeStyle::Heat => widgets::paint_meter(ui, rect, gauge.clamp(0.0, 1.0)),
                 GaugeStyle::Level => {
@@ -127,9 +130,12 @@ fn row_ui(ui: &mut Ui, row: &WidgetRow) {
                 }
             }
         }
-        ui.add(
+        let value = ui.add(
             egui::Label::new(RichText::new(&row.value).color(level_color(row.level))).truncate(),
         );
+        if let Some(hint) = &row.hint {
+            value.on_hover_text(hint);
+        }
     });
 }
 

@@ -7,12 +7,18 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Added
+
+- Widgets: a row can carry a `hint`, which the GUI shows when the pointer
+  rests on the row.
+
 ### Changed
 
 - Claude Code widget: a quota window shows how long until it resets
-  (`61% left · 4h23m`, `83% left · 167h`) instead of the time of day, which
-  was cut off for the weekly window. `RIGTOP_CLAUDE_RESET=clock` brings the
-  time of day back, now without the weekday when the reset is within 24 hours.
+  (`61% left · 4h23m`, `83% left · 6d15h`) instead of the time of day, which
+  was cut off for the weekly window. The time of the reset is in the row's
+  hint; `RIGTOP_CLAUDE_RESET=clock` swaps the two (and the time of day comes
+  without the weekday when the reset is within 24 hours).
 
 ## [0.35.1] - 2026-11-13
 
