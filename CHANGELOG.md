@@ -11,6 +11,14 @@ include breaking changes).
 
 - Widgets: a row can carry a `hint`, which the GUI shows when the pointer
   rests on the row.
+- Claude Code widget: with claude-spillway 0.10, the weekly limit of Fable
+  alone (`fable`), and the limits of every Claude account that goes through
+  it, each under the account's name (`RIGTOP_CLAUDE_ACCOUNTS=current` keeps
+  to the one used most recently).
+- Claude Code widget: the sessions of every account's configuration
+  directory, not only `~/.claude`: those in claude-spillway's
+  `accounts.profiles`, or in `RIGTOP_CLAUDE_CONFIG_DIRS`. A session's hint
+  names its account.
 
 ### Changed
 

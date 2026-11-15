@@ -1,6 +1,6 @@
 # Claude Code widget for rigtop
 
-A rigtop [widget](../../../README.md#widgets) showing the subscription usage limits (5-hour and weekly windows, with reset times), the running Claude Code sessions per project, how full each one's context window is, and their active subagents.
+A rigtop [widget](../../../README.md#widgets) showing the subscription usage limits (5-hour and weekly windows and the weekly Fable limit, with reset times, for each Claude account when you use several), the running Claude Code sessions per project, how full each one's context window is, and their active subagents.
 
 ```
 ╭ Claude Code ───────────────────────────╮
@@ -22,6 +22,20 @@ A rigtop [widget](../../../README.md#widgets) showing the subscription usage lim
 ```
 
 - Usage windows show what is **left** (100% when unused) and how long until they reset (`4h23m`; days and hours from a day on, `6d15h`; in the GUI, rest the pointer on the row for the time of the reset); `RIGTOP_CLAUDE_QUOTA=used` shows usage instead, and `RIGTOP_CLAUDE_RESET=clock` the time of day of the reset (`03:40`, `Sun 15:00`).
+- With [claude-spillway](https://github.com/akivajp/claude-spillway) in front of Claude Code, `fable` is the weekly limit of Fable alone (shown once the account has used Fable; Anthropic reports it only on replies to Fable requests, so the row's hint tells when it was read). When several Claude accounts go through it, each account's windows come under its name, which takes the color of its tightest window and says `as of 08:19` when nothing has gone through that account for 15 minutes:
+
+  ```
+  │personal                                │
+  │ 5h      ■■■■■■■··· 67% left · 1h35m    │
+  │ week    ■■■■■■■■·· 77% left · 6d07h    │
+  │ fable   ■■■■■■···· 55% left · 6d07h    │
+  │work                                    │
+  │ 5h      ■■■■■■■■■■ 96% left · 2h45m    │
+  │ week    ■■■■■■■■■■ 99% left · 11h55m   │
+  │ fable   ■■■■■■■■■■ 99% left · 11h55m   │
+  ```
+
+  `RIGTOP_CLAUDE_ACCOUNTS=current` keeps to the account used most recently, without the names.
 - `ctx` is how much of the session's context window its conversation fills, in the session's color but yellow from 70% and red from 90%, when compacting it or starting a new session is worth a thought. The window is 1M tokens for current Claude models (Opus 4.6 and later, Sonnet 4.6 and later, Haiku 5.5, Fable) and models chosen with `[1m]`, 200K for older ones; `RIGTOP_CLAUDE_CONTEXT_WINDOW=1000000` sets it for every session. Other models (e.g. through Ollama) show the token count only.
 - Sessions are named without the project prefix, under the project's name, indented like a tree: a session's status under the project, its `ctx` and subagents under the session. A busy session tells how long it has been working; an idle one whether its turn ended with work still running in the background (`waiting on 1 task, 2 agents`) or it waits for you (`your turn`), and for how long.
 - Working sessions (busy, or with background work) come first, in green, the one at it longest first; then the ones waiting for you, most recent first. One stopped at a permission prompt (`waiting`) stays yellow; one whose turn ended (`your turn`) is yellow for an hour (`RIGTOP_CLAUDE_FRESH_SECS`), then grey without its `ctx` row, and left out after 2 hours (`RIGTOP_CLAUDE_HIDE_SECS`, 0 to keep them all), counted on the last line. A project's name is yellow while one of its sessions waits for you (a permission prompt, or a turn ended under an hour ago), else green while one works, and grey when all are left waiting; it is repeated where the order moves to another project and back.
@@ -59,11 +73,19 @@ It reads files Claude Code writes, some of which are internal and may change bet
 
    Already running [claude-spillway](https://github.com/akivajp/claude-spillway)? Then the widget reads the limits from its status endpoint (`http://127.0.0.1:8787/_spillway/status`; `RIGTOP_CLAUDE_SPILLWAY_URL` for another address, empty to skip it) without the status line, and also shows when traffic spilled over to Ollama, with Ollama's usage.
 
+3. Several Claude accounts, each with its own configuration directory (`CLAUDE_CONFIG_DIR`)? The widget lists the sessions of all the directories in `accounts.profiles` of claude-spillway's configuration file (`~/.config/claude-spillway/config.yaml`, or `CLAUDE_SPILLWAY_CONFIG`), and the hint of a session's row names its account. Without claude-spillway, or to choose the directories yourself, list them like `PATH`, optionally with a name each:
+
+   ```sh
+   RIGTOP_CLAUDE_CONFIG_DIRS="$HOME/.claude:work=$HOME/.claude-profiles/work"
+   ```
+
+   With neither, the widget reads `CLAUDE_CONFIG_DIR`, or `~/.claude`.
+
 ## Where the data comes from
 
 | Rows | Source | Notes |
 |---|---|---|
-| Usage limits | `rate_limits` in the JSON Claude Code passes to the status line (documented), saved by `statusline-save-limits`; or claude-spillway's status endpoint when it runs, which reads them from Anthropic's response headers | Pro and Max plans signed in with Claude Code (not API billing); refreshed only while a session talks to the API, so the widget marks old data with "as of". The terminal UI runs the status line; the VS Code extension did not (Claude Code 2.1.310), so sessions used only from VS Code leave the limits empty. |
+| Usage limits | `rate_limits` in the JSON Claude Code passes to the status line (documented), saved by `statusline-save-limits`; or claude-spillway's status endpoint when it runs, which reads them from Anthropic's response headers, per Claude account and with the weekly limit of Fable alone | Pro and Max plans signed in with Claude Code (not API billing); refreshed only while a session talks to the API, so the widget marks old data with "as of". The terminal UI runs the status line; the VS Code extension did not (Claude Code 2.1.310), so sessions used only from VS Code leave the limits empty. |
 | Sessions | `claude agents --json` (documented); `~/.claude/sessions/` when `claude` is not on the PATH | `busy`, `waiting` (needs you, e.g. a permission prompt), `idle`. How long a session has been busy or idle comes from `statusUpdatedAt` in `~/.claude/sessions/<pid>.json` (undocumented). |
 | Background tasks | Shells the session's Bash tool started (descendant processes running through `~/.claude/shell-snapshots/`, Linux) | Counted for idle sessions, as `waiting on N tasks`. |
 | Context window use | The token counts of the last reply in the session's transcript, `~/.claude/projects/<project>/<session>.jsonl` (undocumented; only its last 512 KB is read) | Input plus cached input of that reply; right after a compaction, the size it left. |

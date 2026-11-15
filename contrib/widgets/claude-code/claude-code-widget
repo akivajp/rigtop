@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """rigtop widget: running Claude Code sessions, their active subagents and
-the subscription usage limits (5-hour and weekly windows).
+the subscription usage limits (5-hour and weekly windows, and the weekly
+Fable limit), per Claude account when several are in use.
 
 Prints the JSON rows rigtop's [[widgets]] understand. Uses only the Python
 standard library. Sources, from most to least stable:
@@ -15,9 +16,14 @@ standard library. Sources, from most to least stable:
   against the model's context window (1M for current Claude models and
   "[1m]" ones, 200K for older Claude models)
 - usage limits: the status endpoint of claude-spillway when it runs (a
-  proxy that already reads them from Anthropic's responses), else the
-  `rate_limits` Claude Code passes to the status line, saved by the
-  companion `statusline-save-limits` (see README.md)
+  proxy that already reads them from Anthropic's responses, for each Claude
+  account that goes through it), else the `rate_limits` Claude Code passes
+  to the status line, saved by the companion `statusline-save-limits` (see
+  README.md)
+- accounts: Claude Code keeps one configuration directory per signed-in
+  account (CLAUDE_CONFIG_DIR). The directories come from
+  RIGTOP_CLAUDE_CONFIG_DIRS, else from `accounts.profiles` in
+  claude-spillway's configuration file, else it is ~/.claude alone
 
 Claude Code's files are internal and may change between versions; this
 script degrades to fewer rows instead of failing.
@@ -42,6 +48,20 @@ LIMITS_FILE = os.path.join(CACHE_DIR, "rigtop", "claude-rate-limits.json")
 SPILLWAY_URL = os.environ.get(
     "RIGTOP_CLAUDE_SPILLWAY_URL", "http://127.0.0.1:8787/_spillway/status"
 )
+# Claude Code's configuration directories, one per account, separated like
+# PATH; an entry may name its account, `work=~/.claude-profiles/work`. Unset:
+# CLAUDE_CONFIG_DIR alone when that is set, else the profiles in
+# claude-spillway's configuration, else ~/.claude.
+CONFIG_DIRS = os.environ.get("RIGTOP_CLAUDE_CONFIG_DIRS")
+# claude-spillway's configuration file, for the accounts' directories.
+SPILLWAY_CONFIG = os.environ.get("CLAUDE_SPILLWAY_CONFIG") or os.path.join(
+    os.environ.get("XDG_CONFIG_HOME") or os.path.join(HOME, ".config"),
+    "claude-spillway",
+    "config.yaml",
+)
+# With several Claude accounts behind claude-spillway: "all" shows the limits
+# of each, "current" only those of the account used most recently.
+ACCOUNTS_MODE = os.environ.get("RIGTOP_CLAUDE_ACCOUNTS", "all")
 # A subagent whose transcript changed this recently is shown as active.
 ACTIVE_SECS = int(os.environ.get("RIGTOP_CLAUDE_ACTIVE_SECS", "120"))
 # Usage data older than this is marked as such (it updates only while a
@@ -93,24 +113,84 @@ def find_claude():
     return local if os.access(local, os.X_OK) else None
 
 
-def sessions():
-    claude = find_claude()
+def spillway_profiles():
+    """(name, directory) of the accounts in claude-spillway's configuration:
+    the `name` and `config_dir` of the items under its top-level `accounts`.
+    Read line by line, as the standard library has no YAML parser."""
+    try:
+        with open(SPILLWAY_CONFIG, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except (OSError, ValueError):
+        return []
+    items, inside = [], False
+    for line in lines:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if not line[0].isspace():
+            inside = line.startswith("accounts:")
+            continue
+        if not inside:
+            continue
+        found = re.match(r"\s*(-\s*)?(name|config_dir)\s*:\s*(.*?)\s*(#.*)?$", line)
+        if line.lstrip().startswith("-"):
+            items.append({})
+        if found and items and found.group(3):
+            items[-1][found.group(2)] = found.group(3).strip("'\"")
+    return [(item.get("name"), item["config_dir"]) for item in items if "config_dir" in item]
+
+
+def config_dirs():
+    """[(account name or None, directory)] of the Claude Code configuration
+    directories to read sessions from."""
+    if CONFIG_DIRS is not None:
+        listed = []
+        for entry in CONFIG_DIRS.split(os.pathsep):
+            name, named, path = entry.partition("=")
+            if entry:
+                listed.append((name, path) if named else (None, entry))
+    elif "CLAUDE_CONFIG_DIR" in os.environ:
+        listed = []
+    else:
+        listed = spillway_profiles()
+    found, seen = [], set()
+    for name, path in listed:
+        path = os.path.expanduser(path)
+        real = os.path.realpath(path)
+        if real not in seen and os.path.isdir(path):
+            seen.add(real)
+            found.append((name, path))
+    return found or [(None, CLAUDE_DIR)]
+
+
+def claude_dir(session):
+    """The configuration directory the session was found in."""
+    return session.get("_dir") or CLAUDE_DIR
+
+
+def sessions_in(directory, claude):
     if claude:
+        # `claude` lists the sessions of one configuration directory.
+        env = dict(os.environ)
+        if os.path.realpath(directory) == os.path.realpath(os.path.join(HOME, ".claude")):
+            env.pop("CLAUDE_CONFIG_DIR", None)
+        else:
+            env["CLAUDE_CONFIG_DIR"] = directory
         try:
             out = subprocess.run(
                 [claude, "agents", "--json"],
                 capture_output=True,
                 text=True,
                 timeout=10,
+                env=env,
             )
             data = json.loads(out.stdout)
             if isinstance(data, list):
-                return data
+                return [item for item in data if isinstance(item, dict)]
         except (OSError, ValueError, subprocess.SubprocessError):
             pass
     # Fallback: one file per session, left behind when a process dies.
     found = []
-    for path in glob.glob(os.path.join(CLAUDE_DIR, "sessions", "*.json")):
+    for path in glob.glob(os.path.join(directory, "sessions", "*.json")):
         try:
             with open(path, encoding="utf-8") as f:
                 data = json.load(f)
@@ -118,6 +198,26 @@ def sessions():
         except (OSError, ValueError, KeyError, TypeError):
             continue
         found.append(data)
+    return found
+
+
+def sessions():
+    """The running sessions of every configuration directory, each with the
+    directory it came from (`_dir`) and, with several directories, the
+    account's name (`_account`)."""
+    claude = find_claude()
+    directories = config_dirs()
+    found, seen = [], set()
+    for name, directory in directories:
+        for session in sessions_in(directory, claude):
+            key = session.get("pid") or session.get("sessionId")
+            if key in seen:
+                continue
+            seen.add(key)
+            session["_dir"] = directory
+            if len(directories) > 1:
+                session["_account"] = name or os.path.basename(directory.rstrip("/\\"))
+            found.append(session)
     return found
 
 
@@ -129,7 +229,7 @@ def project_dir(cwd):
 
 def active_subagents(session, now):
     directory = os.path.join(
-        CLAUDE_DIR,
+        claude_dir(session),
         "projects",
         project_dir(session.get("cwd", "")),
         session.get("sessionId", ""),
@@ -171,9 +271,10 @@ def remaining_text(secs):
     return f"{minutes}m"
 
 
-def window_row(label, used, resets, now):
+def window_row(label, used, resets, now, note=""):
     """A usage window: `used` in percent, `resets` in epoch seconds. Shown
-    as what is left (a full bar when unused) unless QUOTA_MODE is "used"."""
+    as what is left (a full bar when unused) unless QUOTA_MODE is "used".
+    `note` is added to the row's hint."""
     if resets is not None and resets <= now:
         # The window has rolled over since the data was read.
         return row("reset (no newer data)", label=label, level="dim")
@@ -192,6 +293,8 @@ def window_row(label, used, resets, now):
     else:
         when = f" · {remaining_text(resets - now)}"
         extra["hint"] = datetime.fromtimestamp(resets).strftime("resets %a %Y-%m-%d %H:%M")
+    if note:
+        extra["hint"] = f"{extra['hint']} · {note}" if "hint" in extra else note
     if QUOTA_MODE == "used":
         gauge = max(0.0, min(1.0, used / 100))
         return row(f"{used:.0f}% used{when}", label=label, gauge=gauge, level=level, **extra)
@@ -206,6 +309,44 @@ def window_row(label, used, resets, now):
     )
 
 
+def account_rows(anthropic, now, indent=""):
+    """The usage windows of one Claude account, from claude-spillway's
+    reading of it: the 5-hour and weekly windows, and the weekly limit of
+    Fable alone where the account has used Fable."""
+    rows = []
+    for key, label in (("5h", "5h"), ("7d", "week"), ("7d_fable", "fable")):
+        used = anthropic.get(f"utilization_{key}")
+        if not isinstance(used, (int, float)):
+            continue
+        note = ""
+        if key == "7d_fable":
+            # Anthropic reports it only on replies to Fable requests, so it
+            # can be older than the other two.
+            note = "weekly limit of Fable alone"
+            read = anthropic.get("observed_at_7d_fable")
+            if isinstance(read, (int, float)):
+                note += f", as of {reset_text(read, now)}"
+        rows.append(window_row(indent + label, used * 100, anthropic.get(f"reset_{key}"), now, note))
+    return rows
+
+
+def route_row(status, indent=""):
+    """Spilled over to Ollama: say so. None while on Anthropic."""
+    mode = status.get("mode")
+    if not mode or mode == "anthropic":
+        return None
+    text = f"{mode}: {status.get('reason') or 'spilled over'}"
+    return row(text, label=indent + "route", level="warn")
+
+
+def stale_text(anthropic, now):
+    """`as of 08:19` for a reading too old to pass for the current state."""
+    observed = anthropic.get("observed_at") or now
+    if now - observed > STALE_LIMITS_SECS:
+        return f"as of {reset_text(observed, now)}"
+    return ""
+
+
 def spillway_rows(now):
     """Usage from claude-spillway, or None when it is not running."""
     if not SPILLWAY_URL:
@@ -214,22 +355,42 @@ def spillway_rows(now):
         with urllib.request.urlopen(SPILLWAY_URL, timeout=1) as response:
             status = json.load(response)
         anthropic = status["anthropic"]
-    except (OSError, ValueError, KeyError, TypeError):
+        accounts = [
+            account
+            for account in status.get("accounts") or []
+            if isinstance(account, dict) and isinstance(account.get("anthropic"), dict)
+        ]
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return None
     rows = []
-    for key, label in (("5h", "5h"), ("7d", "week")):
-        used = anthropic.get(f"utilization_{key}")
-        if isinstance(used, (int, float)):
-            rows.append(window_row(label, used * 100, anthropic.get(f"reset_{key}"), now))
+    several = ACCOUNTS_MODE != "current" and len(accounts) > 1
+    if several:
+        # Each account under its name, in the color of its tightest window.
+        severity = {"ok": 0, "dim": 0, "warn": 1, "bad": 2}
+        for account in accounts:
+            windows = account_rows(account["anthropic"], now, STATUS_INDENT)
+            if not windows:
+                continue
+            name = account.get("name") or account.get("label") or "?"
+            stale = stale_text(account["anthropic"], now)
+            level = max((w.get("level", "ok") for w in windows), key=lambda l: severity.get(l, 0))
+            rows.append(row(f"{name} · {stale}" if stale else name, heading=True, level=level))
+            rows.extend(windows)
+            route = route_row(account, STATUS_INDENT)
+            if route:
+                rows.append(route)
+    else:
+        # The top level describes the account used most recently.
+        rows = account_rows(anthropic, now)
+        stale = stale_text(anthropic, now)
+        if rows and stale:
+            rows.append(row(stale, level="dim"))
+        route = route_row(status)
+        if rows and route:
+            rows.append(route)
     if not rows:
         return None
-    observed = anthropic.get("observed_at") or now
-    if now - observed > STALE_LIMITS_SECS:
-        rows.append(row(f"as of {reset_text(observed, now)}", level="dim"))
-    # Spilled over to Ollama: say so, with Ollama's own usage.
-    mode = status.get("mode")
-    if mode and mode != "anthropic":
-        rows.append(row(f"{mode}: {status.get('reason') or 'spilled over'}", label="route", level="warn"))
+    indent = STATUS_INDENT if several else ""
     ollama = status.get("ollama") or {}
     windows = [
         ("session", ollama.get("session_utilization"), ollama.get("session_reset")),
@@ -239,7 +400,7 @@ def spillway_rows(now):
         rows.append(row("Ollama", heading=True))
         for label, used, resets in windows:
             if isinstance(used, (int, float)):
-                rows.append(window_row(label, used * 100, resets, now))
+                rows.append(window_row(indent + label, used * 100, resets, now))
     return rows
 
 
@@ -287,7 +448,7 @@ def context_use(session):
     transcript: the input of its last reply, or the size left by a
     compaction after it. None when unknown."""
     path = os.path.join(
-        CLAUDE_DIR,
+        claude_dir(session),
         "projects",
         project_dir(session.get("cwd", "")),
         session.get("sessionId", "") + ".jsonl",
@@ -383,7 +544,7 @@ def status_since(session):
     """When the session's status last changed (epoch seconds), from its
     file in ~/.claude/sessions/ (undocumented)."""
     try:
-        path = os.path.join(CLAUDE_DIR, "sessions", f"{int(session['pid'])}.json")
+        path = os.path.join(claude_dir(session), "sessions", f"{int(session['pid'])}.json")
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
         if data.get("status") != session.get("status"):
@@ -393,12 +554,13 @@ def status_since(session):
         return None
 
 
-def running_commands(pid):
+def running_commands(session):
     """Commands the session's Bash tool is running: its descendant shells
     started through ~/.claude/shell-snapshots/. None where /proc is missing."""
     if not os.path.isdir("/proc"):
         return None
-    marker = os.path.join(CLAUDE_DIR, "shell-snapshots") + os.sep
+    pid = int(session.get("pid", 0) or 0)
+    marker = os.path.join(claude_dir(session), "shell-snapshots") + os.sep
     count, stack, seen = 0, [pid], set()
     while stack:
         current = stack.pop()
@@ -456,7 +618,7 @@ def session_line(session, agents, now):
         # Yellow and kept however long: it cannot go on without you.
         return status, f"{name} · needs {what}{elapsed}", "warn", (1, waited)
     if status == "idle":
-        commands = running_commands(int(session.get("pid", 0) or 0)) or 0
+        commands = running_commands(session) or 0
         pending = []
         if commands:
             pending.append(f"{commands} task{'s' if commands != 1 else ''}")
@@ -503,7 +665,11 @@ def session_rows(now):
             name = os.path.basename(cwd.rstrip("/\\")) or "?"
             rows.append(row(name, heading=True, level=project_level[cwd]))
             previous = cwd
-        rows.append(row(text, label=STATUS_INDENT + label, level=level, label_level=level))
+        # With several accounts, which one the session runs on.
+        account = {"hint": f"account {session['_account']}"} if session.get("_account") else {}
+        rows.append(
+            row(text, label=STATUS_INDENT + label, level=level, label_level=level, **account)
+        )
         # A session left waiting for a while keeps to one line.
         context = context_row(session, level) if level != "dim" else None
         if context:
