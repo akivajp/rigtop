@@ -148,7 +148,9 @@ def active_subagents(session, now):
 
 def reset_text(epoch, now):
     when = datetime.fromtimestamp(epoch)
-    if when.date() == datetime.fromtimestamp(now).date():
+    # Within a day the time alone says which day it is (so the five-hour
+    # window never shows a weekday, even when it resets after midnight).
+    if abs(epoch - now) < 24 * 3600:
         return when.strftime("%H:%M")
     return when.strftime("%a %H:%M")
 
