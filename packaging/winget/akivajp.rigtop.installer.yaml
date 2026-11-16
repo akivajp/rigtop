@@ -4,13 +4,7 @@ PackageIdentifier: akivajp.rigtop
 PackageVersion: 0.35.1
 InstallerType: zip
 NestedInstallerType: portable
-Commands:
-- rigtop
-- rigtop-gui
-Dependencies:
-  PackageDependencies:
-  - PackageIdentifier: Microsoft.VCRedist.2015+.x64
-ReleaseDate: 2026-10-31
+ReleaseDate: 2026-11-12
 Installers:
 - Architecture: x64
   InstallerUrl: https://github.com/akivajp/rigtop/releases/download/v0.35.1/rigtop-v0.35.1-x86_64-pc-windows-msvc.zip
