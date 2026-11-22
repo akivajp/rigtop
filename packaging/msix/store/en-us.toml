@@ -29,7 +29,7 @@ Also: panels you can resize, rearrange and hide; graphs from one minute to 24 ho
 
 rigtop sends no telemetry. The app is in English. It is free and open source (MIT or Apache 2.0).'''
 # "What's new in this version": rewrite for each release.
-release_notes = "Graphs over a time span (1 minute to 24 hours) no longer stretch and shrink on every update: each column now stays fixed in time and only moves to the left, and the network graph's scale no longer changes back and forth."
+release_notes = "Graphs no longer shimmer while they move: with a zoomed window or a scaled display, peaks grew and shrank on every update. Graphs over a time span (1 minute to 24 hours) keep each column fixed in time, and now cover the whole span over their width."
 # 20 at most, 200 characters each.
 features = [
   "CPU load per core, clock, temperatures, fans and power",
