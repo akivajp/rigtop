@@ -7,6 +7,13 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Fixed
+
+- Graphs over a time span (1m to 24h) no longer stretch and shrink on every
+  update. Their columns are now fixed in time, so a finished column keeps its
+  value and only moves left; before, every new sample shifted all the column
+  boundaries, and peaks and the network graph's scale changed with them.
+
 ## [0.36.0] - 2026-11-22
 
 ### Added

@@ -42,6 +42,12 @@ pub struct History {
     coarse: VecDeque<f64>,
     /// Sum and count of the samples not yet averaged into `coarse`.
     pending: (f64, usize),
+    /// Samples pushed so far, dropped ones included: the absolute index of
+    /// the next sample. Graph columns are laid out on these indices so that
+    /// they stay put while new samples come in.
+    pushed: u64,
+    /// The same for `coarse`.
+    coarse_pushed: u64,
 }
 
 impl History {
@@ -51,6 +57,7 @@ impl History {
             self.samples.pop_front();
         }
         self.samples.push_back(value);
+        self.pushed += 1;
         self.pending.0 += value;
         self.pending.1 += 1;
         if self.pending.1 == COARSE_FACTOR {
@@ -58,6 +65,7 @@ impl History {
                 self.coarse.pop_front();
             }
             self.coarse.push_back(self.pending.0 / COARSE_FACTOR as f64);
+            self.coarse_pushed += 1;
             self.pending = (0.0, 0);
         }
     }
@@ -79,53 +87,80 @@ impl History {
     /// where several share a column and interpolated where there are fewer
     /// samples than columns. While the history is shorter than the span,
     /// fewer values come back, so the graph fills up from the right.
+    ///
+    /// The columns are fixed in time (see [`spread`]): a finished column
+    /// keeps its value and only moves left, and only the newest one changes
+    /// while its samples come in.
     pub fn graph(&self, columns: usize, span: GraphSpan, interval: Duration) -> Vec<f64> {
         let GraphSpan::Secs(secs) = span else {
             return self.last(columns);
         };
         let wanted = ((secs as f64 / interval.as_secs_f64().max(0.001)).round() as usize).max(1);
         if wanted <= HISTORY_LEN {
-            spread(&self.last(wanted), wanted, columns)
+            spread(&self.samples, self.pushed, wanted, columns)
         } else {
             // Longer than the samples kept: from the averages.
             let wanted = wanted.div_ceil(COARSE_FACTOR);
-            let skip = self.coarse.len().saturating_sub(wanted);
-            let points: Vec<f64> = self.coarse.iter().skip(skip).copied().collect();
-            spread(&points, wanted, columns)
+            spread(&self.coarse, self.coarse_pushed, wanted, columns)
         }
     }
 }
 
-/// `samples` (the newest of `wanted`) spread over `columns`: averaged where
-/// several share a column, interpolated where there are fewer samples than
-/// columns, and over a proportional share of the columns at the right while
-/// fewer than `wanted` exist.
-fn spread(samples: &[f64], wanted: usize, columns: usize) -> Vec<f64> {
+/// `samples` (the newest of `total` pushed so far) shown as a span of
+/// `wanted` samples over `columns`: averaged where several share a column,
+/// interpolated where there are fewer samples than columns. Columns that no
+/// kept sample reaches are left out, so the result may be shorter.
+///
+/// Columns are laid out on absolute sample indices, not on the window that
+/// ends at the newest sample. With the window, every new sample moved all
+/// the column boundaries (`wanted / columns` is rarely a whole number), so
+/// peaks grew and shrank and the whole graph stretched on every update.
+/// Exact integer arithmetic keeps the boundaries from drifting.
+fn spread(samples: &VecDeque<f64>, total: u64, wanted: usize, columns: usize) -> Vec<f64> {
     if columns == 0 || samples.is_empty() {
         return Vec::new();
     }
-    // The share of the columns that the available samples cover.
-    let shown = (columns as f64 * samples.len() as f64 / wanted.max(1) as f64).round() as usize;
-    let shown = shown.clamp(1, columns);
-    let per_column = samples.len() as f64 / shown as f64;
-    if per_column < 1.0 {
-        // Stretched: a straight line between neighbouring samples.
-        let last = samples.len() - 1;
-        return (0..shown)
-            .map(|i| {
-                let at = ((i as f64 + 0.5) * per_column - 0.5).clamp(0.0, last as f64);
-                let (below, frac) = (at.floor() as usize, at.fract());
-                let above = (below + 1).min(last);
-                samples[below] * (1.0 - frac) + samples[above] * frac
+    let (wanted, cols, total) = (wanted.max(1) as u128, columns as u128, u128::from(total));
+    // Absolute index of `samples[0]`.
+    let first = total - samples.len() as u128;
+    let at = |index: u128| samples[(index - first) as usize];
+    if wanted < cols {
+        // Stretched: column j sits at sample position
+        // ((2j + 1) * wanted - cols) / (2 * cols) (the centre of the column,
+        // as in the averaged case), a straight line between the samples on
+        // either side. The newest column is the last one at or before the
+        // newest sample.
+        let denominator = 2 * cols;
+        let newest = (denominator * (total - 1) + cols - wanted) / (2 * wanted);
+        let oldest = (newest + 1).saturating_sub(cols);
+        return (oldest..=newest)
+            .filter_map(|j| {
+                // Positions before the first sample clamp to it.
+                let position = ((2 * j + 1) * wanted).saturating_sub(cols);
+                let below = position / denominator;
+                if below < first {
+                    return None;
+                }
+                let frac = (position % denominator) as f64 / denominator as f64;
+                let above = (below + 1).min(total - 1);
+                Some(at(below) * (1.0 - frac) + at(above) * frac)
             })
             .collect();
     }
-    (0..shown)
-        .map(|i| {
-            let end = (((i + 1) as f64 * per_column) as usize).clamp(1, samples.len());
-            let start = ((i as f64 * per_column) as usize).min(end - 1);
-            let part = &samples[start..end];
-            part.iter().sum::<f64>() / part.len() as f64
+    // Averaged: column j holds the samples [j * wanted / cols,
+    // (j + 1) * wanted / cols). The newest column is the one holding the
+    // newest sample, possibly not full yet.
+    let bound = |j: u128| j * wanted / cols;
+    let newest = (total * cols - 1) / wanted;
+    let oldest = (newest + 1).saturating_sub(cols);
+    (oldest..=newest)
+        .filter_map(|j| {
+            let start = bound(j).max(first);
+            let end = bound(j + 1).min(total);
+            (start < end).then(|| {
+                let sum: f64 = (start..end).map(at).sum();
+                sum / (end - start) as f64
+            })
         })
         .collect()
 }
@@ -2090,10 +2125,11 @@ mod tests {
         assert_eq!(minute[29], 118.5);
         // Fewer samples than columns: interpolated between them.
         let stretched = history.graph(120, GraphSpan::Secs(60), Duration::from_secs(2));
+        // (30 samples, 4 columns each, at fixed positions: the newest column
+        // is the last one at or before the newest sample.)
         assert_eq!(stretched.len(), 120);
-        assert_eq!(&stretched[..2], &[90.0, 90.0]);
-        assert_eq!(&stretched[2..4], &[90.125, 90.375]);
-        assert_eq!(stretched[119], 119.0);
+        assert_eq!(&stretched[..2], &[89.125, 89.375]);
+        assert_eq!(stretched[119], 118.875);
         assert!(stretched.windows(2).all(|w| w[0] <= w[1]));
         // An hour with two minutes recorded fills the right 1/30.
         let hour = history.graph(300, GraphSpan::Secs(3600), second);
@@ -2104,6 +2140,33 @@ mod tests {
                 .graph(10, GraphSpan::Secs(60), second)
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn graph_columns_stay_put_as_samples_come_in() {
+        // Spans whose samples per column are not whole numbers, averaged and
+        // stretched: between two updates the finished columns keep their
+        // values and only move left (by one when averaged, by a few when
+        // stretched). Only the newest column may change.
+        let second = Duration::from_secs(1);
+        for (columns, span) in [(7, 60), (211, 900), (130, 60), (97, 60)] {
+            let mut history = History::default();
+            let mut previous: Option<Vec<f64>> = None;
+            for i in 0..3000u64 {
+                history.push((i * i % 97) as f64);
+                let graph = history.graph(columns, GraphSpan::Secs(span), second);
+                if let Some(previous) = previous.filter(|p| p.len() == columns) {
+                    assert_eq!(graph.len(), columns);
+                    let moved = (0..columns / 2)
+                        .any(|shift| graph[..columns - 1 - shift] == previous[shift..columns - 1]);
+                    assert!(
+                        moved,
+                        "{columns} columns over {span}s changed at sample {i}"
+                    );
+                }
+                previous = Some(graph);
+            }
+        }
     }
 
     #[test]
