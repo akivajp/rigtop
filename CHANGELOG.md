@@ -7,6 +7,18 @@ include breaking changes).
 
 ## [Unreleased]
 
+## [0.36.2] - 2026-11-23
+
+### Fixed
+
+- GUI: graphs no longer shimmer while they move. One sample took 2 points,
+  which is not a whole number of pixels when the window is zoomed or the
+  display is scaled (2.76 pixels at 138%), so peaks grew and shrank and
+  slopes widened and narrowed on every update. A sample now takes a whole
+  number of pixels.
+- GUI: a graph over a time span (1m to 24h) covers that span over its whole
+  width. It showed only the newest half.
+
 ## [0.36.1] - 2026-11-23
 
 ### Fixed
@@ -830,7 +842,8 @@ First release.
 - Windows support (CPU, memory, processes, network with link speeds, drives,
   NVIDIA GPUs; temperatures, fans and CPU power are not available yet)
 
-[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.36.1...HEAD
+[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.36.2...HEAD
+[0.36.2]: https://github.com/akivajp/rigtop/compare/v0.36.1...v0.36.2
 [0.36.1]: https://github.com/akivajp/rigtop/compare/v0.36.0...v0.36.1
 [0.36.0]: https://github.com/akivajp/rigtop/compare/v0.35.1...v0.36.0
 [0.35.1]: https://github.com/akivajp/rigtop/compare/v0.35.0...v0.35.1

@@ -2860,6 +2860,7 @@ mod tests {
     /// processes out of published images) and `RIGTOP_GUI_SAMPLES` (number of
     /// samples taken 300 ms apart, to fill the graphs; default 20),
     /// `RIGTOP_GUI_SIZE` (window size such as `1000x700`; default 1400x900),
+    /// `RIGTOP_GUI_SCALE` (pixels per point such as `1.38`; default 1),
     /// `RIGTOP_GUI_HOSTS` (comma-separated names for an overview) and
     /// `RIGTOP_GUI_CLICK` (comma-separated labels clicked in order, e.g.
     /// `hosts…,add host` to show the hosts window) and `RIGTOP_GUI_DEMO`
@@ -2951,8 +2952,14 @@ mod tests {
                 Some([w.parse::<f32>().ok()?, h.parse::<f32>().ok()?])
             })
             .unwrap_or([1400.0, 900.0]);
+        // RIGTOP_GUI_SCALE=1.38: pixels per point, as with a zoomed window.
+        let scale: f32 = std::env::var("RIGTOP_GUI_SCALE")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(1.0);
         let mut harness = Harness::builder()
             .with_size(size)
+            .with_pixels_per_point(scale)
             .build_ui_state(|ui, app: &mut RigtopApp| app.show(ui), app);
         harness.run();
         if let Ok(clicks) = std::env::var("RIGTOP_GUI_CLICK") {

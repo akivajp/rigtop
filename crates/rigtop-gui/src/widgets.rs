@@ -72,6 +72,26 @@ pub fn temperature_color(celsius: f32) -> Color32 {
     heat_color((celsius - 40.0) / 45.0)
 }
 
+/// Distance between two samples of an area graph, in points: about 2, as a
+/// whole number of physical pixels.
+///
+/// With a step that is not a whole number of pixels (2 points are 2.76
+/// pixels at 138% zoom), every sample lands on a different part of a pixel
+/// each time the graph moves on, and the mesh is rasterized differently:
+/// narrow peaks grow and shrink, and slopes widen and narrow, on every
+/// update.
+pub fn graph_step(pixels_per_point: f32) -> f32 {
+    const STEP: f32 = 2.0;
+    (STEP * pixels_per_point).round().max(1.0) / pixels_per_point
+}
+
+/// Samples an area graph `width` points wide shows: what to ask
+/// [`rigtop_core::view::History::graph`] for, so that a time span covers the
+/// whole width.
+pub fn graph_columns(width: f32, pixels_per_point: f32) -> usize {
+    (width / graph_step(pixels_per_point)) as usize + 1
+}
+
 /// Filled area graph of `samples` (oldest first) scaled to `max`, newest at
 /// the right edge. The fill is colored by height with `color`.
 ///
@@ -108,11 +128,14 @@ pub fn paint_area_graph(
     if samples.len() < 2 || max <= 0.0 || rect.width() < 2.0 {
         return;
     }
-    // One sample every STEP points; only as many as fit, newest on the right.
-    const STEP: f32 = 2.0;
-    let capacity = (rect.width() / STEP) as usize + 1;
+    // One sample every `step` points, a whole number of pixels, with the
+    // newest on a pixel boundary at the right; only as many as fit.
+    let pixels_per_point = ui.pixels_per_point();
+    let step = graph_step(pixels_per_point);
+    let right = (rect.right() * pixels_per_point).floor() / pixels_per_point;
+    let capacity = graph_columns(rect.width(), pixels_per_point);
     let visible = &samples[samples.len().saturating_sub(capacity)..];
-    let x_of = |i: usize| rect.right() - (visible.len() - 1 - i) as f32 * STEP;
+    let x_of = |i: usize| right - (visible.len() - 1 - i) as f32 * step;
     let ratio_of = |v: f64| (v / max).clamp(0.0, 1.0) as f32;
     let y_of = |ratio: f32| {
         if inverted {
@@ -211,6 +234,24 @@ pub fn paint_meter(ui: &Ui, rect: Rect, ratio: f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn graph_samples_sit_on_whole_pixels() {
+        // Whatever the zoom, the step is a whole number of pixels, near 2
+        // points.
+        for pixels_per_point in [1.0, 1.22, 1.38, 1.5, 1.63, 2.0, 2.07, 2.75, 0.4] {
+            let pixels = graph_step(pixels_per_point) * pixels_per_point;
+            assert!(pixels >= 1.0, "{pixels_per_point}: {pixels}");
+            assert!(
+                (pixels - pixels.round()).abs() < 1e-4,
+                "{pixels_per_point}: {pixels}"
+            );
+            assert!((pixels - 2.0 * pixels_per_point).abs() <= 0.5 || pixels == 1.0);
+        }
+        // 2.76 pixels become 3: fewer samples fit than at 2 points each.
+        assert_eq!(graph_columns(300.0, 1.0), 151);
+        assert_eq!(graph_columns(300.0, 1.38), 139);
+    }
 
     #[test]
     fn heat_gradient_endpoints() {

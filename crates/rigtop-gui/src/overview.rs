@@ -1132,10 +1132,11 @@ fn cpu_section(
     if graph_height > 0.0 {
         let width = ui.available_width();
         let state = &host.state;
-        let samples = state
-            .history
-            .cpu
-            .graph(width as usize, state.graph_span, state.interval);
+        let samples = state.history.cpu.graph(
+            widgets::graph_columns(width, ui.pixels_per_point()),
+            state.graph_span,
+            state.interval,
+        );
         widgets::area_graph(
             ui,
             vec2(width, graph_height),
@@ -1328,8 +1329,9 @@ fn network_section(ui: &mut Ui, host: &HostEntry, snapshot: &Snapshot, graph_hei
     if graph_height > 0.0 {
         let width = ui.available_width();
         let (span, interval) = (host.state.graph_span, host.state.interval);
-        let rx = history.net_rx.graph(width as usize, span, interval);
-        let tx = history.net_tx.graph(width as usize, span, interval);
+        let columns = widgets::graph_columns(width, ui.pixels_per_point());
+        let rx = history.net_rx.graph(columns, span, interval);
+        let tx = history.net_tx.graph(columns, span, interval);
         widgets::area_graph(
             ui,
             vec2(width, graph_height),

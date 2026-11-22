@@ -277,10 +277,11 @@ fn cpu(ui: &mut Ui, state: &GuiState) -> CpuRequests {
     ui.allocate_rect(area, Sense::hover());
 
     // Total usage graph with the current value and model on top.
-    let samples = state
-        .history
-        .cpu
-        .graph(graph_width as usize, state.graph_span, state.interval);
+    let samples = state.history.cpu.graph(
+        widgets::graph_columns(graph_width, ui.pixels_per_point()),
+        state.graph_span,
+        state.interval,
+    );
     widgets::paint_area_graph(ui, graph_rect, &samples, 100.0, widgets::heat_color, false);
     ui.painter().text(
         graph_rect.left_top(),
@@ -766,11 +767,12 @@ fn gpus(ui: &mut Ui, state: &GuiState) {
         let graph_height = (per_gpu - used - 6.0).max(0.0);
         if graph_height >= 12.0 {
             let width = ui.available_width();
+            let columns = widgets::graph_columns(width, ui.pixels_per_point());
             let samples = state
                 .history
                 .gpus
                 .get(i)
-                .map(|h| h.graph(width as usize, state.graph_span, state.interval))
+                .map(|h| h.graph(columns, state.graph_span, state.interval))
                 .unwrap_or_default();
             widgets::area_graph(
                 ui,
@@ -1200,12 +1202,13 @@ fn network(ui: &mut Ui, state: &mut GuiState) {
     let graphs_height = (ui.available_height() - list_height).max(40.0);
     let width = ui.available_width();
     let history = &state.history;
+    let columns = widgets::graph_columns(width, ui.pixels_per_point());
     let rx_samples = history
         .net_rx
-        .graph(width as usize, state.graph_span, state.interval);
+        .graph(columns, state.graph_span, state.interval);
     let tx_samples = history
         .net_tx
-        .graph(width as usize, state.graph_span, state.interval);
+        .graph(columns, state.graph_span, state.interval);
     let max = graph_max(&rx_samples, &tx_samples);
     let selected = history
         .net_interface
