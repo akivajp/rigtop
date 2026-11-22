@@ -732,7 +732,10 @@ fn draw_cpu(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect, layou
         [grid, info]
     };
     draw_core_grid(frame, cpu, layout, grid_area);
-    frame.render_widget(Paragraph::new(cpu_info_lines(app, snapshot)), info_area);
+    frame.render_widget(
+        Paragraph::new(cpu_info_lines(app, snapshot, info_area.width as usize)),
+        info_area,
+    );
 }
 
 fn draw_core_grid(frame: &mut Frame, cpu: &CpuStats, layout: CpuLayout, area: Rect) {
@@ -797,18 +800,23 @@ fn draw_core_grid(frame: &mut Frame, cpu: &CpuStats, layout: CpuLayout, area: Re
     frame.render_widget(Paragraph::new(lines), area);
 }
 
-/// Load average and temperatures, then power and fans.
-fn cpu_info_lines(app: &App, snapshot: &Snapshot) -> Vec<Line<'static>> {
+/// Load average and temperatures, then power and fans; each line keeps to
+/// `width` by leaving out the least important items first.
+fn cpu_info_lines(app: &App, snapshot: &Snapshot, width: usize) -> Vec<Line<'static>> {
     let cpu = &snapshot.cpu;
     let config = &app.config;
 
-    let mut first = Vec::new();
+    // Items of a line with the order they go in when it is short of room:
+    // 0 always stays, higher numbers go first (the last of equals first).
+    let mut first: Vec<(u8, Vec<Span<'static>>)> = Vec::new();
+    let gap = |items: &Vec<(u8, Vec<Span<'static>>)>| if items.is_empty() { "" } else { "  " };
     if let Some(load) = cpu.load_average {
-        first.push(dim("Load "));
-        first.push(Span::raw(format!(
-            "{:.2} {:.2} {:.2}",
-            load[0], load[1], load[2]
-        )));
+        first.push((0, vec![dim("Load "), Span::raw(format!("{:.2}", load[0]))]));
+        // The 5- and 15-minute averages are the first to go.
+        first.push((
+            4,
+            vec![Span::raw(format!(" {:.2} {:.2}", load[1], load[2]))],
+        ));
     }
     // Only resources tasks waited for, to keep the line short.
     let stalls = snapshot
@@ -817,18 +825,23 @@ fn cpu_info_lines(app: &App, snapshot: &Snapshot) -> Vec<Line<'static>> {
         .map(|p| rigtop_core::view::pressure_items(p, &config.alerts))
         .unwrap_or_default();
     if !stalls.is_empty() {
-        let gap = if first.is_empty() { "" } else { "  " };
-        first.push(dim(format!("{gap}{}", rigtop_core::view::PRESSURE_LABEL)));
+        let warn = stalls.iter().any(|item| item.warn);
+        let mut spans = vec![dim(format!(
+            "{}{}",
+            gap(&first),
+            rigtop_core::view::PRESSURE_LABEL
+        ))];
         for item in stalls {
-            first.push(dim(format!(" {} ", item.name)));
-            first.push(if item.warn {
+            spans.push(dim(format!(" {} ", item.name)));
+            spans.push(if item.warn {
                 colored(item.value, WARN)
             } else {
                 Span::raw(item.value)
             });
         }
+        first.push((if warn { 0 } else { 1 }, spans));
     }
-    let cpu_temps = cpu.temperatures.iter();
+    let cpu_temps = cpu.temperatures.iter().map(|t| (true, t));
     // Other sensors appear only once the user has named them.
     let named_temps = snapshot
         .sensors
@@ -836,52 +849,72 @@ fn cpu_info_lines(app: &App, snapshot: &Snapshot) -> Vec<Line<'static>> {
         .flat_map(|chip| chip.temperatures.iter())
         .filter(|t| {
             config.label_for(&t.key).is_some() && !cpu.temperatures.iter().any(|c| c.key == t.key)
-        });
-    for temp in cpu_temps.chain(named_temps) {
+        })
+        .map(|t| (false, t));
+    let mut temps_shown = 0;
+    for (is_cpu, temp) in cpu_temps.chain(named_temps) {
         if config.is_hidden(&temp.key) {
             continue;
         }
-        let gap = if first.is_empty() { "" } else { "  " };
-        first.push(dim(format!("{gap}{} ", config.temperature_label(temp))));
-        first.push(colored(
-            format!("{:.0}°C", temp.celsius),
-            temperature_color(temp.celsius),
+        // The first CPU temperature stays; more of them, then the named
+        // sensors, may go.
+        let rank = match (is_cpu, temps_shown) {
+            (true, 0) => 0,
+            (true, _) => 2,
+            (false, _) => 3,
+        };
+        temps_shown += 1;
+        first.push((
+            rank,
+            vec![
+                dim(format!(
+                    "{}{} ",
+                    gap(&first),
+                    config.temperature_label(temp)
+                )),
+                colored(
+                    format!("{:.0}°C", temp.celsius),
+                    temperature_color(temp.celsius),
+                ),
+            ],
         ));
     }
     if snapshot.lhm_error.is_some() {
-        let gap = if first.is_empty() { "" } else { "  " };
-        first.push(colored(format!("{gap}{LHM_HINT}"), Color::Yellow));
+        first.push((
+            0,
+            vec![colored(format!("{}{LHM_HINT}", gap(&first)), Color::Yellow)],
+        ));
     }
 
     let power = &snapshot.power;
     let watts = |w: Option<f32>| w.map_or("--".to_owned(), |w| format!("{w:.0}W"));
     // Without RAPL, an AMD APU's SoC power stands in for the CPU.
     let (cpu_label, cpu_w) = power.cpu_or_soc_w();
-    let mut second = Vec::new();
+    let mut second: Vec<(u8, Vec<Span<'static>>)> = Vec::new();
     // Average / fastest core; the core grid shows each one when it has room.
     if let Some(clock) = rigtop_core::view::cpu_clock_text(cpu) {
-        second.push(dim("Clock "));
-        second.push(Span::raw(clock));
-        second.push(Span::raw("  "));
+        second.push((2, vec![dim("Clock "), Span::raw(clock), Span::raw("  ")]));
     }
-    second.extend([
-        dim(format!("Power {cpu_label} ")),
-        Span::raw(watts(cpu_w)),
-        dim(" GPU "),
-        Span::raw(watts(power.gpus_w)),
-        dim(" Σ "),
-        colored(watts(power.total_w), Color::White),
-    ]);
+    second.push((
+        0,
+        vec![
+            dim(format!("Power {cpu_label} ")),
+            Span::raw(watts(cpu_w)),
+            dim(" GPU "),
+            Span::raw(watts(power.gpus_w)),
+            dim(" Σ "),
+            colored(watts(power.total_w), Color::White),
+        ],
+    ));
     if let Some(battery) = &power.battery {
-        second.push(dim("   Bat "));
-        second.push(Span::raw(battery.summary()));
+        let mut spans = vec![dim("   Bat "), Span::raw(battery.summary())];
         if let Some(note) = battery.health_note() {
-            second.push(colored(format!(" {note}"), WARN));
+            spans.push(colored(format!(" {note}"), WARN));
         }
+        second.push((0, spans));
     }
     for ups in &snapshot.ups {
-        second.push(dim(format!("   {} ", ups.label())));
-        second.push(ups_span(ups));
+        second.push((0, vec![dim(format!("   {} ", ups.label())), ups_span(ups)]));
     }
     let fans: Vec<_> = snapshot
         .sensors
@@ -890,14 +923,43 @@ fn cpu_info_lines(app: &App, snapshot: &Snapshot) -> Vec<Line<'static>> {
         // Stopped, unnamed channels are usually unconnected headers.
         .filter(|f| !config.is_hidden(&f.key) && (f.rpm > 0 || config.label_for(&f.key).is_some()))
         .collect();
-    if !fans.is_empty() {
-        second.push(dim("   Fans"));
-        for fan in fans {
-            second.push(dim(format!(" {} ", config.fan_label(fan))));
-            second.push(Span::raw(fan.rpm.to_string()));
-        }
+    for (index, fan) in fans.iter().enumerate() {
+        // The heading rides with the first fan, which goes last.
+        let heading = if index == 0 { "   Fans" } else { "" };
+        second.push((
+            3,
+            vec![
+                dim(format!("{heading} {} ", config.fan_label(fan))),
+                Span::raw(fan.rpm.to_string()),
+            ],
+        ));
     }
-    vec![Line::from(first), Line::from(second)]
+    vec![fit_ranked(first, width), fit_ranked(second, width)]
+}
+
+/// One line of `items` (drop rank and spans) within `width`: while it is
+/// too long, leaves out the item with the highest rank (the last of equal
+/// ones); rank 0 always stays.
+fn fit_ranked(mut items: Vec<(u8, Vec<Span<'static>>)>, width: usize) -> Line<'static> {
+    let item_width = |spans: &Vec<Span<'static>>| spans.iter().map(Span::width).sum::<usize>();
+    let mut total: usize = items.iter().map(|(_, spans)| item_width(spans)).sum();
+    while total > width {
+        let Some((index, _)) = items
+            .iter()
+            .enumerate()
+            .filter(|(_, (rank, _))| *rank > 0)
+            .max_by_key(|(index, (rank, _))| (*rank, *index))
+        else {
+            break;
+        };
+        total -= item_width(&items.remove(index).1);
+    }
+    Line::from(
+        items
+            .into_iter()
+            .flat_map(|(_, spans)| spans)
+            .collect::<Vec<_>>(),
+    )
 }
 
 // ---------------------------------------------------------------- memory
@@ -2392,6 +2454,78 @@ mod tests {
         assert!(screen.contains("DEGRADED"), "{screen}");
         // All 32 cores fit in the grid.
         assert!(screen.contains("C31"), "{screen}");
+    }
+
+    #[test]
+    fn cpu_info_lines_leave_out_the_least_important_items_first() {
+        use rigtop_core::snapshot::{Fan, SensorChip, Temperature};
+        let app = App::new(Config::default(), Duration::from_secs(1));
+        let mut snapshot = sample_snapshot();
+        let temp = |key: &str, label: &str| Temperature {
+            key: key.to_owned(),
+            label: label.to_owned(),
+            celsius: 50.0,
+            ..Default::default()
+        };
+        snapshot.cpu.load_average = Some([2.21, 1.30, 1.06]);
+        snapshot.cpu.per_core_mhz = vec![1800, 5700];
+        snapshot.cpu.temperatures = vec![temp("k/1", "Tctl"), temp("k/2", "Tccd1")];
+        snapshot.power.cpu_package_w = Some(47.0);
+        snapshot.power.gpus_w = Some(45.0);
+        snapshot.power.total_w = Some(92.0);
+        snapshot.power.battery = Some(rigtop_core::snapshot::BatteryStats {
+            percent: Some(100.0),
+            status: "Full".to_owned(),
+            health_percent: Some(77.0),
+            ..Default::default()
+        });
+        snapshot.sensors = vec![SensorChip {
+            key: "nct".to_owned(),
+            name: "nct6686".to_owned(),
+            fans: (1..=3)
+                .map(|n| Fan {
+                    key: format!("nct/fan{n}"),
+                    label: format!("fan{n}"),
+                    rpm: 1000,
+                })
+                .collect(),
+            ..Default::default()
+        }];
+        let text = |width: usize| -> Vec<String> {
+            cpu_info_lines(&app, &snapshot, width)
+                .iter()
+                .map(|line| line.spans.iter().map(|s| s.content.as_ref()).collect())
+                .collect()
+        };
+
+        // With room, everything is there.
+        let wide = text(200);
+        assert!(wide[0].contains("Load 2.21 1.30 1.06"), "{wide:?}");
+        assert!(wide[0].contains("Tccd1"), "{wide:?}");
+        assert!(wide[1].contains("Clock"), "{wide:?}");
+        assert!(wide[1].contains("fan3 1000"), "{wide:?}");
+
+        // Narrow: no line is cut, and what goes first is the 5- and
+        // 15-minute load, the fans (from the last), then the clock; the
+        // CPU temperature, the power and the battery's health stay (below
+        // 50 columns, those alone are too long and the line is cut).
+        for width in [50, 55, 60, 65, 70] {
+            let lines = text(width);
+            for line in &lines {
+                assert!(line.chars().count() <= width, "{width}: {lines:?}");
+            }
+            assert!(lines[0].contains("Load 2.21"), "{width}: {lines:?}");
+            assert!(lines[0].contains("Tctl 50°C"), "{width}: {lines:?}");
+            assert!(lines[1].contains("Σ 92W"), "{width}: {lines:?}");
+            assert!(lines[1].contains("health 77%"), "{width}: {lines:?}");
+            if lines[1].contains("Fans") {
+                assert!(lines[1].contains("Clock"), "{width}: {lines:?}");
+            }
+        }
+        // The 5- and 15-minute load go before the second temperature.
+        let lines = text(40);
+        assert!(!lines[0].contains("1.30"), "{lines:?}");
+        assert!(lines[0].contains("Tccd1"), "{lines:?}");
     }
 
     #[test]

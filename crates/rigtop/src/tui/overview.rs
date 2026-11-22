@@ -46,6 +46,8 @@ const MAX_ALERTS: usize = 3;
 const MAX_DISKS: usize = 4;
 /// Columns taken by the label before a meter ("CPU  ").
 const LABEL_WIDTH: usize = 5;
+/// The widest label column a mount point may take.
+const MAX_MOUNT_LABEL_WIDTH: usize = 16;
 /// Columns kept for the value after a meter.
 const VALUE_WIDTH: usize = 24;
 
@@ -244,8 +246,10 @@ pub fn draw_overview(
         }
     }
     let hint = dim(" l: toggle this machine ");
+    // One column in from the right, so that it leaves the corner of a box
+    // that reaches the bottom row.
     let hint_area = Rect::new(
-        area.right().saturating_sub(24),
+        area.right().saturating_sub(25),
         area.bottom().saturating_sub(1),
         24,
         1,
@@ -760,8 +764,19 @@ fn storage_details(snapshot: &Snapshot, lines: &[Line<'static>]) -> Option<Vec<L
 
 /// "Label ■■■■■■ value" filling `width`.
 fn meter_line(label: &str, ratio: f64, width: usize, value: Span<'static>) -> Line<'static> {
-    let meter_width = width.saturating_sub(LABEL_WIDTH + VALUE_WIDTH).max(4);
-    let mut spans = vec![dim(format!("{label:<LABEL_WIDTH$}"))];
+    meter_line_with(label, LABEL_WIDTH, ratio, width, value)
+}
+
+/// [`meter_line`] with a label column `label_width` wide.
+fn meter_line_with(
+    label: &str,
+    label_width: usize,
+    ratio: f64,
+    width: usize,
+    value: Span<'static>,
+) -> Line<'static> {
+    let meter_width = width.saturating_sub(label_width + VALUE_WIDTH).max(4);
+    let mut spans = vec![dim(format!("{label:<label_width$}"))];
     spans.extend(meter(meter_width, ratio));
     spans.push(Span::raw(" "));
     spans.push(value);
@@ -934,9 +949,21 @@ fn storage_lines(snapshot: &Snapshot, width: usize) -> Vec<Line<'static>> {
     };
     let mut filesystems: Vec<_> = snapshot.filesystems.iter().collect();
     filesystems.sort_by(|a, b| used_ratio(b).total_cmp(&used_ratio(a)));
+    let filesystems: Vec<_> = filesystems.into_iter().take(3).collect();
+    // Mount points get a column as wide as the longest one ("/boot/efi"),
+    // within a quarter of the box, rather than "/bo…".
+    let label_width = filesystems
+        .iter()
+        .filter_map(|fs| fs.mount_points.first())
+        .map(|name| name.chars().count() + 1)
+        .max()
+        .unwrap_or(0)
+        .clamp(
+            LABEL_WIDTH,
+            (width / 4).clamp(LABEL_WIDTH, MAX_MOUNT_LABEL_WIDTH),
+        );
     let mut lines: Vec<Line<'static>> = filesystems
         .iter()
-        .take(3)
         .map(|fs| {
             let ratio = used_ratio(fs);
             let name = fs.mount_points.first().cloned().unwrap_or_default();
@@ -948,8 +975,9 @@ fn storage_lines(snapshot: &Snapshot, width: usize) -> Vec<Line<'static>> {
                 ),
                 percent_color(ratio * 100.0),
             );
-            meter_line(
-                &format::truncate(&name, LABEL_WIDTH - 1),
+            meter_line_with(
+                &format::truncate(&name, label_width - 1),
+                label_width,
                 ratio,
                 width,
                 value,

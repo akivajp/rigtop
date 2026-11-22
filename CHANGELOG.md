@@ -28,6 +28,16 @@ include breaking changes).
   hint; `RIGTOP_CLAUDE_RESET=clock` swaps the two (and the time of day comes
   without the weekday when the reset is within 24 hours).
 
+### Fixed
+
+- TUI: the two lines under the CPU cores no longer run off the box when it is
+  narrow (with the widget column, for one): the 5- and 15-minute load
+  averages, the fans, the clock and further temperatures give way, in that
+  order, before the CPU temperature, the power, the battery or the UPS.
+- TUI overview: mount points get a column as wide as the longest one
+  (`/boot/efi` rather than `/bo…`), and the hint "l: toggle this machine"
+  leaves the corner of the box below it.
+
 ## [0.35.1] - 2026-11-13
 
 ### Fixed
