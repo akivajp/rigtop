@@ -7,6 +7,8 @@ include breaking changes).
 
 ## [Unreleased]
 
+## [0.36.1] - 2026-11-23
+
 ### Fixed
 
 - Graphs over a time span (1m to 24h) no longer stretch and shrink on every
@@ -828,7 +830,8 @@ First release.
 - Windows support (CPU, memory, processes, network with link speeds, drives,
   NVIDIA GPUs; temperatures, fans and CPU power are not available yet)
 
-[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.36.0...HEAD
+[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.36.1...HEAD
+[0.36.1]: https://github.com/akivajp/rigtop/compare/v0.36.0...v0.36.1
 [0.36.0]: https://github.com/akivajp/rigtop/compare/v0.35.1...v0.36.0
 [0.35.1]: https://github.com/akivajp/rigtop/compare/v0.35.0...v0.35.1
 [0.35.0]: https://github.com/akivajp/rigtop/compare/v0.34.0...v0.35.0

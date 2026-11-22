@@ -29,7 +29,7 @@ Also: panels you can resize, rearrange and hide; graphs from one minute to 24 ho
 
 rigtop sends no telemetry. The app is in English. It is free and open source (MIT or Apache 2.0).'''
 # "What's new in this version": rewrite for each release.
-release_notes = "The terminal version no longer cuts off the lines under the CPU cores in a narrow window: it leaves out the least important items first. The overview shows mount points in full. The Claude Code widget shows how long until each usage limit resets."
+release_notes = "Graphs over a time span (1 minute to 24 hours) no longer stretch and shrink on every update: each column now stays fixed in time and only moves to the left, and the network graph's scale no longer changes back and forth."
 # 20 at most, 200 characters each.
 features = [
   "CPU load per core, clock, temperatures, fans and power",
