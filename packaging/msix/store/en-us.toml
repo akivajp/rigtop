@@ -29,7 +29,7 @@ Also: panels you can resize, rearrange and hide; graphs from one minute to 24 ho
 
 rigtop sends no telemetry. The app is in English. It is free and open source (MIT or Apache 2.0).'''
 # "What's new in this version": rewrite for each release.
-release_notes = "Fixes for the overview's cards: they no longer flicker at some window sizes and zoom levels, and a card's title no longer runs over the host name or pushes the card over its neighbor (what does not fit shows when you point at the host name). rigtop also runs natively on Windows on Arm since the previous version."
+release_notes = "The terminal version no longer cuts off the lines under the CPU cores in a narrow window: it leaves out the least important items first. The overview shows mount points in full. The Claude Code widget shows how long until each usage limit resets."
 # 20 at most, 200 characters each.
 features = [
   "CPU load per core, clock, temperatures, fans and power",

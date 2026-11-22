@@ -7,6 +7,8 @@ include breaking changes).
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-11-22
+
 ### Added
 
 - Widgets: a row can carry a `hint`, which the GUI shows when the pointer
@@ -819,7 +821,8 @@ First release.
 - Windows support (CPU, memory, processes, network with link speeds, drives,
   NVIDIA GPUs; temperatures, fans and CPU power are not available yet)
 
-[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.35.1...HEAD
+[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.36.0...HEAD
+[0.36.0]: https://github.com/akivajp/rigtop/compare/v0.35.1...v0.36.0
 [0.35.1]: https://github.com/akivajp/rigtop/compare/v0.35.0...v0.35.1
 [0.35.0]: https://github.com/akivajp/rigtop/compare/v0.34.0...v0.35.0
 [0.34.0]: https://github.com/akivajp/rigtop/compare/v0.33.0...v0.34.0
