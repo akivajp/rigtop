@@ -50,7 +50,7 @@ features = [
 # Search terms, 7 at most.
 keywords = [
   "システムモニター",
-  "リソースモニター",
+  "CPU モニター",
   "ハードウェアモニター",
   "GPU",
   "サーバー監視",
