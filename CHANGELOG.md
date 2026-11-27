@@ -7,6 +7,8 @@ include breaking changes).
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-11-28
+
 ### Changed
 
 - Windows: `winget install rigtop` installs the Microsoft Store package
@@ -873,7 +875,8 @@ First release.
 - Windows support (CPU, memory, processes, network with link speeds, drives,
   NVIDIA GPUs; temperatures, fans and CPU power are not available yet)
 
-[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.36.2...HEAD
+[Unreleased]: https://github.com/akivajp/rigtop/compare/v0.37.0...HEAD
+[0.37.0]: https://github.com/akivajp/rigtop/compare/v0.36.2...v0.37.0
 [0.36.2]: https://github.com/akivajp/rigtop/compare/v0.36.1...v0.36.2
 [0.36.1]: https://github.com/akivajp/rigtop/compare/v0.36.0...v0.36.1
 [0.36.0]: https://github.com/akivajp/rigtop/compare/v0.35.1...v0.36.0

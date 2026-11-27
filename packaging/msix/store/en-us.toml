@@ -29,7 +29,7 @@ Also: panels you can resize, rearrange and hide; graphs from one minute to 24 ho
 
 rigtop sends no telemetry. The app is in English. It is free and open source (MIT or Apache 2.0).'''
 # "What's new in this version": rewrite for each release.
-release_notes = "Graphs no longer shimmer while they move: with a zoomed window or a scaled display, peaks grew and shrank on every update. Graphs over a time span (1 minute to 24 hours) keep each column fixed in time, and now cover the whole span over their width."
+release_notes = "Alerts of numbered devices no longer get mixed up (snoozing GPU 0 also snoozed GPU 1). On the overview, a host that is unreachable or has a critical alert gets a red card border. On a narrow network panel, the rates move to the interface's tooltip instead of running past the edge."
 # 20 at most, 200 characters each.
 features = [
   "CPU load per core, clock, temperatures, fans and power",
