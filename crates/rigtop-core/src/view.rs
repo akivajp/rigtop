@@ -420,21 +420,73 @@ pub fn ups_severity(ups: &UpsStats) -> Option<Severity> {
         .max()
 }
 
-/// Identifies an alert across samples: its severity and text with numbers
-/// masked, so "3 I/O errors" becoming "4 I/O errors" or a temperature
-/// changing does not count as a new alert.
+/// Identifies an alert across samples: its severity and text with changing
+/// measurements, counts, durations and timestamps masked, so "3 I/O errors"
+/// becoming "4 I/O errors" or a temperature changing does not count as a new
+/// alert, while identifiers carrying numbers (`GPU 0`, `nvme0n1`, `md0`,
+/// `/mnt/disk1`) stay distinct.
 pub fn alert_key(alert: &Alert) -> String {
+    const ID_PREFIXES: &[&str] = &["GPU ", "UPS ", "devid ", "zfs "];
+    let text = alert.text.as_str();
     let mut key = format!("{:?}:", alert.severity);
-    let mut in_number = false;
-    for c in alert.text.chars() {
-        if c.is_ascii_digit() || (in_number && c == '.') {
-            if !in_number {
-                key.push('#');
+    let mut i = 0;
+
+    // Mask the changing ETA tail after "full in ~" (e.g. "~1h30m" -> "~#").
+    let duration_start = text.find("full in ~").map(|pos| pos + "full in ~".len());
+
+    while i < text.len() {
+        if Some(i) == duration_start {
+            key.push('#');
+            while i < text.len() && !text[i..].starts_with(char::is_whitespace) {
+                i += text[i..].chars().next().map_or(1, char::len_utf8);
             }
-            in_number = true;
+            continue;
+        }
+
+        let ch = text[i..].chars().next().unwrap();
+        if !ch.is_ascii_digit() {
+            key.push(ch);
+            i += ch.len_utf8();
+            continue;
+        }
+
+        // Consume digits with optional fractional `.digits`.
+        let start = i;
+        while i < text.len() {
+            let b = text.as_bytes()[i];
+            if b.is_ascii_digit() {
+                i += 1;
+            } else if b == b'.' && text.as_bytes().get(i + 1).is_some_and(u8::is_ascii_digit) {
+                i += 1;
+            } else {
+                break;
+            }
+        }
+        let end = i;
+
+        let prev = text[..start].chars().next_back();
+        let next = text[end..].chars().next();
+        let is_id_char =
+            |c: char| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '/' | '@' | '.');
+        let touches_identifier = prev.is_some_and(is_id_char) || next.is_some_and(is_id_char);
+        let preceded_by_id_label = ID_PREFIXES.iter().any(|p| text[..start].ends_with(p));
+        let is_metric_suffix = matches!(next, Some('%' | '°')) && !prev.is_some_and(is_id_char);
+        let is_clock_colon = (prev == Some(':')
+            && text[..start - 1]
+                .chars()
+                .next_back()
+                .is_some_and(|c| c.is_ascii_digit()))
+            || (next == Some(':')
+                && text[end + 1..]
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_ascii_digit())
+                && !prev.is_some_and(is_id_char));
+
+        if !preceded_by_id_label && (is_metric_suffix || is_clock_colon || !touches_identifier) {
+            key.push('#');
         } else {
-            key.push(c);
-            in_number = false;
+            key.push_str(&text[start..end]);
         }
     }
     key
@@ -1280,10 +1332,12 @@ pub fn alerts_with(snapshot: &Snapshot, limits: &AlertsConfig) -> Vec<Alert> {
                     ),
                 );
             } else if scrub.errors > 0 {
-                add(
-                    Severity::Warning,
-                    format!("btrfs {name}: scrub corrected {} errors", scrub.corrected),
-                );
+                let detail = if scrub.corrected > 0 {
+                    format!("scrub corrected {} errors", scrub.corrected)
+                } else {
+                    format!("scrub found {} errors", scrub.errors)
+                };
+                add(Severity::Warning, format!("btrfs {name}: {detail}"));
             }
         }
     }
@@ -3256,5 +3310,83 @@ mod tests {
         };
         assert_eq!(default_interface(&snapshot).as_deref(), Some("enp9s0"));
         assert_eq!(signal_name(ProcessSignal::Kill), "SIGKILL");
+    }
+
+    #[test]
+    fn alert_key_keeps_numbered_identifiers_distinct() {
+        let key = |severity, text: &str| {
+            alert_key(&Alert {
+                severity,
+                text: text.to_owned(),
+            })
+        };
+
+        // Different GPUs, drives, RAID arrays and mounts must not collide.
+        assert_ne!(
+            key(Severity::Warning, "GPU 0 at 88°C"),
+            key(Severity::Warning, "GPU 1 at 88°C")
+        );
+        assert_ne!(
+            key(Severity::Warning, "nvme0n1 at 75°C"),
+            key(Severity::Warning, "nvme1n1 at 75°C")
+        );
+        assert_ne!(
+            key(Severity::Critical, "md0 (raid1) degraded"),
+            key(Severity::Critical, "md1 (raid1) degraded")
+        );
+        assert_ne!(
+            key(Severity::Warning, "/mnt/disk1 92% full"),
+            key(Severity::Warning, "/mnt/disk2 92% full")
+        );
+        assert_ne!(
+            key(Severity::Critical, "btrfs /: 3 I/O errors (devid 1: 3)"),
+            key(Severity::Critical, "btrfs /: 3 I/O errors (devid 2: 3)")
+        );
+
+        // Changing measurements, counts and ETAs for the same item match.
+        assert_eq!(
+            key(Severity::Warning, "GPU 0 at 88°C"),
+            key(Severity::Warning, "GPU 0 at 91°C")
+        );
+        assert_eq!(
+            key(Severity::Critical, "btrfs /: 3 I/O errors (devid 2: 3)"),
+            key(Severity::Critical, "btrfs /: 4 I/O errors (devid 2: 4)")
+        );
+        assert_eq!(
+            key(Severity::Warning, "/mnt/disk1 92% full"),
+            key(Severity::Warning, "/mnt/disk1 95% full")
+        );
+        assert_eq!(
+            key(Severity::Warning, "/mnt/disk1 full in ~1h30m"),
+            key(Severity::Warning, "/mnt/disk1 full in ~45m")
+        );
+        assert_eq!(
+            key(Severity::Critical, "unreachable since 14:03 (no data)"),
+            key(Severity::Critical, "unreachable since 14:08 (no data)")
+        );
+    }
+
+    #[test]
+    fn btrfs_scrub_errors_with_zero_corrected_does_not_claim_zero_corrected() {
+        use crate::snapshot::{BtrfsFilesystem, BtrfsScrub, RaidStats};
+        let snapshot = Snapshot {
+            raid: RaidStats {
+                btrfs: vec![BtrfsFilesystem {
+                    mount_points: vec!["/".to_owned()],
+                    scrub: Some(BtrfsScrub {
+                        errors: 2,
+                        corrected: 0,
+                        uncorrectable: 0,
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let alerts = alerts_with(&snapshot, &AlertsConfig::default());
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(alerts[0].text, "btrfs /: scrub found 2 errors");
     }
 }

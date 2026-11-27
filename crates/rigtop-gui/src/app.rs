@@ -886,6 +886,9 @@ impl RigtopApp {
         };
         match Config::save_hosts(&path, &hosts) {
             Ok(()) => {
+                if let Some(watcher) = &mut self.config_watcher {
+                    watcher.mark_seen();
+                }
                 self.config.hosts = hosts;
                 self.update_hosts();
                 self.hosts_dialog
@@ -905,6 +908,9 @@ impl RigtopApp {
         };
         match Config::save_sensors(&path, &sensors) {
             Ok(()) => {
+                if let Some(watcher) = &mut self.config_watcher {
+                    watcher.mark_seen();
+                }
                 for host in &mut self.hosts {
                     host.state.config.sensors = sensors.clone();
                 }

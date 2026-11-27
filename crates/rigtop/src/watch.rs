@@ -142,13 +142,16 @@ impl Watched {
         worker.send(Command::SetProcessLimit(Some(0)));
         worker.send(Command::WatchProcessNames(config.watch.processes.clone()));
         let state = HostState::new(&spec.name, now);
+        // Remote hosts know their snooze key immediately; local hosts wait
+        // until the first snapshot reveals their hostname.
+        let alert_name = (!spec.is_local()).then(|| spec.name.clone());
         Self {
             spec,
             worker,
             state,
             exits: ExitWatch::default(),
             told_too_old: false,
-            alert_name: None,
+            alert_name,
         }
     }
 

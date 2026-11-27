@@ -1110,7 +1110,8 @@ fn btrfs_rows(ui: &mut Ui, fs: &BtrfsFilesystem, now: u64) {
                 ui.label(colored(format!("scrub {}", format::age(age)), color));
                 let (text, color) = match scrub.state.as_str() {
                     "finished" if scrub.uncorrectable > 0 => (format!("{} uncorrectable", scrub.uncorrectable), BAD),
-                    "finished" if scrub.errors > 0 => (format!("{} corrected", scrub.corrected), WARN),
+                    "finished" if scrub.corrected > 0 => (format!("{} corrected", scrub.corrected), WARN),
+                    "finished" if scrub.errors > 0 => (format!("{} errors", scrub.errors), WARN),
                     "finished" => ("ok".to_owned(), OK),
                     "canceled" => ("canceled".to_owned(), WARN),
                     _ => ("unfinished".to_owned(), WARN),
