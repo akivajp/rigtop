@@ -1231,27 +1231,36 @@ pub struct PressureItem {
 
 /// The readings shown next to the load average: those of at least 1%, or
 /// raising an alert under `limits` (marked). Empty while nothing waits.
+///
+/// A reading shows the 10-second "some" figure, which follows the load
+/// quickly; while its alert is raised it shows the figure the alert is on
+/// instead (memory: "some" over 60 s, I/O: "full" over 60 s), so that the
+/// number matches the alert and a marked reading never reads "0%".
 pub fn pressure_items(pressure: &Pressure, limits: &AlertsConfig) -> Vec<PressureItem> {
-    let over = |value: f32, limit: f64| limit > 0.0 && value as f64 >= limit;
-    let item = |name, value: f32, warn| PressureItem {
-        name,
-        value: format!("{value:.0}%"),
-        warn,
+    let item = |name, now: f32, alerted: Option<(f32, f64)>| {
+        // `alerted`: the alert's figure and threshold (0 turns it off).
+        let warn = alerted.filter(|&(value, limit)| limit > 0.0 && value as f64 >= limit);
+        let value = warn.map_or(now, |(value, _)| value);
+        PressureItem {
+            name,
+            value: format!("{value:.0}%"),
+            warn: warn.is_some(),
+        }
     };
     let items = [
-        item("cpu", pressure.cpu.some_avg10, false),
+        item("cpu", pressure.cpu.some_avg10, None),
         item(
             "mem",
             pressure.memory.some_avg10,
-            over(
+            Some((
                 pressure.memory.some_avg60,
                 limits.memory_pressure_warning_percent,
-            ),
+            )),
         ),
         item(
             "io",
             pressure.io.some_avg10,
-            over(pressure.io.full_avg60, limits.io_pressure_warning_percent),
+            Some((pressure.io.full_avg60, limits.io_pressure_warning_percent)),
         ),
     ];
     items
@@ -3219,12 +3228,35 @@ mod tests {
             names(&snapshot),
             [
                 ("mem", "25%".to_owned(), true),
-                ("io", "90%".to_owned(), true)
+                // The figure of the alert, not the 10-second "some".
+                ("io", "45%".to_owned(), true)
             ]
         );
         assert!(
             pressure_details(snapshot.pressure.as_ref().unwrap())
                 .contains("io: some 90% / 90%, full 45% / 45%")
+        );
+
+        // The stall just ended: the 10-second figures are back to 0, the
+        // minute averages are still over the thresholds. The marked
+        // readings do not read "0%".
+        let after = |avg60: f32| PressureLevels {
+            some_avg10: 0.0,
+            some_avg60: avg60,
+            full_avg10: 0.0,
+            full_avg60: avg60,
+        };
+        snapshot.pressure = Some(Pressure {
+            cpu: levels(0.0, 0.0),
+            memory: after(15.0),
+            io: after(35.0),
+        });
+        assert_eq!(
+            names(&snapshot),
+            [
+                ("mem", "15%".to_owned(), true),
+                ("io", "35%".to_owned(), true)
+            ]
         );
     }
 

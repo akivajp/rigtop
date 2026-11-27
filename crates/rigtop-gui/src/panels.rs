@@ -1774,14 +1774,14 @@ pub fn confirm_dialog(ctx: &egui::Context, state: &mut GuiState) {
         ui.horizontal(|ui| {
             if ui
                 .button(colored(
-                    format!("Send {}", signal_name(confirm.signal)),
+                    format!("send {}", signal_name(confirm.signal)),
                     BAD,
                 ))
                 .clicked()
             {
                 decision = Some(true);
             }
-            if ui.button("Cancel").clicked() {
+            if ui.button("cancel").clicked() {
                 decision = Some(false);
             }
         });

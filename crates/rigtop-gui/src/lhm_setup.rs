@@ -180,14 +180,14 @@ pub fn dialog(ctx: &egui::Context, state: &mut GuiState) {
         ui.add_space(8.0);
         ui.horizontal(|ui| {
             if let Some(port) = offer
-                && ui.button(RichText::new("Set up").color(WARN)).clicked()
+                && ui.button(RichText::new("set up").color(WARN)).clicked()
             {
                 setup.progress = Some(start(ui.ctx(), port));
             }
             let label = if setup.progress.is_some() {
-                "Close"
+                "close"
             } else {
-                "Cancel"
+                "cancel"
             };
             if ui.add_enabled(!busy, egui::Button::new(label)).clicked() {
                 close = true;

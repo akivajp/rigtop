@@ -7,6 +7,15 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Changed
+
+- A pressure stall reading marked as an alert shows the figure the alert is
+  on (memory: "some" over a minute, I/O: "full" over a minute), so it matches
+  the alert's text. It could read "io 0%" in yellow once a stall had ended,
+  while the minute's average was still over the threshold.
+- GUI: the buttons of the LibreHardwareMonitor window and of the confirmation
+  before a signal are lowercase, like those of the other windows.
+
 ### Fixed
 
 - Alerts of numbered devices no longer get mixed up: snoozing "GPU 0 at 88°C"
