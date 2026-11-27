@@ -1665,7 +1665,9 @@ fn btrfs_health_groups(fs: &BtrfsFilesystem, now_secs: u64) -> Vec<Group> {
                 "finished" if scrub.uncorrectable > 0 => {
                     (format!("{} uncorrectable", scrub.uncorrectable), BAD)
                 }
-                "finished" if scrub.corrected > 0 => (format!("{} corrected", scrub.corrected), WARN),
+                "finished" if scrub.corrected > 0 => {
+                    (format!("{} corrected", scrub.corrected), WARN)
+                }
                 "finished" if scrub.errors > 0 => (format!("{} errors", scrub.errors), WARN),
                 "finished" => ("ok".to_owned(), OK),
                 "canceled" => ("canceled".to_owned(), WARN),
