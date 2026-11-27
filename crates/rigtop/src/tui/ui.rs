@@ -1982,9 +1982,47 @@ fn draw_processes(
     }
     let footer = match app.status() {
         Some(status) => Line::from(colored(format!(" {status} "), WARN)),
-        None => Line::from(dim(
-            " ? help  ↑↓ select  Enter details  x notify on exit  p pause  [] priority  C containers  ←→ sort  r reverse  / filter  e tree  t kthreads  v panels  U update  k term  K kill  +- interval  g graph span  a alerts  q quit ",
-        )),
+        None => {
+            // Build the hint string in priority order, dropping items from the
+            // right when the terminal is too narrow to show them all.
+            let hints: &[&str] = &[
+                " ? help",
+                "  ↑↓ select",
+                "  Enter details",
+                "  x notify on exit",
+                "  p pause",
+                "  [] priority",
+                "  C containers",
+                "  ←→ sort",
+                "  r reverse",
+                "  / filter",
+                "  e tree",
+                "  t kthreads",
+                "  v panels",
+                "  U update",
+                "  k term",
+                "  K kill",
+                "  +- interval",
+                "  g graph span",
+                "  a alerts",
+                "  q quit",
+            ];
+            // area.width includes the two border columns, subtract them.
+            let budget = area.width.saturating_sub(2) as usize;
+            let mut text = String::new();
+            // Count terminal columns, not bytes: the arrows take 3 bytes each.
+            let mut used = 0;
+            for hint in hints {
+                let width = Span::raw(*hint).width();
+                if used + width + 1 > budget {
+                    break;
+                }
+                text.push_str(hint);
+                used += width;
+            }
+            text.push(' ');
+            Line::from(dim(text))
+        }
     };
     let block = panel("proc", PROC_TITLE)
         .title_top(Line::from(title).right_aligned())
