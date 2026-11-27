@@ -80,7 +80,7 @@ On Debian and Ubuntu (22.04 or newer), the Releases page also has `.deb` package
 sudo apt install ./rigtop_*_amd64.deb
 ```
 
-On Windows, besides the Microsoft Store (above), with [Scoop](https://scoop.sh), from the [akivajp bucket](https://github.com/akivajp/scoop-bucket), which also adds rigtop-gui to the Start menu (`scoop update rigtop` updates it):
+On Windows, besides the Microsoft Store (above), with [Scoop](https://scoop.sh), from the [akivajp bucket](https://github.com/akivajp/scoop-bucket), which also adds rigtop-gui to the Start menu (`scoop update rigtop` updates it). rigtop is not in Scoop's default buckets (main, extras), so `scoop search rigtop` finds it only after the bucket is added:
 
 ```powershell
 scoop bucket add akivajp https://github.com/akivajp/scoop-bucket

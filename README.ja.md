@@ -18,7 +18,7 @@
 ## 目標
 
 - btop と同じ一覧性: CPU（全体・コアごと・温度・クロック）、全 GPU、メモリ、ストレージ、ネットワーク、プロセス一覧（kill / 強制 kill）を1画面に。
-- 既存のモニターが手薄な**ストレージの健康状態**: mdadm の状態と再同期の進み具合、ZFS のプール（raidz・mirror などの構成、ドライブごとの状態と読み書き・チェックサムのエラー回数、直近の scrub、データのエラー）、btrfs の RAID 構成とデバイスごとのエラー回数、NVMe の温度、SMART。ZFS の詳細は `zpool status` から読み取るため、多くの環境で root 権限は不要です。ZFS の読み込みキャッシュ（ARC）はメモリ欄に別行で表示し、解放可能な分は使用中ではなく空きメモリとして計上するため、ZFS 搭載マシンがメモリ不足に見えることはありません。
+- 既存のモニターが手薄な**ストレージの健康状態**: mdadm の状態と再同期の進み具合、ZFS のプール（raidz・mirror などの構成、ドライブごとの状態と読み書き・チェックサムのエラー回数、直近の scrub、データのエラー）、btrfs の RAID 構成とデバイスごとのエラー回数、NVMe の温度、SMART。ZFS の詳細は `zpool status` から読み取るため、多くの環境で root 権限は不要です。ZFS の読み込みキャッシュ（ARC）はメモリ欄に別行で表示し、解放できる分は使用中ではなく空きメモリに数えるため、ZFS を使うマシンがメモリ不足に見えることはありません。
 - プロセスごとの GPU 使用率と VRAM（NVIDIA は NVML 経由、Linux の AMD・Intel はドライバから自分のプロセスの分。最も忙しいエンジンの値なので、動画の変換ではエンコーダーの使用率が出る）、ディスク I/O、プロセスが動いているコンテナや仮想マシン（Docker・Podman・Kubernetes・LXC・systemd-nspawn・libvirt・Proxmox VE、Linux）。
 - CPU + GPU の消費電力の合計、ファン回転数（各系統に任意の名前を付けられる）、[Network UPS Tools](#upsnetwork-ups-tools) 経由の UPS。
 - **SSH だけで複数ホストを監視**: `rigtop --agent` が標準入出力で計測値を流すので、常駐プロセスもポート開放も不要。
@@ -51,7 +51,7 @@ Windows 11 では、[Microsoft Store](https://apps.microsoft.com/detail/9n6jmv1q
 
 - 設定と警告の履歴は、パッケージ専用のフォルダー `%LOCALAPPDATA%\Packages\C2B504BA.rigtop_1raghr5p0ryyw\LocalState` に保存します（GUI の「config…」と `rigtop --edit-config` はここのファイルを開きます）。アンインストールすると一緒に削除されます。
 - 新しいリリースの確認と自己更新は行いません（Store が更新を管理します）。
-- 「set up…」は [LibreHardwareMonitor](#librehardwaremonitor-で温度ファンcpu-の消費電力を表示する) を自動インストールする代わりに、設定手順を案内します（Store アプリはドライバーを伴う他ソフトを導入できないため）。
+- 「set up…」は [LibreHardwareMonitor](#librehardwaremonitor-で温度ファンcpu-の消費電力を表示する) を自動インストールする代わりに、設定手順を案内します（Store アプリはドライバーを伴うほかのソフトをインストールできないため）。
 - `rigtop-gui` コマンドはありません（Store パッケージが持てるコマンドは 1 つです）。GUI はスタートメニューから起動し、`rigtop --demo` などのオプションは `rigtop` で使えます。
 
 Windows では、下の Scoop と zip も使えます。
@@ -80,7 +80,7 @@ Debian と Ubuntu（22.04 以降）向けには、Releases ページに `.deb` �
 sudo apt install ./rigtop_*_amd64.deb
 ```
 
-Windows では、Microsoft Store（上）のほかに [Scoop](https://scoop.sh) で [akivajp のバケット](https://github.com/akivajp/scoop-bucket) からもインストールできます（スタートメニューに rigtop-gui が登録され、`scoop update rigtop` で更新できます）。
+Windows では、Microsoft Store（上）のほかに [Scoop](https://scoop.sh) で [akivajp のバケット](https://github.com/akivajp/scoop-bucket) からもインストールできます（スタートメニューに rigtop-gui が登録され、`scoop update rigtop` で更新できます）。Scoop の既定のバケット（main・extras）には無いので、先にバケットを追加してください（追加するまでは `scoop search rigtop` でも見つかりません）。
 
 ```powershell
 scoop bucket add akivajp https://github.com/akivajp/scoop-bucket
@@ -166,7 +166,7 @@ cargo run --release -p rigtop-gui            # オプションは TUI と同じ�
 - 列見出しのクリックで並べ替え、「tree」でツリー表示、「containers」でコンテナごとの使用量（クリックでそのコンテナのプロセスに絞り込み）を切り替え
 - ダブルクリック（または右クリック →「Details…」）で詳細表示、右クリックメニューから一時停止・再開、優先度変更、終了・強制終了（一時停止と終了は実行前に確認）を実行
 - 「Notify when it exits」でプロセス終了時にデスクトップ通知と警告履歴へ記録（遠隔ホストは rigtop 0.19 以降が必要）
-- ネットワーク欄では一覧からインターフェースを選択可能
+- ネットワーク欄では、表示するインターフェースを一覧から選べます
 
 文字の大きさは Ctrl + マウスホイール、Ctrl + `+` / `-` / `0`、または CPU パネル見出しの `A-` / `A+` ボタンで調整できます。拡大率、パネル配置、プロセス一覧の並べ替え・ツリー表示・各チェックボックスの状態は次回起動時に復元されます（プロセス一覧の設定は全ホスト共通）。
 
@@ -234,7 +234,7 @@ GUI では **hosts…**（タブの並び、またはローカルマシンのみ
 
 ホストが2台以上あると、全ホストを並べた**オーバービュー**から始まります。各ホスト（ローカルマシンを含む）の詳細表示はタブで切り替えます。各カードには要注意の項目（ストレージのエラー、SMART 異常、RAID の劣化、空き容量の少ないファイルシステム、高温の CPU・GPU・ドライブ）を先頭に出し、続けて CPU・GPU・メモリ・プロセス上位・ネットワーク・ストレージをカードに収まる分だけ表示します。さらに余白があれば詳細（CPU 名・GPU 名・ディスク I/O）、次に CPU と通信量のグラフを表示し、横に並んだカード同士は各欄の開始位置を揃えます。
 
-プロセス一覧はカード幅いっぱいの表で、プログラム名の右に CPU・メモリと、GPU 搭載ホストでは GPU 使用率・VRAM を表示します。列は `[overview] process_columns` で選べ（`"cpu"`・`"memory"`・`"gpu"`・`"vram"` のほか `"disk"`・`"user"`・`"command"`）、カード幅に入る分だけ表示します。セクション順は `[overview] sections`（全体）、ホストごとの `sections`、GUI カードの「sections」メニューで変えられます。ローカルマシンのカードを表示するかどうかは `[overview] include_local`（GUI はチェックボックス、TUI は `l` キー）で切り替えます。カードは設定順に並びますが、`[overview] alerts_first = true`（GUI は「alerts first」）にすると要注意ホストを先頭へ並べます（接続不可または critical の警告があるホスト、次に warning のあるホスト。それ以外は元の順番のまま）。TUI では `Tab` と `0`〜`9` でオーバービューと各ホストを切り替えます。
+プロセス一覧はカード幅いっぱいの表で、プログラム名の右に CPU・メモリと、GPU のあるホストでは GPU 使用率・VRAM を表示します。列は `[overview] process_columns` で選べ（`"cpu"`・`"memory"`・`"gpu"`・`"vram"` のほか `"disk"`・`"user"`・`"command"`）、カード幅に入る分だけ表示します。セクション順は `[overview] sections`（全体）、ホストごとの `sections`、GUI カードの「sections」メニューで変えられます。ローカルマシンのカードを表示するかどうかは `[overview] include_local`（GUI はチェックボックス、TUI は `l` キー）で切り替えます。カードは設定順に並びますが、`[overview] alerts_first = true`（GUI は「alerts first」）にすると要注意ホストを先頭へ並べます（接続不可または critical の警告があるホスト、次に warning のあるホスト。それ以外は元の順番のまま）。TUI では `Tab` と `0`〜`9` でオーバービューと各ホストを切り替えます。
 
 ![rigtop-gui で3台を並べたオーバービュー: GPU 2枚で学習中のワークステーション、バッテリー駆動のノート PC、代替処理済みセクタのあるドライブで赤く表示され、RAID の再同期・容量の逼迫・ZFS のプールも出ている、UPS につないだ NAS。右には時計と Claude Code のウィジェット](docs/images/rigtop-gui-overview.png)
 
@@ -359,7 +359,7 @@ SMART のファイルにはドライブのシリアル番号が含まれます�
 
 ## UPS（Network UPS Tools）
 
-UPS を [Network UPS Tools](https://networkupstools.org)（NUT）で管理しているマシンでは、rigtop が NUT の `upsd` の既定のアドレス（`127.0.0.1:3493`）から UPS の状態を読みます（root も、ほかのソフトの導入も不要）。CPU パネルの CPU・GPU の消費電力の隣に、バッテリー残量と接続機器の消費電力を表示します（`UPS 100% 73W`）。GUI ではマウスを乗せると、機種・バッテリーの推定駆動時間・負荷・入力電圧も確認できます。停電は警告になります。バッテリー運転と、その間の残量低下は critical（`UPS: on battery (72%)`）、バッテリー交換・過負荷・値の取得失敗は warning です。`rigtop --watch` でも通知できます。
+UPS を [Network UPS Tools](https://networkupstools.org)（NUT）で管理しているマシンでは、rigtop が NUT の `upsd` の既定のアドレス（`127.0.0.1:3493`）から UPS の状態を読みます（root も、ほかのソフトの導入も不要）。CPU パネルの CPU・GPU の消費電力の隣に、バッテリー残量と接続機器の消費電力を表示します（`UPS 100% 73W`）。GUI ではマウスを乗せると、機種・バッテリーの推定駆動時間・負荷・入力電圧も確認できます。停電は警告になります。バッテリー運転と、その間の残量低下は critical（`UPS: on battery (72%)`）、バッテリー交換・過負荷・値が読めないことは warning です。`rigtop --watch` でも通知できます。
 
 UPS を別のマシンに接続している場合（NUT のクライアント）は、[設定](#設定)の `[ups] address = "nas:3493"` でそのホストを指定し、接続先の `upsd` がネットワーク越しに待ち受けるようにします（`upsd.conf` の `LISTEN`。既定ではローカルホストからの接続のみ受け付けます）。`address = ""` で無効化できます。遠隔ホストには rigtop 0.30 以降が必要です。
 
