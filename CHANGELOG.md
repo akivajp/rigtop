@@ -7,6 +7,19 @@ include breaking changes).
 
 ## [Unreleased]
 
+### Fixed
+
+- Alerts of numbered devices no longer get mixed up: snoozing "GPU 0 at 88°C"
+  also snoozed GPU 1, and an alert of `nvme1n1`, `md1` or `/mnt/disk2` could
+  be taken for the one of `nvme0n1`, `md0` or `/mnt/disk1`. Snoozes made with
+  an earlier version end, as their alerts now have other keys.
+- A btrfs scrub that found errors without correcting any no longer reads
+  "corrected 0 errors".
+- GUI: saving hosts or sensor names no longer reloads the configuration file
+  it just wrote.
+- `rigtop --watch`: a snooze of a remote host's alerts also covers the
+  "unreachable" alert raised before the host ever answered.
+
 ## [0.36.2] - 2026-11-23
 
 ### Fixed
