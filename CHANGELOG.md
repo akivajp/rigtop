@@ -19,6 +19,10 @@ include breaking changes).
   it just wrote.
 - `rigtop --watch`: a snooze of a remote host's alerts also covers the
   "unreachable" alert raised before the host ever answered.
+- GUI: on a narrow network panel, an interface's rates move to the tooltip
+  of its name instead of running past the panel's edge.
+- TUI: on a narrow terminal, the key hints under the process list end
+  between two hints instead of in the middle of one.
 
 ## [0.36.2] - 2026-11-23
 

@@ -1268,27 +1268,39 @@ fn network(ui: &mut Ui, state: &mut GuiState) {
         ui.horizontal(|ui| {
             let link = link_label(net).unwrap_or_default();
             let avail = ui.available_width();
-            // 110px for the name button, up to 210px for the rate column.
-            // The link column fills the gap between them and shrinks first;
-            // when there is no room for it, the label moves to a tooltip.
-            // When even the rate column does not fit, it too is hidden in the
-            // tooltip so the name button is never clipped.
-            let rate_width = (avail - 110.0).min(210.0).max(0.0);
-            let link_width = (avail - 110.0 - rate_width).min(170.0).max(0.0);
-            let show_rates = rate_width >= 100.0;
-
             let rates = format!(
                 "▼{:>9} ▲{:>9}",
                 format::rate(net.rx_bytes_per_sec),
                 format::rate(net.tx_bytes_per_sec)
             );
+            // The rates' real width: a label wider than what is left would
+            // push the row past the panel (egui widens the parent instead of
+            // clipping it).
+            let rates = egui::WidgetText::from(rates).into_galley(
+                ui,
+                Some(egui::TextWrapMode::Extend),
+                f32::INFINITY,
+                egui::TextStyle::Body,
+            );
+            let spacing = ui.spacing().item_spacing.x;
+            // 110px for the name button, then the rates. The link column
+            // fills the gap between them (up to 210px reserved for the
+            // rates, as before) and shrinks first; when there is no room for
+            // it, it moves to the name's tooltip, and so do the rates when
+            // even they do not fit.
+            let show_rates = avail - 110.0 - spacing >= rates.size().x;
+            let link_width = (avail - 110.0 - 210.0).min(170.0);
+
             let mut name = ui.add_sized(
                 [110.0, ROW_HEIGHT],
                 egui::Button::selectable(is_current, &net.name),
             );
-            // If rates are hidden, put them in the tooltip so info is not lost.
             if !show_rates {
-                name = name.on_hover_text(format!("{rates}\n{link}"));
+                let mut tip = rates.text().to_owned();
+                if !link.is_empty() {
+                    tip = format!("{tip}\n{link}");
+                }
+                name = name.on_hover_text(tip);
             } else if link_width < 60.0 && !link.is_empty() {
                 name = name.on_hover_text(&link);
             }

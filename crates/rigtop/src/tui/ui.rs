@@ -2010,12 +2010,15 @@ fn draw_processes(
             // area.width includes the two border columns, subtract them.
             let budget = area.width.saturating_sub(2) as usize;
             let mut text = String::new();
+            // Count terminal columns, not bytes: the arrows take 3 bytes each.
+            let mut used = 0;
             for hint in hints {
-                if text.len() + hint.len() + 1 <= budget {
-                    text.push_str(hint);
-                } else {
+                let width = Span::raw(*hint).width();
+                if used + width + 1 > budget {
                     break;
                 }
+                text.push_str(hint);
+                used += width;
             }
             text.push(' ');
             Line::from(dim(text))
