@@ -1980,9 +1980,44 @@ fn draw_processes(
     }
     let footer = match app.status() {
         Some(status) => Line::from(colored(format!(" {status} "), WARN)),
-        None => Line::from(dim(
-            " ? help  ↑↓ select  Enter details  x notify on exit  p pause  [] priority  C containers  ←→ sort  r reverse  / filter  e tree  t kthreads  v panels  U update  k term  K kill  +- interval  g graph span  a alerts  q quit ",
-        )),
+        None => {
+            // Build the hint string in priority order, dropping items from the
+            // right when the terminal is too narrow to show them all.
+            let hints: &[&str] = &[
+                " ? help",
+                "  ↑↓ select",
+                "  Enter details",
+                "  x notify on exit",
+                "  p pause",
+                "  [] priority",
+                "  C containers",
+                "  ←→ sort",
+                "  r reverse",
+                "  / filter",
+                "  e tree",
+                "  t kthreads",
+                "  v panels",
+                "  U update",
+                "  k term",
+                "  K kill",
+                "  +- interval",
+                "  g graph span",
+                "  a alerts",
+                "  q quit",
+            ];
+            // area.width includes the two border columns, subtract them.
+            let budget = area.width.saturating_sub(2) as usize;
+            let mut text = String::new();
+            for hint in hints {
+                if text.len() + hint.len() + 1 <= budget {
+                    text.push_str(hint);
+                } else {
+                    break;
+                }
+            }
+            text.push(' ');
+            Line::from(dim(text))
+        }
     };
     let block = panel("proc", PROC_TITLE)
         .title_top(Line::from(title).right_aligned())

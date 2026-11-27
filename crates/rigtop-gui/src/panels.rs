@@ -1267,14 +1267,29 @@ fn network(ui: &mut Ui, state: &mut GuiState) {
         let is_current = Some(&net.name) == state.history.net_interface.as_ref();
         ui.horizontal(|ui| {
             let link = link_label(net).unwrap_or_default();
-            // The link column shrinks first; without room it moves to the
-            // name's tooltip, keeping the rates visible.
-            let link_width = (ui.available_width() - 110.0 - 210.0).min(170.0);
+            let avail = ui.available_width();
+            // 110px for the name button, up to 210px for the rate column.
+            // The link column fills the gap between them and shrinks first;
+            // when there is no room for it, the label moves to a tooltip.
+            // When even the rate column does not fit, it too is hidden in the
+            // tooltip so the name button is never clipped.
+            let rate_width = (avail - 110.0).min(210.0).max(0.0);
+            let link_width = (avail - 110.0 - rate_width).min(170.0).max(0.0);
+            let show_rates = rate_width >= 100.0;
+
+            let rates = format!(
+                "▼{:>9} ▲{:>9}",
+                format::rate(net.rx_bytes_per_sec),
+                format::rate(net.tx_bytes_per_sec)
+            );
             let mut name = ui.add_sized(
                 [110.0, ROW_HEIGHT],
                 egui::Button::selectable(is_current, &net.name),
             );
-            if link_width < 60.0 && !link.is_empty() {
+            // If rates are hidden, put them in the tooltip so info is not lost.
+            if !show_rates {
+                name = name.on_hover_text(format!("{rates}\n{link}"));
+            } else if link_width < 60.0 && !link.is_empty() {
                 name = name.on_hover_text(&link);
             }
             if name.clicked() {
@@ -1286,11 +1301,9 @@ fn network(ui: &mut Ui, state: &mut GuiState) {
                     egui::Label::new(dim(link)).truncate(),
                 );
             }
-            ui.label(format!(
-                "▼{:>9} ▲{:>9}",
-                format::rate(net.rx_bytes_per_sec),
-                format::rate(net.tx_bytes_per_sec)
-            ));
+            if show_rates {
+                ui.label(rates);
+            }
         });
     }
     if let Some(name) = chosen {
