@@ -18,7 +18,7 @@
 ## 目標
 
 - btop と同じ一覧性: CPU（全体・コアごと・温度・クロック）、全 GPU、メモリ、ストレージ、ネットワーク、プロセス一覧（kill / 強制 kill）を1画面に。
-- 既存のモニターが手薄な**ストレージの健康状態**: mdadm の状態と再同期の進み具合、ZFS のプール（raidz・mirror などの構成、ドライブごとの状態と読み・書き・チェックサムのエラー回数、直近の scrub、データのエラー）、btrfs の RAID 構成とデバイスごとのエラー回数、NVMe の温度、SMART。ZFS の詳細は `zpool status` から読み、多くの環境で root は不要です。ZFS の読み込みキャッシュ（ARC）はメモリ欄に別の行として出し、手放せる分は使用中ではなく空きに数えるので、ZFS の機械がメモリ不足に見えることはありません。
+- 既存のモニターが手薄な**ストレージの健康状態**: mdadm の状態と再同期の進み具合、ZFS のプール（raidz・mirror などの構成、ドライブごとの状態と読み書き・チェックサムのエラー回数、直近の scrub、データのエラー）、btrfs の RAID 構成とデバイスごとのエラー回数、NVMe の温度、SMART。ZFS の詳細は `zpool status` から読み取るため、多くの環境で root 権限は不要です。ZFS の読み込みキャッシュ（ARC）はメモリ欄に別行で表示し、解放可能な分は使用中ではなく空きメモリとして計上するため、ZFS 搭載マシンがメモリ不足に見えることはありません。
 - プロセスごとの GPU 使用率と VRAM（NVIDIA は NVML 経由、Linux の AMD・Intel はドライバから自分のプロセスの分。最も忙しいエンジンの値なので、動画の変換ではエンコーダーの使用率が出る）、ディスク I/O、プロセスが動いているコンテナや仮想マシン（Docker・Podman・Kubernetes・LXC・systemd-nspawn・libvirt・Proxmox VE、Linux）。
 - CPU + GPU の消費電力の合計、ファン回転数（各系統に任意の名前を付けられる）、[Network UPS Tools](#upsnetwork-ups-tools) 経由の UPS。
 - **SSH だけで複数ホストを監視**: `rigtop --agent` が標準入出力で計測値を流すので、常駐プロセスもポート開放も不要。
@@ -34,31 +34,31 @@
 
 ## インストール
 
-Linux（x86_64・aarch64、glibc 2.35 以降）と macOS（Apple Silicon）では、インストールスクリプトで `~/.local/bin` に入れられます（`sudo` は不要）。もう一度実行すると更新できます。
+Linux（x86_64・aarch64、glibc 2.35 以降）と macOS（Apple Silicon）では、インストールスクリプトで `~/.local/bin` にインストールできます（`sudo` は不要）。もう一度実行すると更新できます。
 
 ```sh
 curl -fsSL https://github.com/akivajp/rigtop/releases/latest/download/install.sh | sh
 ```
 
-最新のリリースから環境に合ったアーカイブを選び、`SHA256SUMS` と照合してから入れます。オプション（別の版、別の置き場所、端末 UI のみ）は `sh` の後ろに `-s -- --help` を付けると表示されます。先にスクリプトの中身を確認するなら:
+最新のリリースから環境に合ったアーカイブを選び、`SHA256SUMS` と照合してからインストールします。オプション（指定バージョン、インストール先の変更、端末 UI のみ）は `sh` の後ろに `-s -- --help` を付けると表示されます。先にスクリプトの中身を確認するなら:
 
 ```sh
 curl -fsSLO https://github.com/akivajp/rigtop/releases/latest/download/install.sh
 less install.sh && sh install.sh
 ```
 
-Windows 11 では、[Microsoft Store](https://apps.microsoft.com/detail/9n6jmv1qndck) から入れるのがおすすめです。署名済みなので SmartScreen の警告が出ず、更新も Store が届けます。スタートメニューに rigtop（GUI）が入り、端末では `rigtop`（端末版）が使えます。Store 版は次の点が違います。
+Windows 11 では、[Microsoft Store](https://apps.microsoft.com/detail/9n6jmv1qndck) からのインストールがおすすめです。署名済みなので SmartScreen の警告が出ず、更新も Store 経由で届きます。スタートメニューに rigtop（GUI）が追加され、端末では `rigtop`（端末版）が使えます。Store 版は次の点が異なります。
 
-- 設定と警告の履歴は、パッケージ専用のフォルダー `%LOCALAPPDATA%\Packages\C2B504BA.rigtop_1raghr5p0ryyw\LocalState` に置きます（GUI の「config…」と `rigtop --edit-config` はそこのファイルを開きます）。アンインストールすると一緒に消えます。
-- 新しいリリースの確認と自分の更新はしません（Store が更新します）。
-- 「set up…」は [LibreHardwareMonitor](#librehardwaremonitor-で温度ファンcpu-の消費電力を表示する) を入れる代わりに、手順を案内します（Store のアプリは、ドライバーを伴うほかのソフトを入れられないため）。
-- `rigtop-gui` のコマンドはありません（Store のパッケージが持てるコマンドは 1 つ）。GUI はスタートメニューから起動します。`rigtop --demo` などのオプションは `rigtop` で使えます。
+- 設定と警告の履歴は、パッケージ専用のフォルダー `%LOCALAPPDATA%\Packages\C2B504BA.rigtop_1raghr5p0ryyw\LocalState` に保存します（GUI の「config…」と `rigtop --edit-config` はここのファイルを開きます）。アンインストールすると一緒に削除されます。
+- 新しいリリースの確認と自己更新は行いません（Store が更新を管理します）。
+- 「set up…」は [LibreHardwareMonitor](#librehardwaremonitor-で温度ファンcpu-の消費電力を表示する) を自動インストールする代わりに、設定手順を案内します（Store アプリはドライバーを伴う他ソフトを導入できないため）。
+- `rigtop-gui` コマンドはありません（Store パッケージが持てるコマンドは 1 つです）。GUI はスタートメニューから起動し、`rigtop --demo` などのオプションは `rigtop` で使えます。
 
 Windows では、下の Scoop と zip も使えます。
 
-**更新**: rigtop は起動時と1時間ごとに、github.com で新しいリリースが出ていないかを確かめます（最新のリリースがどれかを問い合わせるだけで、手元の情報は送りません）。新しい版があると見出しに表示し（TUI は `U`、GUI はボタン。GUI は Linux と macOS ではデスクトップ通知も出します）、動いている rigtop をその版に入れ替えられます。新しい版は再起動の後に動きます（GUI には再起動のボタンがあります）。`cargo install` やパッケージマネージャーで入れたものは書き換えず、更新のコマンドを案内します。Windows では rigtop を終了してから `scoop update rigtop` を実行するか、新しい zip で入れ替えてください（Microsoft Store 版は Store が更新します）。[設定](#設定)の `[updates]` で、間隔を変えたり、確認（`check = false`）や通知（`notify = false`）を止めたりできます。
+**更新**: rigtop は起動時と1時間ごとに、github.com で新しいリリースが出ていないか確認します（最新リリースの確認のみで、ローカルの情報は送信しません）。新しいバージョンがあると見出しに表示し（TUI は `U`、GUI はボタン。GUI は Linux と macOS でデスクトップ通知も表示）、実行中の rigtop をそのバージョンに置き換えられます。新しいバージョンは再起動後に有効になります（GUI には再起動ボタンがあります）。`cargo install` やパッケージマネージャーでインストールしたものは書き換えず、更新用コマンドを案内します。Windows では rigtop を終了してから `scoop update rigtop` を実行するか、新しい zip で上書きしてください（Microsoft Store 版は Store が更新します）。[設定](#設定)の `[updates]` で、確認間隔を変えたり、確認（`check = false`）や通知（`notify = false`）を無効にしたりできます。
 
-または、[Releases](https://github.com/akivajp/rigtop/releases) のページから環境に合ったアーカイブを取得し、中のバイナリを `PATH` の通った場所に置いてください。
+または、[Releases](https://github.com/akivajp/rigtop/releases) ページから環境に合ったアーカイブを取得し、中のバイナリを `PATH` の通った場所に配置してください。
 
 | アーカイブ | 中身 |
 |---|---|
@@ -68,28 +68,28 @@ Windows では、下の Scoop と zip も使えます。
 | `aarch64-pc-windows-msvc` | `rigtop.exe`、`rigtop-gui.exe`（Arm 版 Windows） |
 | `aarch64-apple-darwin` | `rigtop`、`rigtop-gui`（署名なし） |
 
-チェックサムは `SHA256SUMS` にあります。Rust の環境（1.95 以降）があれば、[crates.io](https://crates.io/crates/rigtop) から入れることもできます。
+チェックサムは `SHA256SUMS` にあります。Rust の環境（1.95 以降）があれば、[crates.io](https://crates.io/crates/rigtop) からインストールすることもできます。
 
 ```sh
 cargo install rigtop rigtop-gui
 ```
 
-Debian と Ubuntu（22.04 以降）向けには、Releases のページに `.deb` パッケージもあります（`amd64` は GUI とメニュー項目付き、`arm64` は端末 UI のみ）。
+Debian と Ubuntu（22.04 以降）向けには、Releases ページに `.deb` パッケージもあります（`amd64` は GUI とメニュー項目付き、`arm64` は端末 UI のみ）。
 
 ```sh
 sudo apt install ./rigtop_*_amd64.deb
 ```
 
-Windows では、Microsoft Store（上）のほかに [Scoop](https://scoop.sh) で [akivajp のバケット](https://github.com/akivajp/scoop-bucket) からも入れられます（スタートメニューに rigtop-gui が登録され、`scoop update rigtop` で更新できます）。
+Windows では、Microsoft Store（上）のほかに [Scoop](https://scoop.sh) で [akivajp のバケット](https://github.com/akivajp/scoop-bucket) からもインストールできます（スタートメニューに rigtop-gui が登録され、`scoop update rigtop` で更新できます）。
 
 ```powershell
 scoop bucket add akivajp https://github.com/akivajp/scoop-bucket
 scoop install akivajp/rigtop
 ```
 
-以前に定義ファイルの URL から入れた場合は、更新が届くように、バケットの README の手順でバケットに切り替えてください。
+以前に定義ファイルの URL からインストールした場合は、更新が届くように、バケットの README の手順でバケットへ切り替えてください。
 
-[Homebrew](https://brew.sh)（Apple Silicon の macOS、Linux）では、[akivajp/tap](https://github.com/akivajp/homebrew-tap) から入れられます（`brew upgrade rigtop` で更新できます）。
+[Homebrew](https://brew.sh)（Apple Silicon の macOS、Linux）では、[akivajp/tap](https://github.com/akivajp/homebrew-tap) からインストールできます（`brew upgrade rigtop` で更新できます）。
 
 ```sh
 brew install akivajp/tap/rigtop
@@ -131,25 +131,27 @@ cargo run --release -p rigtop -- --help  # オプション（--interval-ms、--c
 | `↑` `↓` `PgUp` `PgDn` `Home` `End` | プロセスを選ぶ |
 | `←` `→` / `r` | 並べ替えの列を変える / 逆順にする |
 | `/` | 名前・コマンド・ユーザー・コンテナ・pid で絞り込む（`Enter` で確定、`Esc` で解除） |
-| `e` | ツリー表示: プロセスを親の下に並べる（兄弟どうしは並べ替えの順。絞り込み中は見つかったプロセスの親も出す） |
+| `e` | ツリー表示: プロセスを親プロセスの下に階層表示（同じ階層内は現在の並べ替え順。絞り込み中は一致したプロセスの親も表示） |
 | `t` | カーネルスレッドの表示を切り替える |
-| `v` | ホストの画面の欄の表示を切り替える: `m` メモリ、`g` GPU、`s` ストレージ、`n` ネットワーク、`p` プロセス（`[tui] hidden_panels` に保存）、`w` ウィジェットの列。残った欄が空いた場所を使う |
+| `v` | ホスト画面のパネル表示を切り替える: `m` メモリ、`g` GPU、`s` ストレージ、`n` ネットワーク、`p` プロセス（`[tui] hidden_panels` に保存）、`w` ウィジェット列。残ったパネルが空いた領域を使う |
 | `Enter` | 選んだプロセスの詳細: 親プロセス、ユーザー、コンテナ、開始時刻、使用量、コマンドライン全体（`Enter` か `Esc` で閉じる） |
-| `x` | 選んだプロセスが終わったら知らせる（学習ジョブなど）: 警告の履歴（`a`）・状態の行・端末のベル。遠隔ホストには rigtop 0.19 以降が必要 |
+| `x` | 選んだプロセスが終わったら知らせる（学習ジョブなど）: 警告の履歴（`a`）・ステータス行・端末のベル。遠隔ホストには rigtop 0.19 以降が必要 |
 | `k` / `K` | 選んだプロセスに SIGTERM / SIGKILL を送る（送る前に確認する） |
-| `p` | 選んだプロセスを一時停止（SIGSTOP、送る前に確認する）、止まっていれば再開（SIGCONT）。止まっているものには `stopped` と出す（Linux・macOS。遠隔ホストには rigtop 0.22 以降が必要） |
-| `C` | コンテナごとの使用量（プロセス数・CPU・メモリ・GPU）をプロセス表の上に出す。`/` でその名前を入れると、そのコンテナのプロセスだけを出す |
+| `p` | 選んだプロセスを一時停止（SIGSTOP、送る前に確認する）、止まっていれば再開（SIGCONT）。停止中は `stopped` と表示（Linux・macOS。遠隔ホストには rigtop 0.22 以降が必要） |
+| `C` | コンテナごとの使用量（プロセス数・CPU・メモリ・GPU）をプロセス表の上に出す。`/` でその名前を入力すると、該当コンテナのプロセスだけを絞り込める |
 | `]` / `[` | 選んだプロセスの優先度を nice 値で 5 下げる / 上げる（上げるには root が必要。Linux・macOS。遠隔ホストには rigtop 0.22 以降が必要） |
 | `n` | 表示するネットワークインターフェースを切り替える |
 | `i` | インターフェースのアドレス（`[network] public_ip` を有効にしたときはグローバル IP も）の表示を切り替える。スクリーンショットを撮る前など |
 | `+` / `-` | 更新間隔を長く / 短くする |
-| `U` | 見出しに新しいリリースが出ているとき、手元の rigtop をその版に更新する（実行前に確認。再起動の後に有効） |
-| `u` | 遠隔ホストの rigtop が手元より古いとき、手元と同じ版に更新する（実行前に確認） |
-| `a` | 警告: 全ホストの今の警告と、出た・消えた履歴（再起動しても残る）。`↑` `↓` で今の警告を選び、`z` を押すたびに 1時間 → 1日 → 消えるまで → 解除 の順で黙らせる。`PgUp` `PgDn` で履歴をスクロール、`a` か `Esc` で閉じる。新しい警告の件数はタブの行に、ホスト1台なら CPU 欄の見出しに出る |
+| `U` | 見出しに新しいリリースが出ているとき、ローカルの rigtop をそのバージョンに更新する（実行前に確認。再起動後に有効） |
+| `u` | 遠隔ホストの rigtop が手元より古いとき、手元と同じバージョンに更新する（実行前に確認） |
+| `a` | 警告: 全ホストの現在の警告と、発生・解消の履歴（再起動後も保持）。`↑` `↓` で現在の警告を選び、`z` を押すたびに 1時間 → 1日 → 解消まで → 解除 の順でスヌーズを切り替え。`PgUp` `PgDn` で履歴をスクロール、`a` か `Esc` で閉じる。未読の新しい警告数はタブバー、またはホスト1台時は CPU 欄の見出しに表示 |
 | `g` | グラフの時間幅: 幅に合わせる（1点 1サンプル）か、直近の 1・5・15 分・1・6・24 時間（1時間を超える分は1分ごとの平均から） |
 | `?` / `F1` | 今の画面で使えるキーの一覧（どのキーでも閉じる） |
 | `q` | 終了 |
 | マウス | プロセスをクリックで選択、列の見出しをクリックで並べ替え（もう一度で逆順）、ホイールでスクロール |
+
+マウス操作が有効なため、多くの端末では Shift+ドラッグで文字を選択できます。
 
 ### GUI
 
@@ -159,17 +161,24 @@ cargo run --release -p rigtop -- --help  # オプション（--interval-ms、--c
 cargo run --release -p rigtop-gui            # オプションは TUI と同じ（--interval-ms、--config）
 ```
 
-パネルの境界をドラッグでリサイズ、パネルの見出しをドラッグで並べ替えできます。列の見出しクリックで並べ替え、「tree」にチェックでツリー表示、「containers」にチェックでコンテナごとの使用量（クリックでそのコンテナのプロセスに絞り込み）、プロセスをダブルクリック（または右クリック →「Details…」）で詳細、右クリックで一時停止・再開、優先度の変更、終了・強制終了（一時停止と終了は送る前に確認）や「Notify when it exits」（終わったらデスクトップ通知と警告の履歴。遠隔ホストには rigtop 0.19 以降が必要）、ネットワークのインターフェースは一覧から選べます。
+パネルの境界をドラッグしてリサイズ、パネルの見出しをドラッグして並べ替えができます。プロセス表では次の操作に対応しています。
 
-文字の大きさは Ctrl + マウスホイール、Ctrl + `+` / `-` / `0`、または CPU パネルの見出しにある `A-` / `A+` ボタンで変えられます。拡大率、パネルの配置、プロセス一覧の並べ替え・ツリー表示・チェックボックスは次回起動時に復元されます（プロセス一覧は全ホスト共通）。「panels…」で各パネルの表示を切り替えられ（残ったパネルが空いた場所を使います）、「reset layout」で全パネルを表示した初期配置に戻せます。同じ見出しの「graph」ボタンでグラフの時間幅（幅に合わせる・直近の 1・5・15 分・1・6・24 時間）を切り替えられ、これも次回に復元されます。「alerts…」では、全ホストの今の警告を、黙らせるボタン（1時間・1日・消えるまで）付きで一覧でき、その下に出た警告と消えた警告の履歴を時刻付きで出します（`~/.local/state/rigtop/` に保存され、再起動しても残ります）。まだ見ていない警告があると、その数を警告の色で表示します。黙らせた警告は、状態の点・カード・通知から外れます。この一覧は TUI と `rigtop --watch` でも共有します。期限が来てもまだ続いていれば、改めて知らせます。CPU のコアの下の「sensors…」（またはセンサー名のクリック）で、全ての温度・ファンを一覧するウィンドウが開き、名前を付けたり非表示にしたりできます。[設定](#設定)ファイルの `[sensors]` に保存されます。
+- 列見出しのクリックで並べ替え、「tree」でツリー表示、「containers」でコンテナごとの使用量（クリックでそのコンテナのプロセスに絞り込み）を切り替え
+- ダブルクリック（または右クリック →「Details…」）で詳細表示、右クリックメニューから一時停止・再開、優先度変更、終了・強制終了（一時停止と終了は実行前に確認）を実行
+- 「Notify when it exits」でプロセス終了時にデスクトップ通知と警告履歴へ記録（遠隔ホストは rigtop 0.19 以降が必要）
+- ネットワーク欄では一覧からインターフェースを選択可能
 
-いずれかのホストに新しい警告（ドライブのエラー、RAID のデバイスの欠落、SMART の異常、残り容量の少ないファイルシステム、失敗した systemd のサービス）が出ると、GUI はデスクトップ通知を出します（最小化中も。Linux と macOS のみで、Windows は未対応）。起動時から出ている警告は通知しません。[設定](#設定)の `[notifications] level` で、`"critical"`（既定）、`"warning"`（RAID の再同期・容量の逼迫・CPU・GPU・ドライブの高温も含む）、`"off"` を選べます。しきい値は `[alerts]` で変えられます。`rigtop-gui --test-notification` で通知の見本を出せます。
+文字の大きさは Ctrl + マウスホイール、Ctrl + `+` / `-` / `0`、または CPU パネル見出しの `A-` / `A+` ボタンで調整できます。拡大率、パネル配置、プロセス一覧の並べ替え・ツリー表示・各チェックボックスの状態は次回起動時に復元されます（プロセス一覧の設定は全ホスト共通）。
 
-マウス操作が有効なため、多くの端末では Shift+ドラッグで文字を選択できます。
+同じくパネル見出しの「panels…」で各パネルの表示を切り替えられ（非表示にした分の領域は他パネルが埋めます）、「reset layout」で初期配置に戻せます。「graph」ボタンではグラフの時間幅（幅に合わせる・直近の 1・5・15 分・1・6・24 時間）を切り替えられ、これも次回起動時に引き継がれます。
+
+「alerts…」では全ホストの現在の警告をスヌーズボタン（1時間・1日・解消まで）付きで一覧でき、下部に発生・解消の履歴を時刻付きで表示します（`~/.local/state/rigtop/` に保存され再起動後も保持）。未確認の警告があると、件数を該当の色で表示します。スヌーズした警告は状態インジケーター・カード・通知から外れ、TUI と `rigtop --watch` にも共有されます（期限到来時に継続していれば再通知）。CPU コア下の「sensors…」（またはセンサー名のクリック）からは全温度・ファンを一覧するウィンドウが開き、表示名や非表示を[設定](#設定)ファイルの `[sensors]` に保存できます。
+
+いずれかのホストに新しい警告（ドライブのエラー、RAID のデバイス欠落、SMART 異常、残り容量の少ないファイルシステム、失敗した systemd サービス）が出ると、GUI はデスクトップ通知を出します（最小化中も有効。Linux と macOS のみで Windows は未対応）。起動時から出ている警告は通知しません。[設定](#設定)の `[notifications] level` で `"critical"`（既定）、`"warning"`（RAID の再同期・容量逼迫・CPU/GPU/ドライブ高温も含む）、`"off"` を選べ、しきい値は `[alerts]` で変更できます。`rigtop-gui --test-notification` で通知の見本を確認できます。
 
 ## ウィジェット
 
-同じ画面で一緒に見たいものは、右端のウィジェットの列に並べられます。オーバービューでもホストの詳細表示でも出ます（TUI は端末の幅が120桁以上のとき）。表示・非表示は、GUI では「widgets」か「panels…」、TUI では `w`（または `v` の後に `w`）で切り替えます。TUI の状態は `[tui] show_widgets` に保存されます。ウィジェットは組み込みの時計か任意のコマンドで、コマンドは表示している機械で数秒ごとに実行します。
+同じ画面で一緒に見たいものは、右端のウィジェット列に並べられます。オーバービューでもホスト詳細表示でも出ます（TUI は端末幅が120桁以上のとき）。表示・非表示は、GUI では「widgets」か「panels…」、TUI では `w`（または `v` の後に `w`）で切り替えます。TUI の状態は `[tui] show_widgets` に保存されます。ウィジェットは組み込みの時計か任意のコマンドで、コマンドは表示しているホスト上で数秒ごとに実行されます。
 
 ```toml
 [[widgets]]
@@ -199,7 +208,7 @@ timeout_secs = 10            # 既定 10
 
 ## SSH による遠隔監視
 
-監視される側にも rigtop を入れたうえで、設定ファイルかコマンドラインでホストを指定します。
+監視対象のホストにも rigtop をインストールしたうえで、設定ファイルかコマンドラインでホストを指定します。
 
 ```toml
 # ~/.config/rigtop/config.toml
@@ -221,24 +230,26 @@ rigtop                          # TUI: 設定ファイルのホストを表示
 rigtop-gui --host hermon        # GUI: コマンドラインのホストも追加（複数指定可）
 ```
 
-GUI では **hosts…**（タブの並び、または手元の機だけを表示しているときは CPU パネルの見出し）から、ホストの追加・編集・削除と接続テストができます。変更は設定ファイルの `[[hosts]]` に書き込まれるので、TUI にも反映されます。ファイルのそれ以外の部分はそのまま残ります。
+GUI では **hosts…**（タブの並び、またはローカルマシンのみを表示しているときは CPU パネルの見出し）から、ホストの追加・編集・削除と接続テストができます。変更は設定ファイルの `[[hosts]]` に書き込まれるので、TUI にも反映されます。ファイルのそれ以外の部分はそのまま残ります。
 
-ホストが2台以上あると、全ホストを並べた**オーバービュー**から始まります。ホストごと（手元の機を含む）の詳細表示はタブで切り替えます。各ホストのカードには、まず要注意の項目（ストレージのエラー、SMART の異常、RAID の劣化、残り容量の少ないファイルシステム、高温の CPU・GPU・ドライブ）を出し、続けて CPU・GPU・メモリ・プロセス上位・ネットワーク・ストレージを、この順にカードに入る分だけ出します。さらに余白があれば、詳細（CPU 名・GPU 名・ディスクの I/O）、次に CPU と通信量のグラフを出します。横に並んだカードは、各欄の開始位置を揃えます。プロセスの一覧はカードの幅いっぱいの表で、プログラム名の右に CPU・メモリと、GPU のあるホストでは GPU の使用率・VRAM を出します。列は `[overview] process_columns` で選べます（`"cpu"`・`"memory"`・`"gpu"`・`"vram"` のほか `"disk"`・`"user"`・`"command"`）。カードの幅に入る分だけ表示します。順番は `[overview] sections`（全体）、ホストごとの `sections`、GUI のカードの「sections」メニューで変えられます。手元の機のカードを出すかどうかは `[overview] include_local`（GUI はチェックボックス、TUI は `l` キー）で切り替えます。カードは設定の順に並びます。`[overview] alerts_first = true`（GUI は「alerts first」）にすると、要注意のホストを先頭に並べます（つながらないか critical の警告があるもの、次に warning のあるもの。それ以外は元の順番のまま）。TUI では `Tab` と `0`〜`9` で、オーバービューと各ホストを切り替えます。
+ホストが2台以上あると、全ホストを並べた**オーバービュー**から始まります。各ホスト（ローカルマシンを含む）の詳細表示はタブで切り替えます。各カードには要注意の項目（ストレージのエラー、SMART 異常、RAID の劣化、空き容量の少ないファイルシステム、高温の CPU・GPU・ドライブ）を先頭に出し、続けて CPU・GPU・メモリ・プロセス上位・ネットワーク・ストレージをカードに収まる分だけ表示します。さらに余白があれば詳細（CPU 名・GPU 名・ディスク I/O）、次に CPU と通信量のグラフを表示し、横に並んだカード同士は各欄の開始位置を揃えます。
+
+プロセス一覧はカード幅いっぱいの表で、プログラム名の右に CPU・メモリと、GPU 搭載ホストでは GPU 使用率・VRAM を表示します。列は `[overview] process_columns` で選べ（`"cpu"`・`"memory"`・`"gpu"`・`"vram"` のほか `"disk"`・`"user"`・`"command"`）、カード幅に入る分だけ表示します。セクション順は `[overview] sections`（全体）、ホストごとの `sections`、GUI カードの「sections」メニューで変えられます。ローカルマシンのカードを表示するかどうかは `[overview] include_local`（GUI はチェックボックス、TUI は `l` キー）で切り替えます。カードは設定順に並びますが、`[overview] alerts_first = true`（GUI は「alerts first」）にすると要注意ホストを先頭へ並べます（接続不可または critical の警告があるホスト、次に warning のあるホスト。それ以外は元の順番のまま）。TUI では `Tab` と `0`〜`9` でオーバービューと各ホストを切り替えます。
 
 ![rigtop-gui で3台を並べたオーバービュー: GPU 2枚で学習中のワークステーション、バッテリー駆動のノート PC、代替処理済みセクタのあるドライブで赤く表示され、RAID の再同期・容量の逼迫・ZFS のプールも出ている、UPS につないだ NAS。右には時計と Claude Code のウィジェット](docs/images/rigtop-gui-overview.png)
 
 rigtop は OS の `ssh`（Windows では標準の OpenSSH クライアント）で、各ホストの `rigtop --agent` を起動します。`~/.ssh/config`・鍵・`ProxyJump` はいつもどおり使えます。常駐プロセスもポート開放も不要で、エージェントは接続が切れると終了し、rigtop は自動で再接続します。つながらない間は、そのホストのカード・タブ・見出しに、どれくらいの間・いつから途切れているかを出します（`offline for 5m (since 14:03)`）。詳細表示していないホストからは、プロセスの上位だけを受け取ります。
 
 - パスワードを聞かれない認証（鍵や ssh-agent）が必要です。ホスト鍵も登録済みである必要があるので、先に一度 `ssh <ホスト>` で接続してください。
-- 非対話の SSH セッション（`ssh ホスト コマンド`）では、`~/.local/bin`（インストールスクリプトの入れ先）や `~/.cargo/bin` に `PATH` が通っていないことがよくあります（zsh は `~/.zshenv` しか読まず、bash は多くの場合何も読みません）。そこで `rigtop` が見つからなければ、rigtop が自動で `~/.local/bin/rigtop --agent`、次に `~/.cargo/bin/rigtop --agent` を試します。それ以外の場所に置いた場合は、ホストの `command`（`--host` なら `--remote-command`）でコマンドを指定してください。
+- 非対話の SSH セッション（`ssh ホスト コマンド`）では、`~/.local/bin`（インストールスクリプトの配置先）や `~/.cargo/bin` に `PATH` が通っていないことがよくあります（zsh は `~/.zshenv` しか読まず、bash は多くの場合何も読みません）。そこで `rigtop` が見つからなければ、rigtop が自動で `~/.local/bin/rigtop --agent`、次に `~/.cargo/bin/rigtop --agent` を試します。それ以外の場所に置いた場合は、ホストの `command`（`--host` なら `--remote-command`）でコマンドを指定してください。
 - Windows のホストには、OpenSSH サーバー（設定 → システム → オプション機能）が要ります。既定のシェルは cmd.exe のままにしてください（変えていなければ cmd.exe です）。Windows は SSH のセッションにシステムの `PATH` しか渡さず、Microsoft Store や Scoop が rigtop を置くユーザーの `PATH` は入りません。そこで `rigtop` が見つからなければ、rigtop が自動で Store 版（`%LOCALAPPDATA%\Microsoft\WindowsApps\rigtop.exe`）、次に Scoop 版（`%USERPROFILE%\scoop\shims\rigtop.exe`）を試します。Store 版は、その PC に誰もサインインしていなくても応答します。
 - 遠隔のプロセスの終了は、SSH でログインしたユーザーの権限で行われます。
 - 遠隔ホストの見出しには、通信の往復時間を出します（`12ms`。5秒ごとに測り、500ms 以上は黄）。回線が遅いのか、ホストが重いのかの見分けに使えます。ホスト側に rigtop 0.23 以降が必要です。
-- 手元と違う版の rigtop が入っているホストは、見出しにその版を出します（`agent 0.8.2`）。新しい項目は、そのホストの rigtop を更新すると表示されます。手元より古い場合は、TUI の `u` か GUI でその表示をクリックすると、手元と同じ版に更新できます（TUI のオーバービューでの `u`、または GUI のタブの行の「update agents (N)…」で、該当する全ホストをまとめて更新します）。確認の後、SSH 越しにリリースのインストールスクリプトを実行して、エージェントとして動いている rigtop を入れ替え、つなぎ直します（curl か wget のある Linux・macOS のホスト）。`cargo install` やパッケージマネージャーで入れたものは書き換えず、更新のコマンドを案内します。Windows のホストは、Microsoft Store か Scoop で更新してください。
+- 手元と異なるバージョンの rigtop がインストールされているホストは、見出しにそのバージョンを出します（`agent 0.8.2`）。新しい項目は、そのホストの rigtop を更新すると表示されます。手元より古い場合は、TUI の `u` か GUI でその表示をクリックすると、手元と同じバージョンに更新できます（TUI のオーバービューでの `u`、または GUI のタブ行の「update agents (N)…」で該当ホストをまとめて更新）。確認後、SSH 経由でリリースのインストールスクリプトを実行してエージェントの rigtop を置き換え、再接続します（`curl` か `wget` のある Linux・macOS ホスト向け）。`cargo install` やパッケージマネージャーでインストールしたものは書き換えず、更新コマンドを案内します。Windows のホストは、Microsoft Store か Scoop で更新してください。
 
 ## 画面なしでの警告の通知（`rigtop --watch`）
 
-`rigtop --watch` は、手元の機と設定したホストを画面なしで監視し、警告が出たり消えたりしたときに、指定したコマンドを実行します。RAID の劣化、ドライブの異常、停電、ホストの停止を、rigtop を開いていないときにも知ることができます。警告の内容は環境変数でコマンドに渡します（`RIGTOP_HOST`、`RIGTOP_SEVERITY`、`RIGTOP_CHANGE` = `raised` / `cleared`、`RIGTOP_ALERT`、`[critical] nas: md0 (raid1) degraded` のような `RIGTOP_MESSAGE`）。[ntfy](https://ntfy.sh)・チャットの Webhook・メールなどに送れます。
+`rigtop --watch` は、ローカルマシンと設定したホストを画面なしで監視し、警告の発生・解消時に指定コマンドを実行します。RAID の劣化、ドライブの異常、停電、ホストの停止を、rigtop を開いていないときにも知ることができます。警告の内容は環境変数でコマンドに渡します（`RIGTOP_HOST`、`RIGTOP_SEVERITY`、`RIGTOP_CHANGE` = `raised` / `cleared`、`RIGTOP_ALERT`、`[critical] nas: md0 (raid1) degraded` のような `RIGTOP_MESSAGE`）。[ntfy](https://ntfy.sh)・チャットの Webhook・メールなどに送れます。
 
 ```toml
 [watch]
@@ -292,7 +303,7 @@ echo 'SUBSYSTEM=="powercap", KERNEL=="intel-rapl:*", RUN+="/usr/bin/chgrp ADMIN_
 sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=powercap
 ```
 
-設定しない場合、AMD のノート PC では代わりに APU の SoC 全体の消費電力（`SoC`）を表示し、それ以外の機械では `--` になります。
+設定しない場合、AMD のノート PC では代わりに APU の SoC 全体の消費電力（`SoC`）を表示し、それ以外のマシンでは `--` になります。
 
 ## Windows
 
@@ -321,7 +332,7 @@ Linux との違い:
 3. **Options → Remote Web Server → Run** を有効にします（ポート 8085）。rigtop は `http://127.0.0.1:8085/data.json` を読み、10秒以内に値を表示し始めます。それまでは CPU パネルに案内が出ます。
 4. 必要なら **Options → Run On Windows Startup** と **Start Minimized** も有効にします。
 
-Web サーバーは認証無しにしてください。Windows ファイアウォールで塞がない限り、このポートには他の機械からも接続できます。アドレスやポートを変えた場合は[設定](#設定)の `[lhm] url` で指定し、`url = ""` で読み取りを止められます。NVIDIA の GPU は LibreHardwareMonitor ではなく、従来どおりドライバから読みます。
+Web サーバーは認証無しにしてください。Windows ファイアウォールで塞がない限り、このポートには他のマシンからも接続できます。アドレスやポートを変えた場合は[設定](#設定)の `[lhm] url` で指定し、`url = ""` で読み取りを止められます。NVIDIA の GPU は LibreHardwareMonitor ではなく、従来どおりドライバから読みます。
 
 ## SMART と btrfs の scrub 結果（任意）
 
@@ -348,9 +359,9 @@ SMART のファイルにはドライブのシリアル番号が含まれます�
 
 ## UPS（Network UPS Tools）
 
-UPS を [Network UPS Tools](https://networkupstools.org)（NUT）で管理している機械では、rigtop が NUT の `upsd` の既定のアドレス（`127.0.0.1:3493`）から UPS の状態を読みます（root も、ほかのソフトの導入も不要）。CPU パネルの CPU・GPU の消費電力の隣に、バッテリーの残量と、つないだ機器の消費電力を出します（`UPS 100% 73W`）。GUI ではマウスを乗せると、機種・バッテリーで動ける時間・負荷・入力電圧も出ます。停電は警告になります: バッテリーでの運転と、その間の残量低下は critical（`UPS: on battery (72%)`）、バッテリーの交換・過負荷・値が読めないことは warning です。`rigtop --watch` でも知らせられます。
+UPS を [Network UPS Tools](https://networkupstools.org)（NUT）で管理しているマシンでは、rigtop が NUT の `upsd` の既定のアドレス（`127.0.0.1:3493`）から UPS の状態を読みます（root も、ほかのソフトの導入も不要）。CPU パネルの CPU・GPU の消費電力の隣に、バッテリー残量と接続機器の消費電力を表示します（`UPS 100% 73W`）。GUI ではマウスを乗せると、機種・バッテリーの推定駆動時間・負荷・入力電圧も確認できます。停電は警告になります。バッテリー運転と、その間の残量低下は critical（`UPS: on battery (72%)`）、バッテリー交換・過負荷・値の取得失敗は warning です。`rigtop --watch` でも通知できます。
 
-UPS を別の機械につないでいる場合（NUT のクライアント）は、[設定](#設定)の `[ups] address = "nas:3493"` でその機械を指定し、そちらの upsd がネットワークで待ち受けるようにします（`upsd.conf` の `LISTEN`。既定では自分の機械からの接続しか受け付けません）。`address = ""` で止められます。遠隔ホストには rigtop 0.30 以降が必要です。
+UPS を別のマシンに接続している場合（NUT のクライアント）は、[設定](#設定)の `[ups] address = "nas:3493"` でそのホストを指定し、接続先の `upsd` がネットワーク越しに待ち受けるようにします（`upsd.conf` の `LISTEN`。既定ではローカルホストからの接続のみ受け付けます）。`address = ""` で無効化できます。遠隔ホストには rigtop 0.30 以降が必要です。
 
 ## 設定
 
@@ -453,8 +464,8 @@ Windows 版のリリースのコード署名を、[SignPath Foundation](https://
 rigtop は利用状況などの情報を集めません。つなぐ先は次だけです。
 
 - 遠隔監視に指定したホスト（OS の `ssh` を使います）
-- この機械の LibreHardwareMonitor（Windows、`[lhm] url`）
-- UPS の状態を知るための、`[ups] address` の Network UPS Tools の upsd（既定はこの機械）
+- この PC の LibreHardwareMonitor（Windows、`[lhm] url`）
+- UPS の状態を知るための、`[ups] address` の Network UPS Tools の upsd（既定はローカルホスト）
 - 新しいリリースが出ていないかの確認のための github.com（起動時と1時間ごと）。最新のリリースがどれかを問い合わせるだけで、手元の情報は送りません。[設定](#設定)の `[updates] check = false` で止められます。更新を選んだときは、github.com からリリースをダウンロードします。Microsoft Store 版はどちらも行いません（更新は Store が配ります）。
 - `[network] public_ip` を有効にしたときだけ（既定はオフ）: グローバル IP を知るための `public_ip_url` のサービス（既定は api.ipify.org）。監視している各ホストから30分ごとに問い合わせます。通常の Web の通信と同じく、そのサービスにはホストのアドレスが見えます。
 

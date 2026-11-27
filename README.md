@@ -151,6 +151,8 @@ cargo run --release -p rigtop -- --help  # options (--interval-ms, --config, --d
 | `q` | quit |
 | mouse | click a process to select it, click a column header to sort (again to reverse), wheel to scroll |
 
+With mouse support on, most terminals select text with Shift+drag.
+
 ### GUI
 
 ![rigtop-gui: the same panels in a native window, with smooth graphs and meters, resizable and rearrangeable, here with the process tree, a libvirt virtual machine in the container column, and the interface's addresses](docs/images/rigtop-gui.png)
@@ -164,8 +166,6 @@ Drag panel borders to resize and panel titles to rearrange. Click a column heade
 Zoom with Ctrl + mouse wheel, Ctrl + `+` / `-` / `0`, or the `A-` / `A+` buttons in the CPU panel title. The zoom level, the panel layout and the process list's sort, tree and checkboxes are restored on the next start (the process list's for every host); "panels…" shows or hides each panel (the others take the room), and "reset layout" brings back the default arrangement with every panel. The "graph" button next to them sets the time the graphs cover (fit to the width, or the last 1, 5, 15 minutes, 1, 6 or 24 hours), also restored on the next start. "alerts…" lists every host's alerts now, each with buttons to snooze it (1 hour, 1 day, until it clears), and their history as they appeared and cleared, kept between runs (in `~/.local/state/rigtop/`); it shows the number of new ones, in their color, until you look. A snoozed alert leaves the status dots, the cards and the notifications, also those of the TUI and `rigtop --watch` (they share the list), and is announced again if it is still there when the snooze ends. "sensors…" under the CPU cores (or a click on a sensor's name) opens a window listing every temperature and fan, to name or hide them; it saves `[sensors]` in the [configuration](#configuration) file.
 
 When a new alert appears on any host (drive errors, a missing RAID device, failing SMART, a nearly full filesystem, a failed systemd service), the GUI shows a desktop notification, also while it is minimized (Linux and macOS; not on Windows yet). Alerts present at startup are not announced. `[notifications] level` in the [configuration](#configuration) picks `"critical"` (default), `"warning"` (also resyncs, filling filesystems, hot CPUs, GPUs and drives) or `"off"`; the thresholds are in `[alerts]`; `rigtop-gui --test-notification` shows a sample notification.
-
-With mouse support on, most terminals select text with Shift+drag.
 
 ## Widgets
 
