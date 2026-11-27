@@ -454,13 +454,11 @@ pub fn alert_key(alert: &Alert) -> String {
         let start = i;
         while i < text.len() {
             let b = text.as_bytes()[i];
-            if b.is_ascii_digit() {
-                i += 1;
-            } else if b == b'.' && text.as_bytes().get(i + 1).is_some_and(u8::is_ascii_digit) {
-                i += 1;
-            } else {
+            let fraction = b == b'.' && text.as_bytes().get(i + 1).is_some_and(u8::is_ascii_digit);
+            if !(b.is_ascii_digit() || fraction) {
                 break;
             }
+            i += 1;
         }
         let end = i;
 
@@ -3364,6 +3362,23 @@ mod tests {
             key(Severity::Critical, "unreachable since 14:03 (no data)"),
             key(Severity::Critical, "unreachable since 14:08 (no data)")
         );
+        // The other alert texts with changing numbers.
+        for (a, b) in [
+            ("zfs tank resilver 12.5%", "zfs tank resilver 47.25%"),
+            ("UPS: on battery (72%)", "UPS: on battery (65%)"),
+            ("md0 resync 3%", "md0 resync 98%"),
+            ("memory pressure 11%", "memory pressure 23%"),
+            (
+                "OOM killer stopped 2 processes (likely python3)",
+                "OOM killer stopped 3 processes (likely python3)",
+            ),
+            (
+                "unreachable since Mon 09:15 (ssh: connect to host 192.0.2.5 port 22: Connection refused)",
+                "unreachable since Mon 10:20 (ssh: connect to host 192.0.2.5 port 22: Connection refused)",
+            ),
+        ] {
+            assert_eq!(key(Severity::Warning, a), key(Severity::Warning, b), "{a}");
+        }
     }
 
     #[test]
