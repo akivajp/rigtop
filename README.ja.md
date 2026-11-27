@@ -47,14 +47,20 @@ curl -fsSLO https://github.com/akivajp/rigtop/releases/latest/download/install.s
 less install.sh && sh install.sh
 ```
 
-Windows 11 では、[Microsoft Store](https://apps.microsoft.com/detail/9n6jmv1qndck) からのインストールがおすすめです。署名済みなので SmartScreen の警告が出ず、更新も Store 経由で届きます。スタートメニューに rigtop（GUI）が追加され、端末では `rigtop`（端末版）が使えます。Store 版は次の点が異なります。
+Windows 11 では、[Microsoft Store](https://apps.microsoft.com/detail/9n6jmv1qndck) からのインストールがおすすめです。Store アプリからでも、端末から winget でも入れられます（winget の `msstore` ソースから同じパッケージが入ります。ID は `9N6JMV1QNDCK`）。
+
+```powershell
+winget install rigtop
+```
+
+署名済みなので SmartScreen の警告が出ず、更新も Store 経由で届きます。スタートメニューに rigtop（GUI）が追加され、端末では `rigtop`（端末版）が使えます。Store 版は次の点が異なります。
 
 - 設定と警告の履歴は、パッケージ専用のフォルダー `%LOCALAPPDATA%\Packages\C2B504BA.rigtop_1raghr5p0ryyw\LocalState` に保存します（GUI の「config…」と `rigtop --edit-config` はここのファイルを開きます）。アンインストールすると一緒に削除されます。
 - 新しいリリースの確認と自己更新は行いません（Store が更新を管理します）。
 - 「set up…」は [LibreHardwareMonitor](#librehardwaremonitor-で温度ファンcpu-の消費電力を表示する) を自動インストールする代わりに、設定手順を案内します（Store アプリはドライバーを伴うほかのソフトをインストールできないため）。
 - `rigtop-gui` コマンドはありません（Store パッケージが持てるコマンドは 1 つです）。GUI はスタートメニューから起動し、`rigtop --demo` などのオプションは `rigtop` で使えます。
 
-Windows では、下の Scoop と zip も使えます。
+Windows では、下の Scoop と zip も使えます（Microsoft Store を無効にしている環境でも使えます）。
 
 **更新**: rigtop は起動時と1時間ごとに、github.com で新しいリリースが出ていないか確認します（最新リリースの確認のみで、ローカルの情報は送信しません）。新しいバージョンがあると見出しに表示し（TUI は `U`、GUI はボタン。GUI は Linux と macOS でデスクトップ通知も表示）、実行中の rigtop をそのバージョンに置き換えられます。新しいバージョンは再起動後に有効になります（GUI には再起動ボタンがあります）。`cargo install` やパッケージマネージャーでインストールしたものは書き換えず、更新用コマンドを案内します。Windows では rigtop を終了してから `scoop update rigtop` を実行するか、新しい zip で上書きしてください（Microsoft Store 版は Store が更新します）。[設定](#設定)の `[updates]` で、確認間隔を変えたり、確認（`check = false`）や通知（`notify = false`）を無効にしたりできます。
 
@@ -108,7 +114,7 @@ cd rigtop/packaging/aur/rigtop && makepkg -si
 |---|---|
 | インストールスクリプト | `rm ~/.local/bin/rigtop ~/.local/bin/rigtop-gui` |
 | `.deb` | `sudo apt remove rigtop` |
-| Microsoft Store | 設定 → アプリ → インストールされているアプリ → rigtop → アンインストール（設定も一緒に消えます） |
+| Microsoft Store・winget | 設定 → アプリ → インストールされているアプリ → rigtop → アンインストール、または `winget uninstall rigtop`（設定も一緒に消えます） |
 | Scoop | `scoop uninstall rigtop` |
 | Homebrew | `brew uninstall rigtop` |
 | `cargo install` | `cargo uninstall rigtop rigtop-gui` |

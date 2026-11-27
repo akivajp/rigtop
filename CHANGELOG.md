@@ -9,6 +9,9 @@ include breaking changes).
 
 ### Changed
 
+- Windows: `winget install rigtop` installs the Microsoft Store package
+  (through winget's `msstore` source), now the one way to get rigtop with
+  winget. The separate winget-pkgs package (never published) is withdrawn.
 - GUI: an overview card has a red border while its host is unreachable or
   has a critical alert (#10).
 - A pressure stall reading marked as an alert shows the figure the alert is
