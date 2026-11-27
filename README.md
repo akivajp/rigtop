@@ -11,7 +11,7 @@ A system monitor for workstations, laptops and NAS — an alternative to btop th
 - **`rigtop`** — terminal UI
 - **`rigtop-gui`** — native GUI (no web view) with a btop-like layout and resizable panels
 
-[日本語版 README](README.ja.md)
+[日本語版 README](README.ja.md) | [Türkçe README](README.tr.md)
 
 ![rigtop TUI touring three demo hosts: the overview of a workstation, a laptop and a NAS side by side, then the workstation with its CPU cores and clock, two GPUs, storage health with SMART and btrfs RAID, network addresses and processes with their container or virtual machine and GPU use, then the NAS with a failing drive, a RAID resync, ZFS and a UPS](docs/images/rigtop-tui-tour.gif)
 
