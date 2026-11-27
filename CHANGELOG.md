@@ -9,6 +9,8 @@ include breaking changes).
 
 ### Changed
 
+- GUI: an overview card has a red border while its host is unreachable or
+  has a critical alert (#10).
 - A pressure stall reading marked as an alert shows the figure the alert is
   on (memory: "some" over a minute, I/O: "full" over a minute), so it matches
   the alert's text. It could read "io 0%" in yellow once a stall had ended,
