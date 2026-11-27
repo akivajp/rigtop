@@ -331,8 +331,13 @@ fn card(ui: &mut Ui, host: &HostEntry, planner: &mut RowPlanner, position: usize
         open: false,
         sections: None,
     };
+    // A host that is unreachable or has a critical alert (the red dot) gets
+    // a red border, to stand out among many cards; warnings do not, to keep
+    // the overview calm. Only the color changes: a wider stroke would move
+    // the card's contents whenever an alert comes or goes.
+    let border = if attention(host) == 0 { BAD } else { BORDER };
     egui::Frame::new()
-        .stroke(egui::Stroke::new(1.0, BORDER))
+        .stroke(egui::Stroke::new(1.0, border))
         .corner_radius(6)
         .inner_margin(egui::Margin::symmetric(8, 5))
         .show(ui, |ui| {
