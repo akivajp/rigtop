@@ -1836,7 +1836,7 @@ mod tests {
             .clone()
             .expect("confirmation dialog");
         assert_eq!((confirm.pid, confirm.signal), (4242, ProcessSignal::Kill));
-        harness.get_by_label("Cancel").click();
+        harness.get_by_label("cancel").click();
         harness.run();
         assert!(harness.state().primary().confirm.is_none());
 
@@ -2450,7 +2450,7 @@ mod tests {
         // Windows they would really install and start LibreHardwareMonitor.)
         #[cfg(not(windows))]
         {
-            harness.get_by_label("Set up").click();
+            harness.get_by_label("set up").click();
             for _ in 0..50 {
                 // step, not run: the spinner keeps repainting.
                 harness.step();
@@ -2461,12 +2461,12 @@ mod tests {
             }
             harness.run();
             assert!(harness.query_by_label_contains("for Windows").is_some());
-            harness.get_by_label("Close").click();
+            harness.get_by_label("close").click();
         }
         #[cfg(windows)]
-        harness.get_by_label("Cancel").click();
+        harness.get_by_label("cancel").click();
         harness.run();
-        assert!(harness.query_by_label("Set up").is_none());
+        assert!(harness.query_by_label("set up").is_none());
 
         // Already running: only where to switch the web server on.
         snapshot.processes.push(rigtop_core::snapshot::ProcessInfo {
@@ -2479,7 +2479,7 @@ mod tests {
         harness.get_by_label("set up…").click();
         harness.run();
         assert!(harness.query_by_label_contains("is running").is_some());
-        assert!(harness.query_by_label("Set up").is_none());
+        assert!(harness.query_by_label("set up").is_none());
     }
 
     #[test]
@@ -2499,7 +2499,7 @@ mod tests {
                 .query_by_label("How to set it up (README)")
                 .is_some()
         );
-        assert!(harness.query_by_label("Set up").is_none());
+        assert!(harness.query_by_label("set up").is_none());
     }
 
     /// A clock and a widget with fixed rows, as a command would print.
