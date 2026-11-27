@@ -47,14 +47,20 @@ curl -fsSLO https://github.com/akivajp/rigtop/releases/latest/download/install.s
 less install.sh && sh install.sh
 ```
 
-On Windows 11, the recommended way is the [Microsoft Store](https://apps.microsoft.com/detail/9n6jmv1qndck): the package is signed (no SmartScreen warning) and the Store keeps it up to date. It puts rigtop (the GUI) in the Start menu and the terminal version on your `PATH` as `rigtop`. What differs in the Store's copy:
+On Windows 11, the recommended way is the [Microsoft Store](https://apps.microsoft.com/detail/9n6jmv1qndck), from the Store app or from a terminal with winget (the same package, through winget's `msstore` source; its ID is `9N6JMV1QNDCK`):
+
+```powershell
+winget install rigtop
+```
+
+The package is signed (no SmartScreen warning) and the Store keeps it up to date. It puts rigtop (the GUI) in the Start menu and the terminal version on your `PATH` as `rigtop`. What differs in the Store's copy:
 
 - The settings and the alert history are in the package's own folder, `%LOCALAPPDATA%\Packages\C2B504BA.rigtop_1raghr5p0ryyw\LocalState` ("config…" in the GUI and `rigtop --edit-config` open the file there), which uninstalling removes.
 - It does not look for new releases or update itself; the Store does.
 - "set up…" explains how to set up [LibreHardwareMonitor](#temperatures-fans-and-cpu-power-with-librehardwaremonitor) instead of installing it (Store apps must not install other software that brings a driver).
 - There is no `rigtop-gui` command (a Store package has one command): start the GUI from the Start menu; `rigtop` takes the options, such as `rigtop --demo`.
 
-Scoop and the zip, both below, work on Windows too.
+Scoop and the zip, both below, work on Windows too, also where the Microsoft Store is turned off.
 
 **Updates**: rigtop looks for a new release on github.com at startup and every hour (it only asks which release is the latest; nothing about your machine is sent). When there is one, the title says so (`U` in the TUI, a button in the GUI, which also shows a desktop notification on Linux and macOS) and offers to install it in place of the running program; the new version runs after a restart (the GUI has a restart button). Copies from `cargo install` or a package manager are left alone, with the command to update them; on Windows, quit rigtop and run `scoop update rigtop` or replace it with the new zip (the Microsoft Store updates its copy by itself). `[updates]` in the [configuration](#configuration) changes the interval or turns the check (`check = false`) or the notification (`notify = false`) off.
 
@@ -108,7 +114,7 @@ cd rigtop/packaging/aur/rigtop && makepkg -si
 |---|---|
 | The install script | `rm ~/.local/bin/rigtop ~/.local/bin/rigtop-gui` |
 | `.deb` | `sudo apt remove rigtop` |
-| The Microsoft Store | Settings → Apps → Installed apps → rigtop → Uninstall (its settings go with it) |
+| The Microsoft Store or winget | Settings → Apps → Installed apps → rigtop → Uninstall, or `winget uninstall rigtop` (its settings go with it) |
 | Scoop | `scoop uninstall rigtop` |
 | Homebrew | `brew uninstall rigtop` |
 | `cargo install` | `cargo uninstall rigtop rigtop-gui` |
