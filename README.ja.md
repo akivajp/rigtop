@@ -11,7 +11,7 @@
 - **`rigtop`** — ターミナル UI（TUI）
 - **`rigtop-gui`** — ネイティブ GUI（WebView 不使用）。btop 風の配置で、各パネルをリサイズできる
 
-[English README](README.md)
+[English README](README.md) | [Türkçe README](README.tr.md)
 
 ![rigtop の TUI でデモの3台を巡回: ワークステーション・ノート PC・NAS を並べたオーバービュー、続いて CPU の各コアとクロック、GPU 2枚、SMART と btrfs RAID を含むストレージの状態、ネットワークのアドレス、コンテナや仮想マシンと GPU の使用率付きのプロセス一覧を出すワークステーション、最後に故障しかけのドライブ・RAID の再同期・ZFS・UPS を出す NAS](docs/images/rigtop-tui-tour.gif)
 
